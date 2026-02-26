@@ -1,0 +1,51 @@
+# vscode
+.vscode 
+
+# Intellij
+*.iml
+.idea
+
+# npm
+node_modules
+
+# Don't include the compiled main.js file in the repo.
+# They should be uploaded to GitHub releases instead.
+main.js
+
+# Exclude sourcemaps
+*.map
+
+# obsidian
+data.json
+
+# Application data (runtime files)
+app-data/
+
+# Exclude macOS Finder (System Explorer) View States
+.DS_Store
+
+# Backup files
+*.bak
+*.bak*
+*backup*
+*.backup
+
+# Claude AI files
+.claude/
+**/.claude/
+
+# Build artifacts
+main.js
+styles.css.map
+
+# Documentation (internal) - exclude all .md except README
+*.md
+!README.md
+
+# Tests
+test/
+src/__tests__/
+src/reader-extension/__tests__/
+src/widgets/__tests__/
+*.test.ts
+*.test.js

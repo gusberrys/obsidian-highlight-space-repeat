@@ -1,0 +1,10 @@
+{
+  "id": "obsidian-highlight-space-repeat",
+  "name": "Highlight Space Repeat",
+  "version": "1.3.2",
+  "minAppVersion": "0.15.0",
+  "description": "Highlight keywords with spaced repetition system for enhanced learning and visibility in Obsidian notes.",
+  "author": "berrie",
+  "authorUrl": "",
+  "isDesktopOnly": false
+}
