@@ -3,7 +3,7 @@
  * Controls what priority this main keyword has when combined with auxiliary keywords
  */
 export enum MainCombinePriority {
-	/** No priority - default behavior (auxiliary can override) */
+	/** No priority - default behavior (auxiliary colors shown, auxiliary icons appended) */
 	None = 'None',
 	/** Use this main keyword's styles (colors, classes) when auxiliary keywords present */
 	Style = 'Style',
@@ -14,35 +14,7 @@ export enum MainCombinePriority {
 }
 
 /**
- * Combine priority for auxiliary keywords
- * Controls how this auxiliary's icon behaves when multiple auxiliaries are present
+ * CombinePriority type (only MainCombinePriority)
+ * Note: Auxiliary keywords always append their icons - no priority setting needed
  */
-export enum AuxiliaryCombinePriority {
-	/** Append this auxiliary's icon alongside other icons */
-	AppendIcon = 'AppendIcon',
-	/** Override/replace other icons with this auxiliary's icon */
-	OverrideIcon = 'OverrideIcon'
-}
-
-/**
- * Union type for all combine priorities
- */
-export type CombinePriority = MainCombinePriority | AuxiliaryCombinePriority;
-
-/**
- * Type guard to check if priority is for main keyword
- */
-export function isMainCombinePriority(priority: CombinePriority | undefined): priority is MainCombinePriority {
-	return priority === MainCombinePriority.None ||
-		priority === MainCombinePriority.Style ||
-		priority === MainCombinePriority.Icon ||
-		priority === MainCombinePriority.StyleAndIcon;
-}
-
-/**
- * Type guard to check if priority is for auxiliary keyword
- */
-export function isAuxiliaryCombinePriority(priority: CombinePriority | undefined): priority is AuxiliaryCombinePriority {
-	return priority === AuxiliaryCombinePriority.AppendIcon ||
-		priority === AuxiliaryCombinePriority.OverrideIcon;
-}
+export type CombinePriority = MainCombinePriority;

@@ -8,6 +8,8 @@ import { settingsDataStore, subjectsStore } from '../stores/settings-store';
 import { FilterParser } from '../services/FilterParser';
 import type { FilterMatchContext } from '../interfaces/FilterInterfaces';
 import { KHEntry } from '../components/KHEntry';
+import { resolveIconKeywordNames } from '../shared/priority-resolver';
+import type { KeywordStyle } from '../shared/keyword-style';
 
 export const SUBJECT_DASHBOARD_VIEW_TYPE = 'kh-subject-dashboard-view';
 
@@ -2172,7 +2174,7 @@ export class SubjectDashboardView extends ItemView {
 				const entriesContainer = headerGroup.createDiv({ cls: 'kh-widget-filter-entries' });
 				for (const entry of header.entries) {
 					if (entry.type === 'keyword' && entry.keywords && entry.keywords.length > 0) {
-						const iconKeyword = this.resolveIconKeyword(entry.keywords);
+						const iconKeywords = this.resolveIconKeywords(entry.keywords);
 						const primaryKeyword = entry.keywords[0];
 						const primaryKeywordClass = this.getKeywordClass(primaryKeyword);
 						const entryItem = entriesContainer.createDiv({
@@ -2205,8 +2207,11 @@ export class SubjectDashboardView extends ItemView {
 							}
 						});
 
-						const mark = entryItem.createEl('mark', { cls: `kh-icon ${iconKeyword}` });
-						mark.innerHTML = '&nbsp;';
+						// Render icons from all keywords with Icon/StyleAndIcon priority
+						for (const iconKeyword of iconKeywords) {
+							const mark = entryItem.createEl('mark', { cls: `kh-icon ${iconKeyword}` });
+							mark.innerHTML = '&nbsp;';
+						}
 						entryItem.createEl('span', { text: ' ', cls: 'kh-separator' });
 
 						// Render entry text with image/quote support (compact mode)
@@ -2298,7 +2303,7 @@ export class SubjectDashboardView extends ItemView {
 						}
 
 						if (entry.type === 'keyword' && entry.keywords && entry.keywords.length > 0) {
-							const iconKeyword = this.resolveIconKeyword(entry.keywords);
+							const iconKeywords = this.resolveIconKeywords(entry.keywords);
 							const primaryKeyword = entry.keywords[0];
 							const primaryKeywordClass = this.getKeywordClass(primaryKeyword);
 							const entryItem = container.createDiv({
@@ -2334,9 +2339,11 @@ export class SubjectDashboardView extends ItemView {
 								}
 							});
 
-							// Render icon using resolved keyword
-							const mark = entryItem.createEl('mark', { cls: `kh-icon ${iconKeyword}` });
-							mark.innerHTML = '&nbsp;';
+							// Render icons from all keywords with Icon/StyleAndIcon priority
+							for (const iconKeyword of iconKeywords) {
+								const mark = entryItem.createEl('mark', { cls: `kh-icon ${iconKeyword}` });
+								mark.innerHTML = '&nbsp;';
+							}
 							entryItem.createEl('span', { text: ' ', cls: 'kh-separator' });
 
 							// Render entry text with image/quote support (compact mode)
@@ -2452,35 +2459,25 @@ export class SubjectDashboardView extends ItemView {
 	}
 
 	/**
-	 * Resolve which keyword to use for icon display
-	 * Respects combinePriority settings
+	 * Resolve which keywords should provide icons (uses centralized logic)
+	 * Returns array of keyword strings to display icons from
 	 */
-	private resolveIconKeyword(keywords: string[]): string {
-		if (!keywords || keywords.length === 0) return '';
-		if (keywords.length === 1) return keywords[0];
-
-		// Find keyword with highest combine priority
-		let highestPriorityKeyword = keywords[0];
-		let highestPriority = -1;
-
-		for (const keyword of keywords) {
-			// Find this keyword in settings
-			let keywordDef: any = null;
-			for (const category of HighlightSpaceRepeatPlugin.settings.categories || []) {
-				keywordDef = category.keywords?.find((k: any) => k.keyword === keyword);
-				if (keywordDef) break;
-			}
-
-			if (keywordDef) {
-				const priority = keywordDef.combinePriority ?? 0;
-				if (priority > highestPriority) {
-					highestPriority = priority;
-					highestPriorityKeyword = keyword;
-				}
-			}
+	private resolveIconKeywords(keywordStrings: string[]): string[] {
+		if (!keywordStrings || keywordStrings.length === 0) {
+			return keywordStrings || [];
 		}
 
-		return highestPriorityKeyword;
+		// Convert keyword strings to KeywordStyle objects
+		const keywordStyles: KeywordStyle[] = keywordStrings
+			.map(kw => this.plugin.api.getKeywordStyle(kw))
+			.filter((style): style is KeywordStyle => style !== undefined);
+
+		if (keywordStyles.length === 0) {
+			return [keywordStrings[0]];
+		}
+
+		// Use centralized icon resolution logic
+		return resolveIconKeywordNames(keywordStyles);
 	}
 
 	/**

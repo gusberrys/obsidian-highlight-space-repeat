@@ -2,7 +2,7 @@
   import type { KeywordStyle } from 'src/shared';
   import { KeywordType, getKeywordType } from 'src/shared';
   import { CollectingStatus } from 'src/shared/collecting-status';
-  import { MainCombinePriority, AuxiliaryCombinePriority } from 'src/shared/combine-priority';
+  import { MainCombinePriority } from 'src/shared/combine-priority';
   import { setIcon } from 'obsidian';
   import { createEventDispatcher } from 'svelte';
   import { settingsStore } from 'src/stores/settings-store';
@@ -31,18 +31,16 @@
     ? 'Parsed (collected in records)'
     : 'Ignored (not collected)';
 
-  // Reactive priority label and tooltip - CONDITIONAL based on keywordType
+  // Reactive priority label and tooltip - ONLY for MAIN keywords
   $: currentType = getKeywordType(keyword);
   $: isMain = currentType === KeywordType.MAIN;
 
-  // Label for type toggle button (only Main/Aux at keyword level)
-  $: typeLabel = currentType === KeywordType.MAIN ? 'Main' : 'Aux';
   $: priorityLabel = isMain
     ? (keyword.combinePriority === MainCombinePriority.StyleAndIcon ? '🎨🖼️'
       : keyword.combinePriority === MainCombinePriority.Style ? '🎨'
       : keyword.combinePriority === MainCombinePriority.Icon ? '🖼️'
       : '-')
-    : (keyword.combinePriority === AuxiliaryCombinePriority.OverrideIcon ? '⚡' : '📎');
+    : '';
 
   $: priorityTooltip = isMain
     ? (keyword.combinePriority === MainCombinePriority.StyleAndIcon
@@ -52,9 +50,7 @@
       : keyword.combinePriority === MainCombinePriority.Icon
       ? 'Icon priority: Use this main keyword\'s icon when auxiliaries present'
       : 'No priority (auxiliaries can override)')
-    : (keyword.combinePriority === AuxiliaryCombinePriority.OverrideIcon
-      ? 'Override icon when multiple auxiliaries present'
-      : 'Append icon alongside other auxiliaries');
+    : '';
 
   function handleMoveUp() {
     dispatch('moveup', { categoryName, keywordIndex });
@@ -79,38 +75,18 @@
   }
 
   function togglePriority() {
-    if (keyword.mainKeyword === true) {
-      // Main keyword: Cycle through - → 🎨 → 🖼️ → 🎨🖼️ → -
-      if (!keyword.combinePriority || keyword.combinePriority === MainCombinePriority.None) {
-        keyword.combinePriority = MainCombinePriority.Style;
-      } else if (keyword.combinePriority === MainCombinePriority.Style) {
-        keyword.combinePriority = MainCombinePriority.Icon;
-      } else if (keyword.combinePriority === MainCombinePriority.Icon) {
-        keyword.combinePriority = MainCombinePriority.StyleAndIcon;
-      } else {
-        keyword.combinePriority = MainCombinePriority.None;
-      }
+    // Only for main keywords - auxiliary keywords don't have priority settings
+    if (keyword.mainKeyword !== true) return;
+
+    // Main keyword: Cycle through - → 🎨 → 🖼️ → 🎨🖼️ → -
+    if (!keyword.combinePriority || keyword.combinePriority === MainCombinePriority.None) {
+      keyword.combinePriority = MainCombinePriority.Style;
+    } else if (keyword.combinePriority === MainCombinePriority.Style) {
+      keyword.combinePriority = MainCombinePriority.Icon;
+    } else if (keyword.combinePriority === MainCombinePriority.Icon) {
+      keyword.combinePriority = MainCombinePriority.StyleAndIcon;
     } else {
-      // Auxiliary keyword: Toggle between 📎 ↔ ⚡
-      if (keyword.combinePriority === AuxiliaryCombinePriority.OverrideIcon) {
-        keyword.combinePriority = AuxiliaryCombinePriority.AppendIcon;
-      } else {
-        keyword.combinePriority = AuxiliaryCombinePriority.OverrideIcon;
-      }
-    }
-
-    keyword = keyword; // Trigger reactivity
-    updateKeyword();
-  }
-
-  function toggleMainKeyword() {
-    // Toggle between: MAIN ↔ AUXILIARY
-    const type = getKeywordType(keyword);
-
-    if (type === KeywordType.MAIN) {
-      keyword.keywordType = KeywordType.AUXILIARY;
-    } else {
-      keyword.keywordType = KeywordType.MAIN;
+      keyword.combinePriority = MainCombinePriority.None;
     }
 
     keyword = keyword; // Trigger reactivity
@@ -218,17 +194,6 @@
   {#if !isHelperCategory}
     <input type="text" spellcheck="false" bind:value={keyword.generateIcon} on:change={updateKeyword} placeholder="Icon" />
   {/if}
-
-  <button
-    class="main-toggle"
-    class:main-enabled={currentType === KeywordType.MAIN}
-    class:aux-enabled={currentType === KeywordType.AUXILIARY}
-    on:click={toggleMainKeyword}
-    title={currentType === KeywordType.MAIN ? "Main keyword (has priority over auxiliaries)" : "Auxiliary keyword (can be combined with main keywords)"}
-    aria-label="Toggle keyword type"
-  >
-    {typeLabel}
-  </button>
 
   <input type="text" spellcheck="false" bind:value={keyword.ccssc} on:change={updateKeyword} placeholder="CSS class" class:help-text={isHelperCategory} />
 
@@ -342,45 +307,6 @@
     justify-content: center;
     padding: 0 3px;
     pointer-events: none;
-  }
-
-  .main-toggle {
-    background: none;
-    border: 1px solid transparent;
-    cursor: pointer;
-    padding: 2px 6px;
-    font-size: 11px;
-    line-height: 1;
-    height: 18px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    user-select: none;
-    flex-shrink: 0;
-    margin-right: 0.15rem;
-    font-weight: bold;
-    border-radius: 3px;
-    transition: all 0.15s ease;
-  }
-
-  .main-toggle.main-enabled {
-    color: #00ff00;
-    border-color: #00ff00;
-  }
-
-  .main-toggle.aux-enabled {
-    color: #ff0000;
-    border-color: #ff0000;
-  }
-
-  .main-toggle.help-enabled {
-    color: #0088ff;
-    border-color: #0088ff;
-  }
-
-  .main-toggle:hover {
-    opacity: 0.7;
-    background: var(--background-modifier-hover);
   }
 
   /* HELP keyword styling */

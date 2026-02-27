@@ -1,9 +1,10 @@
 import type { MarkdownPostProcessor } from 'obsidian';
 import { type KeywordStyle } from 'src/shared';
 import { KeywordType, getKeywordType } from 'src/shared/keyword-style';
-import { MainCombinePriority, AuxiliaryCombinePriority } from 'src/shared/combine-priority';
+import { MainCombinePriority } from 'src/shared/combine-priority';
 import { settingsStore } from 'src/stores/settings-store';
 import { get } from 'svelte/store';
+import { resolveIcon } from 'src/shared/priority-resolver';
 
 let keywordMap: Map<string, KeywordStyle>;
 
@@ -106,8 +107,8 @@ function replaceWithHighlight(node: Node) {
       // Use first MAIN keyword as primary (for now - later we can validate only one MAIN)
       const primaryKeyword = mainKeywords[0] || auxiliaryKeywords[0];
 
-      // Resolve icon based on priority
-      const iconToDisplay = resolveIcon(primaryKeyword, mainKeywords, auxiliaryKeywords);
+      // Resolve icon based on priority (centralized)
+      const iconToDisplay = resolveIcon(matchedKeywords);
 
       // Create highlight node with resolved colors
       const highlight = getHighlightNode(
@@ -133,36 +134,6 @@ function replaceWithHighlight(node: Node) {
   }
   // call recursively
   node.childNodes.forEach((child) => replaceWithHighlight(child));
-}
-
-/**
- * Resolve which icon to display based on keyword priorities
- */
-function resolveIcon(
-  primaryKeyword: KeywordStyle,
-  mainKeywords: KeywordStyle[],
-  auxiliaryKeywords: KeywordStyle[]
-): string | undefined {
-  // If no auxiliary keywords, use primary's icon
-  if (auxiliaryKeywords.length === 0) {
-    return primaryKeyword.generateIcon;
-  }
-
-  // Check if primary (first main) has icon priority
-  const firstMain = mainKeywords[0];
-  if (firstMain) {
-    const hasIconPriority =
-      firstMain.combinePriority === MainCombinePriority.Icon ||
-      firstMain.combinePriority === MainCombinePriority.StyleAndIcon;
-
-    if (hasIconPriority) {
-      return firstMain.generateIcon;
-    }
-  }
-
-  // Always append all auxiliary icons (show both icons when auxiliary on auxiliary)
-  // Style is already determined by first auxiliary in getHighlightNode
-  return auxiliaryKeywords.map(aux => aux.generateIcon).filter(icon => icon).join('');
 }
 
 /**

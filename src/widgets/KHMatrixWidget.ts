@@ -12,9 +12,10 @@ import type { FilterMatchContext } from '../interfaces/FilterInterfaces';
 import { KHEntry } from '../components/KHEntry';
 import type { ActiveChip } from '../interfaces/ActiveChip';
 import { KeywordType, getKeywordType } from '../shared/keyword-style';
-import { MainCombinePriority, AuxiliaryCombinePriority } from '../shared/combine-priority';
+import { MainCombinePriority } from '../shared/combine-priority';
 import type { KeywordStyle } from '../shared/keyword-style';
 import { SubjectDashboardView, SUBJECT_DASHBOARD_VIEW_TYPE } from './SubjectDashboardView';
+import { resolveIconKeywordNames } from '../shared/priority-resolver';
 
 export const KH_MATRIX_VIEW_TYPE = 'kh-matrix-view';
 
@@ -54,57 +55,25 @@ export class KHMatrixWidget extends ItemView {
 	}
 
 	/**
-	 * Resolve which keyword should provide the icon based on combinePriority logic
-	 * Same logic as reader-highlighter
+	 * Resolve which keywords should provide icons (uses centralized logic)
+	 * Returns array of keyword strings to display icons from
 	 */
-	private resolveIconKeyword(keywordStrings: string[]): string {
+	private resolveIconKeywords(keywordStrings: string[]): string[] {
 		if (!keywordStrings || keywordStrings.length === 0) {
-			return keywordStrings?.[0] || '';
+			return keywordStrings || [];
 		}
 
-		// Get KeywordStyle objects for all keywords
+		// Convert keyword strings to KeywordStyle objects
 		const keywordStyles: KeywordStyle[] = keywordStrings
 			.map(kw => this.plugin.api.getKeywordStyle(kw))
 			.filter((style): style is KeywordStyle => style !== undefined);
 
 		if (keywordStyles.length === 0) {
-			return keywordStrings[0];
+			return [keywordStrings[0]];
 		}
 
-		// Separate MAIN vs AUXILIARY keywords
-		const mainKeywords = keywordStyles.filter(k => getKeywordType(k) === KeywordType.MAIN);
-		const auxiliaryKeywords = keywordStyles.filter(k => getKeywordType(k) === KeywordType.AUXILIARY);
-
-		// If no auxiliary keywords, use first keyword
-		if (auxiliaryKeywords.length === 0) {
-			return keywordStrings[0];
-		}
-
-		// Check if first main keyword has icon priority
-		const firstMain = mainKeywords[0];
-		if (firstMain) {
-			const hasIconPriority =
-				firstMain.combinePriority === MainCombinePriority.Icon ||
-				firstMain.combinePriority === MainCombinePriority.StyleAndIcon;
-
-			if (hasIconPriority) {
-				// Main has icon priority - use main's keyword
-				return firstMain.keyword;
-			}
-		}
-
-		// Check for auxiliary with OverrideIcon priority
-		const overrideAux = [...auxiliaryKeywords].reverse().find(aux =>
-			aux.combinePriority === AuxiliaryCombinePriority.OverrideIcon
-		);
-
-		if (overrideAux) {
-			// Use auxiliary with override
-			return overrideAux.keyword;
-		}
-
-		// Default: use first auxiliary keyword
-		return auxiliaryKeywords[0]?.keyword || keywordStrings[0];
+		// Use centralized icon resolution logic
+		return resolveIconKeywordNames(keywordStyles);
 	}
 
 	/**
@@ -913,16 +882,18 @@ Examples:
 				for (const entry of header.entries) {
 					if (entry.type === 'keyword' && entry.keywords && entry.keywords.length > 0) {
 						// Resolve which keyword provides the icon based on combinePriority
-						const iconKeyword = this.resolveIconKeyword(entry.keywords);
+						const iconKeywords = this.resolveIconKeywords(entry.keywords);
 						const primaryKeyword = entry.keywords[0];
 						const primaryKeywordClass = this.getKeywordClass(primaryKeyword);
 						const entryItem = entriesContainer.createDiv({
 							cls: `kh-widget-filter-entry ${primaryKeywordClass}`
 						});
 
-						// Render icon using resolved keyword (respects combinePriority)
-						const mark = entryItem.createEl('mark', { cls: `kh-icon ${iconKeyword}` });
-						mark.innerHTML = '&nbsp;';
+						// Render icons from all keywords with Icon/StyleAndIcon priority
+						for (const iconKeyword of iconKeywords) {
+							const mark = entryItem.createEl('mark', { cls: `kh-icon ${iconKeyword}` });
+							mark.innerHTML = '&nbsp;';
+						}
 						entryItem.createEl('span', { text: ' ', cls: 'kh-separator' });
 
 						// Render entry text with image/quote support (compact mode)
@@ -1173,16 +1144,18 @@ Examples:
 				await Promise.all(entries.map(({ entry, record }) => {
 					if (entry.type === 'keyword' && entry.keywords && entry.keywords.length > 0) {
 						// Resolve which keyword provides the icon based on combinePriority
-						const iconKeyword = this.resolveIconKeyword(entry.keywords);
+						const iconKeywords = this.resolveIconKeywords(entry.keywords);
 						const primaryKeyword = entry.keywords[0];
 						const primaryKeywordClass = this.getKeywordClass(primaryKeyword);
 						const entryItem = entriesContainer.createDiv({
 							cls: `kh-widget-filter-entry ${primaryKeywordClass}`
 						});
 
-						// Render icon using resolved keyword (respects combinePriority)
-						const mark = entryItem.createEl('mark', { cls: `kh-icon ${iconKeyword}` });
-						mark.innerHTML = '&nbsp;';
+						// Render icons from all keywords with Icon/StyleAndIcon priority
+						for (const iconKeyword of iconKeywords) {
+							const mark = entryItem.createEl('mark', { cls: `kh-icon ${iconKeyword}` });
+							mark.innerHTML = '&nbsp;';
+						}
 						entryItem.createEl('span', { text: ' ', cls: 'kh-separator' });
 
 
