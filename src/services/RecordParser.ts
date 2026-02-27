@@ -23,17 +23,11 @@ export class RecordParser {
 
 		const resolved = keywords.map(kw => {
 			const mainKeyword = aliasMap.get(kw);
-			if (mainKeyword && mainKeyword !== kw) {
-				console.log(`[ResolveKeywords] Alias resolved: "${kw}" → "${mainKeyword}"`);
-			}
 			return mainKeyword || kw;
 		});
 
 		// Deduplicate
 		const deduplicated = [...new Set(resolved)];
-		if (keywords.length !== deduplicated.length || JSON.stringify(keywords) !== JSON.stringify(deduplicated)) {
-			console.log(`[ResolveKeywords] Input: [${keywords.join(', ')}] → Output: [${deduplicated.join(', ')}]`);
-		}
 		return deduplicated;
 	}
 
@@ -559,19 +553,17 @@ export class RecordParser {
 		// Collect continuation lines
 		const textLines = [remainingText];
 		let continuationIndex = startIndex + 1;
-		let blockId: string | undefined;
 
 		while (continuationIndex < lines.length) {
 			const continuationLine = lines[continuationIndex];
 
 			if (continuationLine.trim() === '') break;
 
-			// Block reference
+			// Block reference - ignore completely
 			const blockRefMatch = continuationLine.match(/^\^(kw-[\w-]+)$/);
 			if (blockRefMatch) {
-				blockId = blockRefMatch[1];
 				continuationIndex++;
-				break;
+				continue;
 			}
 
 			if (continuationLine.match(/^#+\s/)) break;
@@ -596,16 +588,13 @@ export class RecordParser {
 		// Collect sub-items
 		const subItems: RecordSubItem[] = [];
 		let j = continuationIndex;
-		let hadBlankLineBefore = false;
 
 		while (j < lines.length) {
 			const subLine = lines[j];
 
-			// Skip empty lines (they may separate sub-items)
+			// Empty line ends the record
 			if (subLine.trim() === '') {
-				hadBlankLineBefore = true;
-				j++;
-				continue;
+				break;
 			}
 
 			if (subLine.match(/^#+\s/)) break;
@@ -681,7 +670,6 @@ export class RecordParser {
 				}
 
 				subItems.push(subItem);
-				hadBlankLineBefore = false;
 
 				// Only increment j if we didn't already do it for code block
 				if (!codeBlockInListMatch) {
@@ -758,7 +746,6 @@ export class RecordParser {
 				}
 
 				subItems.push(subItem);
-				hadBlankLineBefore = false;
 
 				// Only increment j if we didn't already do it for code block
 				if (!codeBlockInListMatch) {
@@ -835,7 +822,6 @@ export class RecordParser {
 				}
 
 				subItems.push(subItem);
-				hadBlankLineBefore = false;
 
 				// Only increment j if we didn't already do it for code block
 				if (!codeBlockInListMatch) {
@@ -912,7 +898,6 @@ export class RecordParser {
 				}
 
 				subItems.push(subItem);
-				hadBlankLineBefore = false;
 
 				// Only increment j if we didn't already do it for code block
 				if (!codeBlockInListMatch) {
@@ -941,7 +926,6 @@ export class RecordParser {
 					listType: 'blockquote',
 					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined
 				});
-				hadBlankLineBefore = false;
 				j++;
 				continue;
 			}
@@ -949,11 +933,6 @@ export class RecordParser {
 			// Code block: ```language (with optional indentation)
 			const codeBlockMatch = subLine.match(/^\s*```(\w+)\s*$/);
 			if (codeBlockMatch) {
-				// If there was a blank line before this code block, treat it as a new entry
-				if (hadBlankLineBefore) {
-					break;
-				}
-
 				const language = codeBlockMatch[1];
 				const codeLines: string[] = [];
 				j++;
@@ -971,11 +950,9 @@ export class RecordParser {
 				const codeContent = codeLines.join('\n');
 
 				// Check if previous sub-item is a list type (can nest code blocks)
-				// Only nest if there was NO blank line before the code block
 				const lastSubItem = subItems.length > 0 ? subItems[subItems.length - 1] : null;
 				const canNest = lastSubItem &&
-					['dash', 'asterisk', 'numbered', 'checkbox'].includes(lastSubItem.listType) &&
-					!hadBlankLineBefore;
+					['dash', 'asterisk', 'numbered', 'checkbox'].includes(lastSubItem.listType);
 
 				if (canNest) {
 					// Nest code block under last list item
@@ -991,7 +968,6 @@ export class RecordParser {
 						codeBlockLanguage: language
 					});
 				}
-				hadBlankLineBefore = false;
 				continue;
 			}
 
@@ -1004,7 +980,6 @@ export class RecordParser {
 				lineNumber: startIndex + 1,
 				text,
 				keywords: keywords.length > 0 ? keywords : undefined,
-				blockId,
 				subItems: subItems.length > 0 ? subItems : undefined
 			},
 			nextIndex: j
