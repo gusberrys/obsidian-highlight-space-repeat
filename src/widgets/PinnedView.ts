@@ -3,9 +3,10 @@ import type { ParsedRecord, RecordHeader, RecordEntry } from '../interfaces/Pars
 import { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
 import { KHEntry } from '../components/KHEntry';
 import { KeywordType, getKeywordType } from '../shared/keyword-style';
-import { MainCombinePriority, AuxiliaryCombinePriority } from '../shared/combine-priority';
+import { MainCombinePriority } from '../shared/combine-priority';
 import type { KeywordStyle } from '../shared/keyword-style';
 import { RecordParser } from '../services/RecordParser';
+import { resolveIconKeywordNames } from '../shared/priority-resolver';
 
 export const PINNED_VIEW_TYPE = 'kh-pinned-view';
 
@@ -43,49 +44,25 @@ export class PinnedView extends ItemView {
 	}
 
 	/**
-	 * Resolve which keyword should provide the icon based on combinePriority logic
-	 * COPIED FROM MATRIX WIDGET
+	 * Resolve which keywords should provide icons (uses centralized logic)
+	 * Returns array of keyword strings to display icons from
 	 */
-	private resolveIconKeyword(keywordStrings: string[]): string {
+	private resolveIconKeywords(keywordStrings: string[]): string[] {
 		if (!keywordStrings || keywordStrings.length === 0) {
-			return keywordStrings?.[0] || '';
+			return keywordStrings || [];
 		}
 
+		// Convert keyword strings to KeywordStyle objects
 		const keywordStyles: KeywordStyle[] = keywordStrings
 			.map(kw => this.plugin.api.getKeywordStyle(kw))
 			.filter((style): style is KeywordStyle => style !== undefined);
 
 		if (keywordStyles.length === 0) {
-			return keywordStrings[0];
+			return [keywordStrings[0]];
 		}
 
-		const mainKeywords = keywordStyles.filter(k => getKeywordType(k) === KeywordType.MAIN);
-		const auxiliaryKeywords = keywordStyles.filter(k => getKeywordType(k) === KeywordType.AUXILIARY);
-
-		if (auxiliaryKeywords.length === 0) {
-			return keywordStrings[0];
-		}
-
-		const firstMain = mainKeywords[0];
-		if (firstMain) {
-			const hasIconPriority =
-				firstMain.combinePriority === MainCombinePriority.Icon ||
-				firstMain.combinePriority === MainCombinePriority.StyleAndIcon;
-
-			if (hasIconPriority) {
-				return firstMain.keyword;
-			}
-		}
-
-		const overrideAux = [...auxiliaryKeywords].reverse().find(aux =>
-			aux.combinePriority === AuxiliaryCombinePriority.OverrideIcon
-		);
-
-		if (overrideAux) {
-			return overrideAux.keyword;
-		}
-
-		return keywordStrings[0];
+		// Use centralized icon resolution logic
+		return resolveIconKeywordNames(keywordStyles);
 	}
 
 	getViewType(): string {
@@ -350,7 +327,7 @@ export class PinnedView extends ItemView {
 
 					if (entry.type === 'keyword' && entry.keywords && entry.keywords.length > 0) {
 						// EXACT SAME CODE AS MATRIX WIDGET
-						const iconKeyword = this.resolveIconKeyword(entry.keywords);
+						const iconKeywords = this.resolveIconKeywords(entry.keywords);
 						const primaryKeyword = entry.keywords[0];
 						const primaryKeywordClass = this.getKeywordClass(primaryKeyword);
 						const entryItem = entriesContainer.createDiv({
@@ -383,9 +360,11 @@ export class PinnedView extends ItemView {
 							}
 						});
 
-						// Render icon using resolved keyword (respects combinePriority)
-						const mark = entryItem.createEl('mark', { cls: `kh-icon ${iconKeyword}` });
-						mark.innerHTML = '&nbsp;';
+						// Render icons from all keywords with Icon/StyleAndIcon priority
+						for (const iconKeyword of iconKeywords) {
+							const mark = entryItem.createEl('mark', { cls: `kh-icon ${iconKeyword}` });
+							mark.innerHTML = '&nbsp;';
+						}
 						entryItem.createEl('span', { text: ' ', cls: 'kh-separator' });
 
 						// Render entry text with image/quote support (compact mode)

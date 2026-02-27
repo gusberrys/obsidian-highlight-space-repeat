@@ -24,7 +24,7 @@ export type KeywordStyle = {
   collectingStatus?: CollectingStatus;  // How this keyword is collected: IGNORED, PARSED, or SPACED
   mainKeyword?: boolean;  // DEPRECATED: Use keywordType instead. Whether this IS a main keyword (true) or CAN BE used as auxiliary (false). Default: false (can be auxiliary)
   keywordType?: KeywordType;  // Keyword type: MAIN, AUXILIARY, or HELP
-  combinePriority?: CombinePriority;  // For main: None/Style/Icon/StyleAndIcon; For auxiliary: AppendIcon/OverrideIcon
+  combinePriority?: CombinePriority;  // For MAIN keywords only: None/Style/Icon/StyleAndIcon. Auxiliary keywords always append their icons.
   showColor?: boolean;  // Whether to show the color (default: true)
   showBackgroundColor?: boolean;  // Whether to show the background color (default: true)
   subKeywords?: string[];  // Sub-keywords for this keyword (keywords or categories prefixed with ":")

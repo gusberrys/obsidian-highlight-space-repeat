@@ -4,7 +4,7 @@ import { generateInitialColors } from 'src/settings/generate-initial-colors';
 import type { KeywordStyle, Category, Settings, AuxiliaryKeyword, AuxiliaryCategory, CodeBlockLanguage } from 'src/shared';
 import { KeywordType } from 'src/shared';
 import { CollectingStatus } from 'src/shared/collecting-status';
-import { MainCombinePriority, AuxiliaryCombinePriority } from 'src/shared/combine-priority';
+import { MainCombinePriority } from 'src/shared/combine-priority';
 import { injectKeywordCSS } from 'src/shared/dynamic-css';
 import { get, writable } from 'svelte/store';
 import type { ParserSettings } from 'src/interfaces/ParserSettings';
@@ -238,11 +238,9 @@ export async function loadStore(): Promise<void> {
         keyword.mainKeyword = keyword.keywordType === KeywordType.MAIN;
       }
 
-      // Set default combinePriority based on keywordType
-      if (keyword.combinePriority === undefined) {
-        keyword.combinePriority = keyword.keywordType === KeywordType.MAIN
-          ? MainCombinePriority.None
-          : AuxiliaryCombinePriority.AppendIcon;
+      // Set default combinePriority for MAIN keywords only
+      if (keyword.combinePriority === undefined && keyword.keywordType === KeywordType.MAIN) {
+        keyword.combinePriority = MainCombinePriority.None;
       }
     });
   });
@@ -340,7 +338,6 @@ export function addKeyword(value?: string, categoryName?: string, container?: HT
       description: '',
       keywordType: KeywordType.AUXILIARY,  // Default to auxiliary keyword
       mainKeyword: false,  // Backward compatibility
-      combinePriority: AuxiliaryCombinePriority.AppendIcon,  // Default priority for auxiliary
       collectingStatus: CollectingStatus.PARSED,  // Default to parsed
     });
     return settings;
