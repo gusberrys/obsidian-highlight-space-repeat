@@ -24,9 +24,6 @@ export interface RecordEntry {
 	/** Language (for code blocks) */
 	language?: string;
 
-	/** Block ID */
-	blockId?: string;
-
 	/** Sub-items (list items, code blocks) */
 	subItems?: RecordSubItem[];
 }
