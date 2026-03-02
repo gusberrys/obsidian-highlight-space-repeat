@@ -1,4 +1,5 @@
 import { Setting, Notice, ButtonComponent } from 'obsidian';
+import { DATA_PATHS } from '../shared/data-paths';
 import type { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
 
 /**
@@ -72,7 +73,7 @@ export function addSRSSettings(containerEl: HTMLElement, plugin: HighlightSpaceR
 					new Notice('Scanning for orphans...');
 
 					// Load parsed records
-					const parsedRecordsPath = '.obsidian/plugins/obsidian-highlight-space-repeat/app-data/parsed-records.json';
+					const parsedRecordsPath = DATA_PATHS.PARSED_FILES;
 					const exists = await plugin.app.vault.adapter.exists(parsedRecordsPath);
 
 					if (!exists) {
@@ -105,7 +106,7 @@ export function addSRSSettings(containerEl: HTMLElement, plugin: HighlightSpaceR
 					new Notice('Attempting to reconnect orphans...');
 
 					// Load parsed records
-					const parsedRecordsPath = '.obsidian/plugins/obsidian-highlight-space-repeat/app-data/parsed-records.json';
+					const parsedRecordsPath = DATA_PATHS.PARSED_FILES;
 					const exists = await plugin.app.vault.adapter.exists(parsedRecordsPath);
 
 					if (!exists) {

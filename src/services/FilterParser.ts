@@ -1,4 +1,6 @@
-import { FilterToken, FilterTokenType, FilterNode, FilterMatchContext, FilterModifiers, CompiledFilter } from '../interfaces/FilterInterfaces';
+import { FilterToken, FilterTokenType, FilterNode, FilterModifiers, CompiledFilter } from '../interfaces/FilterInterfaces';
+import type { FlatEntry } from '../interfaces/ParsedFile';
+import { getFileNameFromPath } from '../utils/file-helpers';
 
 /**
  * Parses and evaluates filter expressions
@@ -319,153 +321,46 @@ export class FilterParser {
 	}
 
 	/**
-	 * Evaluate filter against context with optional modifiers
+	 * Helper: Extract all keywords from entry (entry keywords + all subItem keywords)
 	 */
-	static evaluate(node: FilterNode | null, context: FilterMatchContext, modifiers?: FilterModifiers): boolean {
-		if (!node) return true;
-
-		switch (node.type) {
-			case 'keyword':
-				// Check if this is multi-keyword syntax (.foo.bar)
-				if (node.multiKeywords && node.multiKeywords.length > 0) {
-					// ALL keywords must be present in the keywords array
-					const allKeywordsMatch = node.multiKeywords.every(kw =>
-						context.keywords.some(ck => ck.toLowerCase() === kw.toLowerCase())
-					);
-
-					// If includeHeaders is true OR \h modifier is enabled, also check header keywords
-					const shouldCheckHeaders = node.includeHeaders || modifiers?.enableHeaders;
-					if (shouldCheckHeaders && context.headerKeywords && context.headerKeywords.length > 0) {
-						const headerAllKeywordsMatch = node.multiKeywords.every(kw =>
-							context.headerKeywords!.some(hk => hk.toLowerCase() === kw.toLowerCase())
-						);
-						return allKeywordsMatch || headerAllKeywordsMatch;
-					}
-					return allKeywordsMatch;
+	private static getAllKeywords(entry: import('../interfaces/ParsedFile').ParsedEntry): string[] {
+		const keywords = [...(entry.keywords || [])];
+		if (entry.subItems) {
+			for (const subItem of entry.subItems) {
+				if (subItem.keywords) {
+					keywords.push(...subItem.keywords);
 				}
-
-				// Check if this is auxiliary keyword syntax (.def.foo)
-				if (node.auxiliaryKeyword) {
-					// Match main keyword AND auxiliary keyword
-					const mainKeywordMatch = this.matchKeyword(node.value!, context.keywords);
-					const auxiliaryKeywordMatch = context.auxiliaryKeywords?.some(aux =>
-						aux.toLowerCase() === node.auxiliaryKeyword!.toLowerCase()
-					) || false;
-
-					// Entry-level match
-					const entryMatch = mainKeywordMatch && auxiliaryKeywordMatch;
-
-					// If includeHeaders is true (via + prefix) OR \h modifier is enabled, also check header auxiliary keywords
-					const shouldCheckHeaders = node.includeHeaders || modifiers?.enableHeaders;
-					if (shouldCheckHeaders && context.headerAuxiliaryKeywords && context.headerAuxiliaryKeywords.length > 0) {
-						const headerMainMatch = context.headerKeywords?.some(hk =>
-							hk.toLowerCase() === node.value!.toLowerCase()
-						) || false;
-						const headerAuxMatch = context.headerAuxiliaryKeywords.some(aux =>
-							aux.toLowerCase() === node.auxiliaryKeyword!.toLowerCase()
-						);
-						const headerMatch = headerMainMatch && headerAuxMatch;
-						return entryMatch || headerMatch;
-					}
-					return entryMatch;
-				}
-
-				// Regular keyword matching (entry keywords)
-				const entryKeywordMatch = this.matchKeyword(node.value!, context.keywords);
-
-				// If includeHeaders is true (via + prefix) OR \h modifier is enabled, also check header keywords
-				const shouldCheckHeaders = node.includeHeaders || modifiers?.enableHeaders;
-				if (shouldCheckHeaders && context.headerKeywords && context.headerKeywords.length > 0) {
-					const headerKeywordMatch = context.headerKeywords.some(hk =>
-						hk.toLowerCase() === node.value!.toLowerCase()
-					);
-					return entryKeywordMatch || headerKeywordMatch;
-				}
-				return entryKeywordMatch;
-
-			case 'tag':
-				// Check file tags
-				// Normalize tag comparison: AST has tag WITHOUT #, context has tags WITH #
-				const normalizedNodeValue = node.value!.startsWith('#') ? node.value!.toLowerCase() : '#' + node.value!.toLowerCase();
-				const fileTagMatch = context.tags.some(tag =>
-					tag.toLowerCase() === normalizedNodeValue
-				);
-
-				// If includeHeaders is true (via + prefix) OR \h modifier is enabled, also check header tags
-				const shouldCheckHeaderTags = node.includeHeaders || modifiers?.enableHeaders;
-				if (shouldCheckHeaderTags && context.headerTags && context.headerTags.length > 0) {
-					const headerTagMatch = context.headerTags.some(tag =>
-						tag.toLowerCase() === normalizedNodeValue
-					);
-					return fileTagMatch || headerTagMatch;
-				}
-				return fileTagMatch;
-
-			case 'path':
-				// Normalize path by removing leading slash (Obsidian paths are relative)
-				const pathToMatch = node.value!.startsWith('/') ? node.value!.slice(1) : node.value!;
-				return context.filePath.includes(pathToMatch);
-
-			case 'filename':
-				// Match against file name only, not full path
-				if (context.fileName) {
-					return context.fileName.toLowerCase().includes(node.value!.toLowerCase());
-				}
-				// Fallback: extract file name from path if fileName not provided
-				const pathParts = context.filePath.split('/');
-				const fileName = pathParts[pathParts.length - 1];
-				return fileName.toLowerCase().includes(node.value!.toLowerCase());
-
-			case 'text':
-				return context.code.includes(node.value!);
-
-			case 'language':
-				// For file-level filtering (W: `language), check languages array
-				// For code block filtering, check single language field
-				if (context.languages && context.languages.length > 0) {
-					return context.languages.some(lang =>
-						lang.toLowerCase() === node.value!.toLowerCase()
-					);
-				}
-				return context.language?.toLowerCase() === node.value!.toLowerCase();
-
-			case 'category':
-				// Category matches if entry has ANY keyword from a category with matching id
-				const categoryId = node.value!.toLowerCase();
-
-				// Collect all keywords from categories with this id
-				const categoryKeywords: string[] = [];
-				if (context.keywordData) {
-					for (const category of context.keywordData.categories) {
-						// Match by category id, not by keyword ccssc
-						if (category.id?.toLowerCase() === categoryId) {
-							for (const keyword of category.keywords) {
-								categoryKeywords.push(keyword.keyword.toLowerCase());
-							}
-						}
-					}
-				}
-
-				// Check if entry has any of these keywords
-				return categoryKeywords.length > 0 && context.keywords.some(k =>
-					categoryKeywords.includes(k.toLowerCase())
-				);
-
-
-			case 'and':
-				return this.evaluate(node.left!, context, modifiers) &&
-				       this.evaluate(node.right!, context, modifiers);
-
-			case 'or':
-				return this.evaluate(node.left!, context, modifiers) ||
-				       this.evaluate(node.right!, context, modifiers);
-
-			case 'not':
-				return !this.evaluate(node.child!, context, modifiers);
-
-			default:
-				return false;
+			}
 		}
+		return keywords;
+	}
+
+	/**
+	 * Helper: Extract all languages from entry subItems
+	 */
+	private static getAllLanguages(entry: import('../interfaces/ParsedFile').ParsedEntry): string[] {
+		const languages: string[] = [];
+		if (entry.type === 'codeblock' && entry.language) {
+			languages.push(entry.language);
+		}
+		if (entry.subItems) {
+			for (const subItem of entry.subItems) {
+				if (subItem.codeBlockLanguage) {
+					languages.push(subItem.codeBlockLanguage);
+				}
+				if (subItem.nestedCodeBlock?.language) {
+					languages.push(subItem.nestedCodeBlock.language);
+				}
+			}
+		}
+		return languages;
+	}
+
+	/**
+	 * Helper: Normalize tags (ensure # prefix)
+	 */
+	private static normalizeTags(tags: string[]): string[] {
+		return tags.map(tag => tag.startsWith('#') ? tag : '#' + tag);
 	}
 
 	/**
@@ -531,6 +426,131 @@ export class FilterParser {
 			return compiled.ast !== null;
 		} catch {
 			return false;
+		}
+	}
+
+	/**
+	 * Evaluate filter against FlatEntry (optimized for flat data structure)
+	 * Replaces the need for flatEntryToContext() conversion
+	 * @param node - Filter AST node
+	 * @param entry - The flat entry to evaluate (must have filePath, fileName, fileTags added at load time)
+	 * @param categories - Categories for category matching
+	 * @param modifiers - Filter modifiers
+	 */
+	static evaluateFlatEntry(
+		node: FilterNode | null,
+		entry: FlatEntry,
+		categories?: any[],
+		modifiers?: FilterModifiers
+	): boolean {
+		if (!node) return true;
+
+		// Collect header keywords and tags from all header levels
+		const headerKeywords: string[] = [];
+		const headerTags: string[] = [];
+
+		if (entry.h1) {
+			headerKeywords.push(...(entry.h1.keywords || []));
+			headerTags.push(...(entry.h1.tags || []));
+		}
+		if (entry.h2) {
+			headerKeywords.push(...(entry.h2.keywords || []));
+			headerTags.push(...(entry.h2.tags || []));
+		}
+		if (entry.h3) {
+			headerKeywords.push(...(entry.h3.keywords || []));
+			headerTags.push(...(entry.h3.tags || []));
+		}
+
+		const entryKeywords = entry.keywords || [];
+		const languages = entry.language ? [entry.language] : [];
+		const filePath = entry.filePath || '';
+		const fileName = getFileNameFromPath(entry.filePath!) || '';
+		const fileTags = entry.fileTags || [];
+
+		switch (node.type) {
+			case 'keyword':
+				// Multi-keyword syntax (.foo.bar) - ALL keywords must be present
+				if (node.multiKeywords && node.multiKeywords.length > 0) {
+					const allKeywordsMatch = node.multiKeywords.every(kw =>
+						entryKeywords.some(ck => ck.toLowerCase() === kw.toLowerCase())
+					);
+
+					const shouldCheckHeaders = node.includeHeaders || modifiers?.enableHeaders;
+					if (shouldCheckHeaders && headerKeywords.length > 0) {
+						const headerAllKeywordsMatch = node.multiKeywords.every(kw =>
+							headerKeywords.some(hk => hk.toLowerCase() === kw.toLowerCase())
+						);
+						return allKeywordsMatch || headerAllKeywordsMatch;
+					}
+					return allKeywordsMatch;
+				}
+
+				// Regular keyword matching
+				const entryKeywordMatch = this.matchKeyword(node.value!, entryKeywords);
+
+				const shouldCheckHeaders = node.includeHeaders || modifiers?.enableHeaders;
+				if (shouldCheckHeaders && headerKeywords.length > 0) {
+					const headerKeywordMatch = headerKeywords.some(hk =>
+						hk.toLowerCase() === node.value!.toLowerCase()
+					);
+					return entryKeywordMatch || headerKeywordMatch;
+				}
+				return entryKeywordMatch;
+
+			case 'tag':
+				// FlatEntry stores tags WITHOUT # prefix, so strip it for comparison
+				const tagValue = node.value!.startsWith('#') ? node.value!.slice(1).toLowerCase() : node.value!.toLowerCase();
+				const fileTagMatch = fileTags.some(tag => tag.toLowerCase() === tagValue);
+
+				const shouldCheckHeaderTags = node.includeHeaders || modifiers?.enableHeaders;
+				if (shouldCheckHeaderTags && headerTags.length > 0) {
+					const headerTagMatch = headerTags.some(tag => tag.toLowerCase() === tagValue);
+					return fileTagMatch || headerTagMatch;
+				}
+				return fileTagMatch;
+
+			case 'path':
+				const pathToMatch = node.value!.startsWith('/') ? node.value!.slice(1) : node.value!;
+				return filePath.includes(pathToMatch);
+
+			case 'filename':
+				return fileName.toLowerCase().includes(node.value!.toLowerCase());
+
+			case 'text':
+				return entry.text.includes(node.value!);
+
+			case 'language':
+				return languages.some(lang => lang.toLowerCase() === node.value!.toLowerCase());
+
+			case 'category':
+				if (!categories) return false;
+				const categoryId = node.value!.toLowerCase();
+				const categoryKeywords: string[] = [];
+				for (const category of categories) {
+					if (category.id?.toLowerCase() === categoryId) {
+						for (const keyword of category.keywords) {
+							categoryKeywords.push(keyword.keyword.toLowerCase());
+						}
+					}
+				}
+				return categoryKeywords.length > 0 && entryKeywords.some(k =>
+					categoryKeywords.includes(k.toLowerCase())
+				);
+
+			case 'and':
+				return this.evaluateFlatEntry(node.left!, entry, categories, modifiers) &&
+				       this.evaluateFlatEntry(node.right!, entry, categories, modifiers);
+
+			case 'or':
+				return this.evaluateFlatEntry(node.left!, entry, categories, modifiers) ||
+				       this.evaluateFlatEntry(node.right!, entry, categories, modifiers);
+
+			case 'not':
+				return !this.evaluateFlatEntry(node.child!, entry, categories, modifiers);
+
+			default:
+				return false;
 		}
 	}
 }

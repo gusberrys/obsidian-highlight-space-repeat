@@ -1,14 +1,14 @@
 import { App, ItemView, WorkspaceLeaf, Menu, MarkdownRenderer, Modal, Setting, MarkdownView, Notice, TFile } from 'obsidian';
+import { DATA_PATHS } from '../shared/data-paths';
 import { subjectsStore, saveSubjects, settingsDataStore } from '../stores/settings-store';
 import { get } from 'svelte/store';
 import { Subject } from '../interfaces/Subject';
 import { Topic } from '../interfaces/Topic';
 import type { SubjectsData } from '../shared';
 import { SubjectModal } from '../settings/SubjectModal';
-import type { ParsedRecord, RecordHeader, RecordEntry } from '../interfaces/ParsedRecord';
+import type { ParsedFile, ParsedHeader, ParsedEntry, FlatEntry } from '../interfaces/ParsedFile';
 import { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
 import { FilterParser } from '../services/FilterParser';
-import type { FilterMatchContext } from '../interfaces/FilterInterfaces';
 import { KHEntry } from '../components/KHEntry';
 import type { ActiveChip } from '../interfaces/ActiveChip';
 import { KeywordType, getKeywordType } from '../shared/keyword-style';
@@ -16,6 +16,8 @@ import { MainCombinePriority } from '../shared/combine-priority';
 import type { KeywordStyle } from '../shared/keyword-style';
 import { SubjectDashboardView, SUBJECT_DASHBOARD_VIEW_TYPE } from './SubjectDashboardView';
 import { resolveIconKeywordNames } from '../shared/priority-resolver';
+import { fileHasMatch } from '../utils/filter-helpers';
+import { getFileNameFromPath } from '../utils/file-helpers';
 
 export const KH_MATRIX_VIEW_TYPE = 'kh-matrix-view';
 
@@ -611,34 +613,34 @@ Examples:
 			return;
 		}
 
-		const parsedRecords = await this.loadParsedRecords();
+		const parsedFiles = await this.loadParsedRecords();
 
 		if (this.widgetFilterType === 'F') {
 			// File filter - show files matching tags
-			await this.renderFileFilterResults(resultsContainer, parsedRecords);
+			await this.renderFileFilterResults(resultsContainer, parsedFiles);
 		} else if (this.widgetFilterType === 'H') {
 			// Header filter - show headers matching keyword/tag
-			await this.renderHeaderFilterResults(resultsContainer, parsedRecords);
+			await this.renderHeaderFilterResults(resultsContainer, parsedFiles);
 		} else if (this.widgetFilterType === 'R') {
 			// Record filter - show records matching expression
-			await this.renderRecordFilterResults(resultsContainer, parsedRecords);
+			await this.renderRecordFilterResults(resultsContainer, parsedFiles);
 		}
 	}
 
 	/**
 	 * Render file filter results
 	 */
-	private async renderFileFilterResults(container: HTMLElement, parsedRecords: ParsedRecord[]): Promise<void> {
+	private async renderFileFilterResults(container: HTMLElement, parsedFiles: ParsedFile[]): Promise<void> {
 		if (!this.widgetFilterContext) return;
 
 		const { subject, secondaryTopic, primaryTopic, includesSubjectTag } = this.widgetFilterContext;
 		const tags = this.getTags(subject, secondaryTopic, primaryTopic, includesSubjectTag);
-		const matchingRecords = parsedRecords.filter(record => {
-			const fileTags = this.getRecordTags(record);
+		const matchingFiles = parsedFiles.filter(file => {
+			const fileTags = this.getRecordTags(file);
 			return tags.every(tag => fileTags.includes(tag));
 		});
 
-		if (matchingRecords.length === 0) {
+		if (matchingFiles.length === 0) {
 			container.createEl('div', {
 				text: 'No files found',
 				cls: 'kh-widget-filter-empty'
@@ -646,16 +648,16 @@ Examples:
 			return;
 		}
 
-		matchingRecords.forEach(record => {
+		matchingFiles.forEach(file => {
 			const fileItem = container.createDiv({ cls: 'kh-widget-filter-item' });
 			fileItem.createEl('span', {
-				text: record.fileName,
+				text: getFileNameFromPath(file.filePath),
 				cls: 'kh-widget-filter-item-name'
 			});
 			fileItem.addEventListener('click', () => {
-				const file = this.app.vault.getAbstractFileByPath(record.filePath);
-				if (file) {
-					this.app.workspace.getLeaf().openFile(file as any);
+				const obsidianFile = this.app.vault.getAbstractFileByPath(file.filePath);
+				if (obsidianFile) {
+					this.app.workspace.getLeaf().openFile(obsidianFile as any);
 				}
 			});
 		});
@@ -666,100 +668,119 @@ Examples:
 	 * Uses EXACT same matching logic as counting functions
 	 * FIXED: For single topics, check ALL files - headers have independent tags/keywords
 	 */
-	private async renderHeaderFilterResults(container: HTMLElement, parsedRecords: ParsedRecord[]): Promise<void> {
+	private async renderHeaderFilterResults(container: HTMLElement, parsedFiles: ParsedFile[]): Promise<void> {
 		if (!this.widgetFilterContext) return;
 
 		const { subject, secondaryTopic, primaryTopic, includesSubjectTag } = this.widgetFilterContext;
-		const headers: { record: ParsedRecord; header: RecordHeader }[] = [];
+
+		// Group entries by header: Map<"filePath::headerText", { file, headerText, headerLevel, entries }>
+		const headerGroups = new Map<string, { file: ParsedFile; headerText: string; headerLevel: number; entries: FlatEntry[] }>();
 
 		// Collect matching headers using EXACT same logic as counting
 		if (secondaryTopic && primaryTopic) {
 			// Intersection logic: secondary in header, primary in file
-			// Only for intersections do we filter by file tags first
 			const tags = this.getTags(subject, secondaryTopic, primaryTopic, includesSubjectTag);
-			const matchingRecords = parsedRecords.filter(record => {
-				const fileTags = this.getRecordTags(record);
+			const matchingFiles = parsedFiles.filter(file => {
+				const fileTags = this.getRecordTags(file);
 				return tags.every(tag => fileTags.includes(tag));
 			});
 
-			for (const record of matchingRecords) {
-				const fileTags = this.getRecordTags(record);
+			for (const file of matchingFiles) {
+				const fileTags = this.getRecordTags(file);
 
 				// Primary topic must be in FILE
 				const primaryInFile = primaryTopic.topicTag && fileTags.includes(primaryTopic.topicTag);
 				if (!primaryInFile) continue;
 
-				const checkHeaders = (headerList: RecordHeader[]) => {
-					for (const header of headerList) {
+				// Check each entry's headers (h1/h2/h3)
+				for (const entry of file.entries) {
+					const headerLevels = [
+						entry.h1 ? { level: 1, info: entry.h1 } : null,
+						entry.h2 ? { level: 2, info: entry.h2 } : null,
+						entry.h3 ? { level: 3, info: entry.h3 } : null
+					].filter(h => h !== null);
+
+					for (const headerLevel of headerLevels) {
+						const header = headerLevel!.info;
 						if (header.text) {
 							// Secondary topic must be in HEADER (keyword OR tag)
 							let secondaryKeywordMatch = false;
 							if (secondaryTopic.topicKeyword && header.keywords) {
-								secondaryKeywordMatch = header.keywords.some(kw =>
+								secondaryKeywordMatch = header.keywords?.some(kw =>
 									kw.toLowerCase() === secondaryTopic.topicKeyword!.toLowerCase()
 								);
 							}
 
-							const secondaryTagMatch = secondaryTopic.topicTag && header.tags.some(tag => {
+							const secondaryTagMatch = secondaryTopic.topicTag && header.tags?.some(tag => {
 								const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
 								return normalizedTag === secondaryTopic.topicTag;
 							});
 
-							const secondaryInHeader = secondaryKeywordMatch || secondaryTagMatch;
-
-							if (secondaryInHeader) {
-								headers.push({ record, header });
+							if (secondaryKeywordMatch || secondaryTagMatch) {
+								const groupKey = `${file.filePath}::${header.text}`;
+								if (!headerGroups.has(groupKey)) {
+									headerGroups.set(groupKey, {
+										file,
+										headerText: header.text,
+										headerLevel: headerLevel!.level,
+										entries: []
+									});
+								}
+								headerGroups.get(groupKey)!.entries.push(entry);
 							}
 						}
-
-						if (header.children) {
-							checkHeaders(header.children);
-						}
 					}
-				};
-
-				checkHeaders(record.headers);
+				}
 			}
 		} else {
 			// Single topic logic: keyword OR tag in header
-			// FIXED: Check ALL files - headers have independent tags/keywords
 			const topic = secondaryTopic || primaryTopic;
 			if (topic) {
-				for (const record of parsedRecords) {
-					const checkHeaders = (headerList: RecordHeader[]) => {
-						for (const header of headerList) {
+				for (const file of parsedFiles) {
+					for (const entry of file.entries) {
+						const headerLevels = [
+							entry.h1 ? { level: 1, info: entry.h1 } : null,
+							entry.h2 ? { level: 2, info: entry.h2 } : null,
+							entry.h3 ? { level: 3, info: entry.h3 } : null
+						].filter(h => h !== null);
+
+						for (const headerLevel of headerLevels) {
+							const header = headerLevel!.info;
 							if (header.text) {
 								// Check if topic keyword is in header.keywords array
 								let keywordMatch = false;
 								if (topic.topicKeyword && header.keywords) {
-									keywordMatch = header.keywords.some(kw =>
+									keywordMatch = header.keywords?.some(kw =>
 										kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
 									);
 								}
 
 								// Check if header tags include the topic tag
-								const tagMatch = topic.topicTag && header.tags.some(tag => {
+								const tagMatch = topic.topicTag && header.tags?.some(tag => {
 									const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
 									return normalizedTag === topic.topicTag;
 								});
 
 								if (keywordMatch || tagMatch) {
-									headers.push({ record, header });
+									const groupKey = `${file.filePath}::${header.text}`;
+									if (!headerGroups.has(groupKey)) {
+										headerGroups.set(groupKey, {
+											file,
+											headerText: header.text,
+											headerLevel: headerLevel!.level,
+											entries: []
+										});
+									}
+									headerGroups.get(groupKey)!.entries.push(entry);
 								}
 							}
-
-							if (header.children) {
-								checkHeaders(header.children);
-							}
 						}
-					};
-
-					checkHeaders(record.headers);
+					}
 				}
 			}
 		}
 
-		if (headers.length === 0) {
+		if (headerGroups.size === 0) {
 			container.createEl('div', {
 				text: 'No headers found',
 				cls: 'kh-widget-filter-empty'
@@ -767,9 +788,14 @@ Examples:
 			return;
 		}
 
-		for (const { record, header } of headers) {
+		for (const { file, headerText, headerLevel, entries } of headerGroups.values()) {
+			// Get header info from first entry
+			const firstEntry = entries[0];
+			const headerInfo = headerLevel === 1 ? firstEntry.h1 : headerLevel === 2 ? firstEntry.h2 : firstEntry.h3;
+			if (!headerInfo) continue;
+
 			// Create unique ID for this header
-			const headerId = `${record.filePath}:${header.level}:${header.text}`;
+			const headerId = `${file.filePath}:${headerLevel}:${headerText}`;
 			const isExpanded = this.expandedHeaders.has(headerId);
 
 			// Header group container
@@ -811,19 +837,19 @@ Examples:
 
 			// Filename (truncated)
 			headerContent.createEl('span', {
-				text: truncateFileName(record.fileName),
+				text: truncateFileName(getFileNameFromPath(file.filePath)),
 				cls: 'kh-header-filename'
 			}).style.fontWeight = 'bold';
 
 			// Separator
-			if (header.keywords && header.keywords.length > 0) {
+			if (headerInfo.keywords && headerInfo.keywords.length > 0) {
 				headerContent.createEl('span', { text: '::' }).style.opacity = '0.5';
 
 				// Render keyword icons
-				header.keywords.forEach((kw, idx) => {
+				headerInfo.keywords.forEach((kw, idx) => {
 					const mark = headerContent.createEl('mark', { cls: `kh-icon ${kw}` });
 					mark.innerHTML = '&nbsp;';
-					if (header.keywords && idx < header.keywords.length - 1) {
+					if (headerInfo.keywords && idx < headerInfo.keywords.length - 1) {
 						headerContent.createEl('span', { text: ' ' });
 					}
 				});
@@ -833,13 +859,13 @@ Examples:
 
 			// Header text
 			headerContent.createEl('span', {
-				text: header.text || '',
+				text: headerInfo.text || '',
 				cls: 'kh-header-text'
 			});
 
 			// Tags
-			if (header.tags && header.tags.length > 0) {
-				header.tags.forEach(tag => {
+			if (headerInfo.tags && headerInfo.tags.length > 0) {
+				headerInfo.tags.forEach(tag => {
 					const tagEl = headerContent.createEl('span', {
 						text: tag.startsWith('#') ? tag : '#' + tag,
 						cls: 'kh-header-tag'
@@ -851,14 +877,14 @@ Examples:
 			}
 
 			headerContent.addEventListener('click', () => {
-				const file = this.app.vault.getAbstractFileByPath(record.filePath);
+				const obsidianFile = this.app.vault.getAbstractFileByPath(file.filePath);
 				if (file) {
 					// Try to find line number from cache
-					const cache = this.app.metadataCache.getFileCache(file as any);
+					const cache = this.app.metadataCache.getFileCache(obsidianFile as any);
 					let lineNumber: number | undefined;
 					if (cache && cache.headings) {
 						const cacheHeading = cache.headings.find(h => {
-							return h.level === header.level && h.heading.toLowerCase().includes(header.text!.toLowerCase());
+							return h.level === headerLevel && h.heading.toLowerCase().includes(headerInfo.text!.toLowerCase());
 						});
 						if (cacheHeading) {
 							lineNumber = cacheHeading.position.start.line;
@@ -866,20 +892,20 @@ Examples:
 					}
 
 					if (lineNumber !== undefined) {
-						this.app.workspace.openLinkText('', record.filePath, false, {
+						this.app.workspace.openLinkText('', file.filePath, false, {
 							eState: { line: lineNumber }
 						});
 					} else {
-						this.app.workspace.getLeaf().openFile(file as any);
+						this.app.workspace.getLeaf().openFile(obsidianFile as any);
 					}
 				}
 			});
 
 			// Show entries if expanded
-			if (isExpanded && header.entries && header.entries.length > 0) {
+			if (isExpanded && entries && entries.length > 0) {
 				const entriesContainer = headerGroup.createDiv({ cls: 'kh-widget-filter-entries' });
 
-				for (const entry of header.entries) {
+				for (const entry of entries) {
 					if (entry.type === 'keyword' && entry.keywords && entry.keywords.length > 0) {
 						// Resolve which keyword provides the icon based on combinePriority
 						const iconKeywords = this.resolveIconKeywords(entry.keywords);
@@ -900,7 +926,7 @@ Examples:
 						await KHEntry.renderKeywordEntry(
 							entryItem,
 							entry,
-							record,
+					file,
 							this.plugin,
 							true // compact mode for matrix
 						);
@@ -909,8 +935,8 @@ Examples:
 						// Make entry clickable - navigate to line in source file
 						entryItem.style.cursor = 'pointer';
 						entryItem.addEventListener('click', async () => {
-							const file = this.app.vault.getAbstractFileByPath(record.filePath);
-							if (file && entry.lineNumber !== undefined) {
+							const obsidianFile = this.app.vault.getAbstractFileByPath(file.filePath);
+							if (obsidianFile && entry.lineNumber !== undefined) {
 								// Open the file (or focus if already open)
 								const leaf = this.app.workspace.getLeaf(false);
 								await leaf.openFile(file as any, {
@@ -940,7 +966,7 @@ Examples:
 						MarkdownRenderer.renderMarkdown(
 							codeMarkdown,
 							entryItem,
-							record.filePath,
+							file.filePath,
 							this
 						);
 
@@ -948,8 +974,8 @@ Examples:
 						// Make entry clickable - navigate to line in source file
 						entryItem.style.cursor = 'pointer';
 						entryItem.addEventListener('click', async () => {
-							const file = this.app.vault.getAbstractFileByPath(record.filePath);
-							if (file && entry.lineNumber !== undefined) {
+							const obsidianFile = this.app.vault.getAbstractFileByPath(file.filePath);
+							if (obsidianFile && entry.lineNumber !== undefined) {
 								// Open the file (or focus if already open)
 								const leaf = this.app.workspace.getLeaf(false);
 								await leaf.openFile(file as any, {
@@ -981,7 +1007,7 @@ Examples:
 	 * Render record filter results
 	 * Supports W: syntax for WHERE clause (file filtering)
 	 */
-	private async renderRecordFilterResults(container: HTMLElement, parsedRecords: ParsedRecord[]): Promise<void> {
+	private async renderRecordFilterResults(container: HTMLElement, parsedFiles: ParsedFile[]): Promise<void> {
 		try {
 			// Matrix expressions are already in FilterParser syntax (placeholders expanded)
 			// Only transform if expression doesn't look like FilterParser syntax (no dots for keywords, no # for tags)
@@ -1019,33 +1045,32 @@ Examples:
 			const selectCompiled = FilterParser.compile(selectExpr);
 			const whereCompiled = whereExpr ? FilterParser.compile(whereExpr) : null;
 
-			const matchingRecords: { entry: RecordEntry; record: ParsedRecord }[] = [];
+			const matchingFiles: { entry: FlatEntry; file: ParsedFile }[] = [];
 
-			for (const parsedRecord of parsedRecords) {
-				const results = this.parsedRecordToContexts(parsedRecord);
-				for (const { context, entry, record } of results) {
-					// First apply WHERE clause (if present)
-					if (whereCompiled) {
-						const whereMatches = FilterParser.evaluate(whereCompiled.ast, context, whereCompiled.modifiers);
-						if (!whereMatches) {
-							continue; // Doesn't match WHERE clause, skip
-						}
-					}
-
-					// If showAll is active, ignore SELECT clause and show all matching WHERE
-					if (this.showAll && whereCompiled) {
-						matchingRecords.push({ entry, record });
-						continue;
-					}
-
-					// Then apply SELECT clause
-					if (FilterParser.evaluate(selectCompiled.ast, context, selectCompiled.modifiers)) {
-						matchingRecords.push({ entry, record });
+for (const file of parsedFiles) {
+			for (const entry of file.entries) {
+				// First apply WHERE clause (if present)
+				if (whereCompiled) {
+					const whereMatches = FilterParser.evaluateFlatEntry(whereCompiled.ast, entry, HighlightSpaceRepeatPlugin.settings.categories, whereCompiled.modifiers);
+					if (!whereMatches) {
+						continue; // Doesn't match WHERE clause, skip
 					}
 				}
-			}
 
-			if (matchingRecords.length === 0) {
+				// If showAll is active, ignore SELECT clause and show all matching WHERE
+				if (this.showAll && whereCompiled) {
+					matchingFiles.push({ entry, file });
+					continue;
+				}
+
+				// Then apply SELECT clause
+				if (FilterParser.evaluateFlatEntry(selectCompiled.ast, entry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers)) {
+					matchingFiles.push({ entry, file });
+				}
+			}
+		}
+
+			if (matchingFiles.length === 0) {
 				container.createEl('div', {
 					text: 'No records found',
 					cls: 'kh-widget-filter-empty'
@@ -1054,73 +1079,63 @@ Examples:
 			}
 
 			// No limit on results - show all matching entries
-			let limitedRecords = matchingRecords;
+			let limitedFiles = matchingFiles;
 
 			// Apply topRecordOnly filter if enabled - remove records where match is only in sub-items
 			if (this.topRecordOnly && this.widgetFilterExpression) {
-				limitedRecords = limitedRecords.filter(({ entry, record }) => {
+				limitedFiles = limitedFiles.filter(({ entry, file }) => {
 					// Keep codeblocks - they are always top-level entries
 					if (entry.type === 'codeblock') {
 						return true;
 					}
 					// For keyword entries, check if SELECT matches using ONLY top-level keywords
-					// Build a context with only entry-level keywords (no subitems)
-					const topLevelContext: FilterMatchContext = {
-						filePath: record.filePath,
-						fileName: record.fileName,
-						tags: record.tags.map(tag => tag.startsWith('#') ? tag : '#' + tag),
-						keywords: entry.keywords || [],
-						code: entry.text || '',
-						languages: [],
-						auxiliaryKeywords: [],
-						keywordData: { categories: HighlightSpaceRepeatPlugin.settings.categories }
+					// Create a copy of entry with only top-level keywords (no subitems)
+					const topLevelEntry: FlatEntry = {
+						...entry,
+						keywords: entry.keywords || []
+						// subItems are ignored for top-level matching
 					};
 					// Re-evaluate SELECT clause with top-level keywords only
-					return FilterParser.evaluate(selectCompiled.ast, topLevelContext, selectCompiled.modifiers);
+					return FilterParser.evaluateFlatEntry(selectCompiled.ast, topLevelEntry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers);
 				});
 			}
 
 			// Apply trim filter if enabled - filter sub-items to only those matching SELECT clause
 			if (this.trimSubItems) {
-				limitedRecords = limitedRecords.map(({ entry, record }) => {
+				limitedFiles = limitedFiles.map(({ entry, file }) => {
 					if (entry.subItems && entry.subItems.length > 0) {
 						// Filter sub-items to only those matching the SELECT clause
 						const filteredSubItems = entry.subItems.filter(subItem => {
 							if (!subItem.keywords || subItem.keywords.length === 0) {
 								return false;
 							}
-							// Build context for this subitem
-							const subItemContext: FilterMatchContext = {
-								filePath: record.filePath,
-								fileName: record.fileName,
-								tags: record.tags.map(tag => tag.startsWith('#') ? tag : '#' + tag),
+							// Create a FlatEntry for this subitem with its own keywords
+							const subItemEntry: FlatEntry = {
+								...entry,
 								keywords: subItem.keywords,
-								code: subItem.content || '',
-								languages: [],
-								auxiliaryKeywords: [],
-								keywordData: { categories: HighlightSpaceRepeatPlugin.settings.categories }
+								text: subItem.content || ''
 							};
 							// Check if this subitem matches the SELECT clause
-							return FilterParser.evaluate(selectCompiled.ast, subItemContext, selectCompiled.modifiers);
+							return FilterParser.evaluateFlatEntry(selectCompiled.ast, subItemEntry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers);
 						});
 
 						return {
 							entry: { ...entry, subItems: filteredSubItems },
-							record
+							file
 						};
 					}
-					return { entry, record };
+					return { entry, file };
 				});
 			}
 
 			// Group records by file
-			const recordsByFile = new Map<string, Array<{ entry: RecordEntry; record: ParsedRecord }>>();
-			limitedRecords.forEach(({ entry, record }) => {
-				const filePath = record.filePath;
+			const recordsByFile = new Map<string, Array<{ entry: ParsedEntry; file: ParsedFile }>>();
+			limitedFiles.forEach(({ entry, file }) => {
+				const filePath = file.filePath;
 				if (!recordsByFile.has(filePath)) {
 					recordsByFile.set(filePath, []);
 				}
-				recordsByFile.get(filePath)!.push({ entry, record });
+				recordsByFile.get(filePath)!.push({ entry, file });
 			});
 
 			// Render grouped by file
@@ -1129,7 +1144,7 @@ Examples:
 				const fileGroup = container.createDiv({ cls: 'kh-widget-filter-file-group' });
 				const fileHeader = fileGroup.createDiv({ cls: 'kh-widget-filter-file-header' });
 				fileHeader.createEl('span', {
-					text: entries[0].record.fileName,
+					text: getFileNameFromPath(filePath),
 					cls: 'kh-widget-filter-file-name'
 				});
 				fileHeader.createEl('span', {
@@ -1141,7 +1156,7 @@ Examples:
 				const entriesContainer = fileGroup.createDiv({ cls: 'kh-widget-filter-entries' });
 
 				// Render all entries in PARALLEL - NO async in map, return promises directly
-				await Promise.all(entries.map(({ entry, record }) => {
+				await Promise.all(entries.map(({ entry, file }) => {
 					if (entry.type === 'keyword' && entry.keywords && entry.keywords.length > 0) {
 						// Resolve which keyword provides the icon based on combinePriority
 						const iconKeywords = this.resolveIconKeywords(entry.keywords);
@@ -1162,8 +1177,8 @@ Examples:
 						// Make entry clickable - navigate to line in source file
 						entryItem.style.cursor = 'pointer';
 						entryItem.addEventListener('click', async () => {
-							const file = this.app.vault.getAbstractFileByPath(record.filePath);
-							if (file && entry.lineNumber !== undefined) {
+							const obsidianFile = this.app.vault.getAbstractFileByPath(file.filePath);
+							if (obsidianFile && entry.lineNumber !== undefined) {
 								// Open the file (or focus if already open)
 								const leaf = this.app.workspace.getLeaf(false);
 								await leaf.openFile(file as any, {
@@ -1191,7 +1206,7 @@ Examples:
 						return KHEntry.renderKeywordEntry(
 							entryItem,
 							entry,
-							record,
+					file,
 							this.plugin,
 							true // compact mode for matrix
 						);
@@ -1204,7 +1219,7 @@ Examples:
 						MarkdownRenderer.renderMarkdown(
 							codeMarkdown,
 							entryItem,
-							record.filePath,
+							file.filePath,
 							this
 						);
 
@@ -1212,8 +1227,8 @@ Examples:
 						// Make entry clickable - navigate to line in source file
 						entryItem.style.cursor = 'pointer';
 						entryItem.addEventListener('click', async () => {
-							const file = this.app.vault.getAbstractFileByPath(record.filePath);
-							if (file && entry.lineNumber !== undefined) {
+							const obsidianFile = this.app.vault.getAbstractFileByPath(file.filePath);
+							if (obsidianFile && entry.lineNumber !== undefined) {
 								// Open the file (or focus if already open)
 								const leaf = this.app.workspace.getLeaf(false);
 								await leaf.openFile(file as any, {
@@ -1251,7 +1266,7 @@ Examples:
 	/**
 	 * Render orphan files list (files with ONLY subject tag, no topic tags)
 	 */
-	private async renderOrphanFiles(orphanFiles: ParsedRecord[]): Promise<void> {
+	private async renderOrphanFiles(orphanFiles: ParsedFile[]): Promise<void> {
 		// Find or create filter section
 		let filterSection = this.containerEl.querySelector('.kh-widget-filter') as HTMLElement;
 		if (!filterSection) {
@@ -1287,17 +1302,17 @@ Examples:
 		}).style.fontWeight = 'bold';
 
 		// Render each orphan file as a clickable item (reuse existing file rendering)
-		orphanFiles.forEach(record => {
+		orphanFiles.forEach(file => {
 			const fileItem = resultsContainer.createDiv({ cls: 'kh-widget-filter-item' });
 			fileItem.createEl('span', {
-				text: record.fileName,
+				text: getFileNameFromPath(file.filePath),
 				cls: 'kh-widget-filter-item-name'
 			});
 
 			// Show file tags
-			if (record.tags && record.tags.length > 0) {
+			if (file.tags && file.tags.length > 0) {
 				const tagsSpan = fileItem.createEl('span', {
-					text: ` [${record.tags.join(', ')}]`,
+					text: ` [${file.tags.join(', ')}]`,
 					cls: 'kh-widget-filter-item-tags'
 				});
 				tagsSpan.style.fontSize = '0.85em';
@@ -1306,9 +1321,9 @@ Examples:
 			}
 
 			fileItem.addEventListener('click', () => {
-				const file = this.app.vault.getAbstractFileByPath(record.filePath);
+				const obsidianFile = this.app.vault.getAbstractFileByPath(file.filePath);
 				if (file) {
-					this.app.workspace.getLeaf().openFile(file as any);
+					this.app.workspace.getLeaf().openFile(obsidianFile as any);
 				}
 			});
 		});
@@ -1498,29 +1513,29 @@ Examples:
 		event: MouseEvent
 	): Promise<void> {
 		const tags = this.getTags(subject, secondaryTopic, primaryTopic, includesSubjectTag);
-		const parsedRecords = await this.loadParsedRecords();
-		const matchingRecords = parsedRecords.filter(record => {
-			const fileTags = this.getRecordTags(record);
+		const parsedFiles = await this.loadParsedRecords();
+		const matchingFiles = parsedFiles.filter(file => {
+			const fileTags = this.getRecordTags(file);
 			return tags.every(tag => fileTags.includes(tag));
 		});
 
 		// Show menu with file list
 		const menu = new Menu();
 
-		if (matchingRecords.length === 0) {
+		if (matchingFiles.length === 0) {
 			menu.addItem((item) => {
 				item.setTitle('No files found');
 				item.setDisabled(true);
 			});
 		} else {
-			matchingRecords.forEach(record => {
+			matchingFiles.forEach(file => {
 				menu.addItem((item) => {
-					item.setTitle(record.fileName);
+					item.setTitle(getFileNameFromPath(file.filePath));
 					item.setIcon('file');
 					item.onClick(() => {
-						const file = this.app.vault.getAbstractFileByPath(record.filePath);
+						const obsidianFile = this.app.vault.getAbstractFileByPath(file.filePath);
 						if (file) {
-							this.app.workspace.getLeaf().openFile(file as any);
+							this.app.workspace.getLeaf().openFile(obsidianFile as any);
 						}
 					});
 				});
@@ -1532,7 +1547,7 @@ Examples:
 
 	/**
 	 * Show list of headers matching the criteria
-	 * Uses EXACT same matching logic as counting - checks ParsedRecord headers
+	 * Uses EXACT same matching logic as counting - checks ParsedFile headers
 	 * FIXED: For single topics, check ALL files - headers have independent tags/keywords
 	 */
 	private async showHeaderList(
@@ -1542,7 +1557,7 @@ Examples:
 		includesSubjectTag: boolean,
 		event: MouseEvent
 	): Promise<void> {
-		const parsedRecords = await this.loadParsedRecords();
+		const parsedFiles = await this.loadParsedRecords();
 		const menu = new Menu();
 		let hasHeaders = false;
 
@@ -1550,27 +1565,34 @@ Examples:
 		if ((secondaryTopic && !primaryTopic) || (primaryTopic && !secondaryTopic)) {
 			const topic = secondaryTopic || primaryTopic!;
 
-			for (const record of parsedRecords) {
+			for (const file of parsedFiles) {
 				// Get cache for LIVE line numbers
-				const abstractFile = this.app.vault.getAbstractFileByPath(record.filePath);
+				const abstractFile = this.app.vault.getAbstractFileByPath(file.filePath);
 				if (!abstractFile) continue;
-				const file = abstractFile as any;
-				const cache = this.app.metadataCache.getFileCache(file);
+				const obsidianFile = abstractFile as any;
+				const cache = this.app.metadataCache.getFileCache(obsidianFile);
 
-				// Use ParsedRecord headers with EXACT same logic as counting
-				const checkHeaders = (headers: RecordHeader[]) => {
-					headers.forEach(header => {
+				// Check each entry's headers (h1/h2/h3)
+				for (const entry of file.entries) {
+					const headerLevels = [
+						entry.h1 ? { level: 1, info: entry.h1 } : null,
+						entry.h2 ? { level: 2, info: entry.h2 } : null,
+						entry.h3 ? { level: 3, info: entry.h3 } : null
+					].filter(h => h !== null);
+
+					for (const headerLevel of headerLevels) {
+						const header = headerLevel!.info;
 						if (header.text) {
-							// Check if topic keyword is in header.keywords array (EXACT same as counting)
+							// Check if topic keyword is in header.keywords array
 							let keywordMatch = false;
 							if (topic.topicKeyword && header.keywords) {
-								keywordMatch = header.keywords.some(kw =>
+								keywordMatch = header.keywords?.some(kw =>
 									kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
 								);
 							}
 
-							// Check if header.tags array includes the topic tag (EXACT same as counting)
-							const tagMatch = topic.topicTag && header.tags.some(tag => {
+							// Check if header.tags array includes the topic tag
+							const tagMatch = topic.topicTag && header.tags?.some(tag => {
 								const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
 								return normalizedTag === topic.topicTag;
 							});
@@ -1583,10 +1605,9 @@ Examples:
 								if (cache && cache.headings) {
 									const cacheHeading = cache.headings.find(h => {
 										// Match by level (H1=1, H2=2, H3=3)
-										if (h.level !== header.level) return false;
+										if (h.level !== headerLevel!.level) return false;
 
 										// Match if cache heading contains our cleaned text
-										// e.g., "kro :: salala #kroxy" contains "salala"
 										return h.heading.toLowerCase().includes(header.text!.toLowerCase());
 									});
 
@@ -1596,68 +1617,68 @@ Examples:
 								}
 
 								menu.addItem((item) => {
-									item.setTitle(`${record.fileName}: ${header.text}`);
+									item.setTitle(`${getFileNameFromPath(file.filePath)}: ${header.text}`);
 									item.setIcon('heading');
 									item.onClick(() => {
 										if (lineNumber !== undefined) {
 											// Use LIVE line number from cache
-											this.app.workspace.openLinkText('', record.filePath, false, {
+											this.app.workspace.openLinkText('', file.filePath, false, {
 												eState: { line: lineNumber }
 											});
 										} else {
 											// Fallback: just open the file
-											this.app.workspace.openLinkText('', record.filePath, false);
+											this.app.workspace.openLinkText('', file.filePath, false);
 										}
 									});
 								});
 							}
 						}
-
-						// Recurse into children
-						if (header.children) {
-							checkHeaders(header.children);
-						}
-					});
-				};
-
-				checkHeaders(record.headers);
+					}
+				}
 			}
 		}
 		// For intersection: NEW LOGIC - secondary in header, primary in file
 		// For intersections, we DO need to filter by file tags first
 		else if (secondaryTopic && primaryTopic) {
 			const tags = this.getTags(subject, secondaryTopic, primaryTopic, includesSubjectTag);
-			const matchingRecords = parsedRecords.filter(record => {
-				const fileTags = this.getRecordTags(record);
+			const matchingFiles = parsedFiles.filter(file => {
+				const fileTags = this.getRecordTags(file);
 				return tags.every(tag => fileTags.includes(tag));
 			});
 
-			for (const record of matchingRecords) {
-				const fileTags = this.getRecordTags(record);
+			for (const file of matchingFiles) {
+				const fileTags = this.getRecordTags(file);
 
 				// Primary topic must be in FILE
 				const primaryInFile = primaryTopic.topicTag && fileTags.includes(primaryTopic.topicTag);
 				if (!primaryInFile) continue;
 
 				// Get cache for line numbers
-				const abstractFile = this.app.vault.getAbstractFileByPath(record.filePath);
+				const abstractFile = this.app.vault.getAbstractFileByPath(file.filePath);
 				if (!abstractFile) continue;
-				const file = abstractFile as any;
-				const cache = this.app.metadataCache.getFileCache(file);
+				const obsidianFile = abstractFile as any;
+				const cache = this.app.metadataCache.getFileCache(obsidianFile);
 
-				// Use ParsedRecord headers with EXACT same logic as counting
-				const checkHeaders = (headers: RecordHeader[]) => {
-					headers.forEach(header => {
+				// Use ParsedFile entries with EXACT same logic as counting
+				for (const entry of file.entries) {
+					const headerLevels = [
+						entry.h1 ? { level: 1, info: entry.h1 } : null,
+						entry.h2 ? { level: 2, info: entry.h2 } : null,
+						entry.h3 ? { level: 3, info: entry.h3 } : null
+					].filter(h => h !== null);
+
+					for (const headerLevel of headerLevels) {
+						const header = headerLevel!.info;
 						if (header.text) {
 							// Secondary topic must be in HEADER (keyword OR tag)
 							let secondaryKeywordMatch = false;
 							if (secondaryTopic.topicKeyword && header.keywords) {
-								secondaryKeywordMatch = header.keywords.some(kw =>
+								secondaryKeywordMatch = header.keywords?.some(kw =>
 									kw.toLowerCase() === secondaryTopic.topicKeyword!.toLowerCase()
 								);
 							}
 
-							const secondaryTagMatch = secondaryTopic.topicTag && header.tags.some(tag => {
+							const secondaryTagMatch = secondaryTopic.topicTag && header.tags?.some(tag => {
 								const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
 								return normalizedTag === secondaryTopic.topicTag;
 							});
@@ -1672,7 +1693,7 @@ Examples:
 								if (cache && cache.headings) {
 									const cacheHeading = cache.headings.find(h => {
 										// Match by level (H1=1, H2=2, H3=3)
-										if (h.level !== header.level) return false;
+										if (h.level !== headerLevel!.level) return false;
 
 										// Match if cache heading contains our cleaned text
 										// e.g., "kro :: salala #kroxy" contains "salala"
@@ -1685,31 +1706,24 @@ Examples:
 								}
 
 								menu.addItem((item) => {
-									item.setTitle(`${record.fileName}: ${header.text}`);
+									item.setTitle(`${getFileNameFromPath(file.filePath)}: ${header.text}`);
 									item.setIcon('heading');
 									item.onClick(() => {
 										if (lineNumber !== undefined) {
 											// Use LIVE line number from cache
-											this.app.workspace.openLinkText('', record.filePath, false, {
+											this.app.workspace.openLinkText('', file.filePath, false, {
 												eState: { line: lineNumber }
 											});
 										} else {
 											// Fallback: just open the file
-											this.app.workspace.openLinkText('', record.filePath, false);
+											this.app.workspace.openLinkText('', file.filePath, false);
 										}
 									});
 								});
 							}
 						}
-
-						// Recurse into children
-						if (header.children) {
-							checkHeaders(header.children);
-						}
-					});
-				};
-
-				checkHeaders(record.headers);
+					}
+				}
 			}
 		}
 
@@ -1761,7 +1775,7 @@ Examples:
 		}
 
 		// Load parsed records
-		const parsedRecords = await this.loadParsedRecords();
+		const parsedFiles = await this.loadParsedRecords();
 
 		// Use countRecordsWithExpression helper to get matching records
 		const expandedExpr = this.expandPlaceholders(topic.filterExpression, expansionContext, subject);
@@ -1780,12 +1794,12 @@ Examples:
 		}
 
 		// Collect matching records
-		const matchingRecords: { entry: RecordEntry; record: ParsedRecord }[] = [];
-		for (const parsedRecord of parsedRecords) {
-			const results = this.parsedRecordToContexts(parsedRecord);
-			for (const { context, entry, record } of results) {
-				if (FilterParser.evaluate(compiled.ast, context, compiled.modifiers)) {
-					matchingRecords.push({ entry, record });
+		const matchingFiles: { entry: FlatEntry; file: ParsedFile }[] = [];
+
+		for (const file of parsedFiles) {
+			for (const entry of file.entries) {
+				if (FilterParser.evaluateFlatEntry(compiled.ast, entry, HighlightSpaceRepeatPlugin.settings.categories, compiled.modifiers)) {
+					matchingFiles.push({ entry, file });
 				}
 			}
 		}
@@ -1793,23 +1807,23 @@ Examples:
 		// Show menu with record list
 		const menu = new Menu();
 
-		if (matchingRecords.length === 0) {
+		if (matchingFiles.length === 0) {
 			menu.addItem((item) => {
 				item.setTitle('No records found');
 				item.setDisabled(true);
 			});
 		} else {
-			matchingRecords.forEach(({ entry, record }) => {
+			matchingFiles.forEach(({ entry, file }) => {
 				menu.addItem((item) => {
 					const displayText = entry.type === 'keyword'
 						? (entry.keywords?.join(' :: ') + ' :: ' + entry.text)
 						: (entry.language ? `\`${entry.language}\`` : 'code');
-					item.setTitle(`${record.fileName}: ${displayText}`);
+					item.setTitle(`${getFileNameFromPath(file.filePath)}: ${displayText}`);
 					item.setIcon('file-text');
 					item.onClick(() => {
-						const file = this.app.vault.getAbstractFileByPath(record.filePath);
+						const obsidianFile = this.app.vault.getAbstractFileByPath(file.filePath);
 						if (file) {
-							this.app.workspace.getLeaf().openFile(file as any);
+							this.app.workspace.getLeaf().openFile(obsidianFile as any);
 						}
 					});
 				});
@@ -2097,8 +2111,8 @@ Examples:
 	/**
 	 * Load parsed records from JSON file
 	 */
-	private async loadParsedRecords(): Promise<ParsedRecord[]> {
-		const parsedRecordsPath = '.obsidian/plugins/highlight-space-repeat/app-data/parsed-records.json';
+	private async loadParsedRecords(): Promise<ParsedFile[]> {
+		const parsedRecordsPath = DATA_PATHS.PARSED_FILES;
 		const exists = await this.app.vault.adapter.exists(parsedRecordsPath);
 
 		if (!exists) {
@@ -2107,17 +2121,44 @@ Examples:
 		}
 
 		const jsonContent = await this.app.vault.adapter.read(parsedRecordsPath);
-		return JSON.parse(jsonContent);
+		const parsedFiles: ParsedFile[] = JSON.parse(jsonContent);
+
+		// Add file context references and defaults to each entry (not stored on disk, only in RAM)
+		for (const file of parsedFiles) {
+			// Default empty arrays for optional fields
+			if (!file.aliases) file.aliases = [];
+
+			for (const entry of file.entries) {
+				entry.filePath = file.filePath;
+				entry.fileTags = file.tags;
+
+				// Default empty arrays for header keywords/tags
+				if (entry.h1) {
+					if (!entry.h1.keywords) entry.h1.keywords = [];
+					if (!entry.h1.tags) entry.h1.tags = [];
+				}
+				if (entry.h2) {
+					if (!entry.h2.keywords) entry.h2.keywords = [];
+					if (!entry.h2.tags) entry.h2.tags = [];
+				}
+				if (entry.h3) {
+					if (!entry.h3.keywords) entry.h3.keywords = [];
+					if (!entry.h3.tags) entry.h3.tags = [];
+				}
+			}
+		}
+
+		return parsedFiles;
 	}
 
 	/**
 	 * Get orphan files: files with ONLY subject tag and NO topic tags
 	 * Excludes the subject file itself (e.g., "work.md" for subject "work")
 	 */
-	private async getOrphanFiles(): Promise<ParsedRecord[]> {
+	private async getOrphanFiles(): Promise<ParsedFile[]> {
 		if (!this.currentSubject || !this.currentSubject.mainTag) return [];
 
-		const parsedRecords = await this.loadParsedRecords();
+		const parsedFiles = await this.loadParsedRecords();
 		const primaryTopics = this.topics.filter(t => t.subjectId === this.currentSubject!.id && t.type === 'primary');
 		const secondaryTopics = this.topics.filter(t => t.subjectId === this.currentSubject!.id && t.type === 'secondary');
 
@@ -2133,7 +2174,7 @@ Examples:
 		const subjectName = this.currentSubject.name.toLowerCase();
 
 		// Filter orphan files
-		return parsedRecords.filter(record => {
+		return parsedFiles.filter(record => {
 			const fileTags = this.getRecordTags(record);
 
 			// Must have subject tag
@@ -2149,7 +2190,7 @@ Examples:
 			}
 
 			// Exclude file named same as subject (e.g., "work.md" for subject "work")
-			const fileName = record.fileName.toLowerCase();
+			const fileName = getFileNameFromPath(record.filePath).toLowerCase();
 			if (fileName === `${subjectName}.md` || fileName === subjectName) {
 				return false;
 			}
@@ -2180,7 +2221,7 @@ Examples:
 		await this.plugin.triggerScan();
 
 		// Load freshly parsed records
-		const parsedRecords = await this.loadParsedRecords();
+		const parsedFiles = await this.loadParsedRecords();
 
 		// Initialize matrix if it doesn't exist
 		if (!this.currentSubject.matrix) {
@@ -2191,7 +2232,7 @@ Examples:
 		if (this.currentSubject.mainTag) {
 			const cellKey1x1 = '1x1';
 			const tags = [this.currentSubject.mainTag].filter(t => t);
-			const fileCount = this.countFilesWithTags(parsedRecords, tags);
+			const fileCount = this.countFilesWithTags(parsedFiles, tags);
 
 			if (!this.currentSubject.matrix.cells[cellKey1x1]) {
 				this.currentSubject.matrix.cells[cellKey1x1] = {};
@@ -2207,14 +2248,14 @@ Examples:
 			const andMode = this.currentSubject!.matrix?.cells[cellKey]?.andMode || false;
 			const tags = this.getTagsForTopicCell(topic, andMode);
 
-			const fileCount = this.countFilesWithTags(parsedRecords, tags);
-			const headerCount = this.countHeadersForSingleTopic(parsedRecords, tags, topic);
+			const fileCount = this.countFilesWithTags(parsedFiles, tags);
+			const headerCount = this.countHeadersForSingleTopic(parsedFiles, tags, topic);
 
 			// For secondary topic cells, expand placeholders with subject's values
 			let recordCount = 0;
 			if (topic.filterExpression) {
 				// Don't remove placeholders - pass subject to expand them
-				recordCount = this.countRecordsWithExpression(parsedRecords, topic.filterExpression, null, this.currentSubject ?? undefined, andMode);
+				recordCount = this.countRecordsWithExpression(parsedFiles, topic.filterExpression, null, this.currentSubject ?? undefined, andMode);
 			}
 
 			if (!this.currentSubject!.matrix!.cells[cellKey]) {
@@ -2232,8 +2273,8 @@ Examples:
 			const andMode = this.currentSubject!.matrix?.cells[cellKey]?.andMode || false;
 			const tags = this.getTagsForTopicCell(topic, andMode);
 
-			const fileCount = this.countFilesWithTags(parsedRecords, tags);
-			const headerCount = this.countHeadersForSingleTopic(parsedRecords, tags, topic);
+			const fileCount = this.countFilesWithTags(parsedFiles, tags);
+			const headerCount = this.countHeadersForSingleTopic(parsedFiles, tags, topic);
 
 			// For single topic, remove ALL placeholders (#?, .?, `?) before counting
 			let recordCount = 0;
@@ -2251,7 +2292,7 @@ Examples:
 				expr = expr.replace(/\s*(AND|OR)\s*`\?/gi, '');
 				expr = expr.replace(/`\?\s*(AND|OR)\s*/gi, '');
 				expr = expr.replace(/`\?/g, '');
-				recordCount = this.countRecordsWithExpression(parsedRecords, expr, topic, this.currentSubject ?? undefined, andMode);
+				recordCount = this.countRecordsWithExpression(parsedFiles, expr, topic, this.currentSubject ?? undefined, andMode);
 			}
 
 			if (!this.currentSubject!.matrix!.cells[cellKey]) {
@@ -2275,11 +2316,11 @@ Examples:
 
 				// Get tags for this intersection
 				const tags = this.getTags(this.currentSubject!, secondaryTopic, primaryTopic, includesSubjectTag);
-				const fileCount = this.countFilesWithTags(parsedRecords, tags);
-				const headerCount = this.countHeadersForIntersection(parsedRecords, tags, primaryTopic, secondaryTopic);
+				const fileCount = this.countFilesWithTags(parsedFiles, tags);
+				const headerCount = this.countHeadersForIntersection(parsedFiles, tags, primaryTopic, secondaryTopic);
 				// For intersections: use PRIMARY topic's values to expand SECONDARY topic's expression
 				const recordCount = secondaryTopic.filterExpression
-					? this.countRecordsWithExpression(parsedRecords, secondaryTopic.filterExpression, primaryTopic, this.currentSubject ?? undefined, includesSubjectTag)
+					? this.countRecordsWithExpression(parsedFiles, secondaryTopic.filterExpression, primaryTopic, this.currentSubject ?? undefined, includesSubjectTag)
 					: 0;
 
 				if (!this.currentSubject!.matrix!.cells[intersectionKey]) {
@@ -2311,7 +2352,7 @@ Examples:
 	private async updateSRSButtonTooltip(button: HTMLElement): Promise<void> {
 		try {
 			const filterExpr = this.getCurrentFilterExpression();
-			const parsedRecords = await this.loadParsedRecords();
+			const parsedFiles = await this.loadParsedRecords();
 			const allCards = Object.values(this.plugin.srsManager.getDatabase().cards);
 			let filteredCards = [];
 
@@ -2320,7 +2361,7 @@ Examples:
 				if (this.currentSubject && this.currentSubject.mainTag) {
 					const subjectTag = this.currentSubject.mainTag.replace(/^#/, '');
 					for (const card of allCards) {
-						const record = parsedRecords.find((r: any) => r.filePath === card.filePath);
+						const record = parsedFiles.find((r: any) => r.filePath === card.filePath);
 						if (record) {
 							const fileTags = this.getRecordTags(record);
 							if (fileTags.includes(`#${subjectTag}`)) {
@@ -2331,13 +2372,13 @@ Examples:
 				}
 			} else {
 				// Use same filtering logic as startSRSReview
-				const matchingEntries = await this.getFilteredEntries(parsedRecords, filterExpr);
+				const matchingEntries = await this.getFilteredEntries(parsedFiles, filterExpr);
 
 				// Get SRS cards for these specific entries
-				for (const { entry, record } of matchingEntries) {
+				for (const { entry, file } of matchingEntries) {
 					if (entry.keywords && entry.keywords.length > 0) {
 						for (const keyword of entry.keywords) {
-							const cardId = `${record.filePath}::${entry.lineNumber}::${keyword}::${entry.type}`;
+							const cardId = `${file.filePath}::${entry.lineNumber}::${keyword}::${entry.type}`;
 							const card = allCards.find(c => c.cardId === cardId);
 							if (card) {
 								filteredCards.push(card);
@@ -2376,7 +2417,7 @@ Examples:
 		const filterExpr = this.getCurrentFilterExpression();
 
 		// Load parsed records
-		const parsedRecords = await this.loadParsedRecords();
+		const parsedFiles = await this.loadParsedRecords();
 
 		// Get all SRS cards
 		const allCards = Object.values(this.plugin.srsManager.getDatabase().cards);
@@ -2389,7 +2430,7 @@ Examples:
 				const subjectTag = this.currentSubject.mainTag.replace(/^#/, '');
 				// Get all cards from files with this subject tag
 				for (const card of allCards) {
-					const record = parsedRecords.find((r: any) => r.filePath === card.filePath);
+					const record = parsedFiles.find((r: any) => r.filePath === card.filePath);
 					if (record) {
 						const fileTags = this.getRecordTags(record);
 						if (fileTags.includes(`#${subjectTag}`)) {
@@ -2403,7 +2444,7 @@ Examples:
 			}
 		} else {
 			// Get filtered entries using EXACT same logic as renderRecordFilterResults
-			const matchingEntries = await this.getFilteredEntries(parsedRecords, filterExpr);
+			const matchingEntries = await this.getFilteredEntries(parsedFiles, filterExpr);
 
 			if (matchingEntries.length === 0) {
 				new Notice('No matching entries found.');
@@ -2411,11 +2452,11 @@ Examples:
 			}
 
 			// Now get SRS cards for these specific entries
-			for (const { entry, record } of matchingEntries) {
+			for (const { entry, file } of matchingEntries) {
 				if (entry.keywords && entry.keywords.length > 0) {
 					// For each keyword in the entry, check if there's an SRS card
 					for (const keyword of entry.keywords) {
-						const cardId = `${record.filePath}::${entry.lineNumber}::${keyword}::${entry.type}`;
+						const cardId = `${file.filePath}::${entry.lineNumber}::${keyword}::${entry.type}`;
 						const card = allCards.find(c => c.cardId === cardId);
 						if (card) {
 							filteredCards.push(card);
@@ -2450,9 +2491,9 @@ Examples:
 	 * Respects all filter flags: \s (trim), \t (top-only), \a (show-all)
 	 */
 	private async getFilteredEntries(
-		parsedRecords: ParsedRecord[],
+		parsedFiles: ParsedFile[],
 		filterExpression: string
-	): Promise<Array<{ entry: RecordEntry; record: ParsedRecord }>> {
+	): Promise<Array<{ entry: ParsedEntry; file: ParsedFile }>> {
 		try {
 			// EXTRACT FLAGS from expression before transformation
 			const hasTrimFlag = /\\s/.test(filterExpression);
@@ -2495,15 +2536,15 @@ Examples:
 			const selectCompiled = FilterParser.compile(selectExpr);
 			const whereCompiled = whereExpr ? FilterParser.compile(whereExpr) : null;
 
-			const matchingRecords: { entry: RecordEntry; record: ParsedRecord }[] = [];
+			const matchingFiles: { entry: FlatEntry; file: ParsedFile }[] = [];
 
 			// Filter records (same logic as renderRecordFilterResults)
-			for (const parsedRecord of parsedRecords) {
-				const results = this.parsedRecordToContexts(parsedRecord);
-				for (const { context, entry, record } of results) {
+
+			for (const file of parsedFiles) {
+				for (const entry of file.entries) {
 					// First apply WHERE clause (if present)
 					if (whereCompiled) {
-						const whereMatches = FilterParser.evaluate(whereCompiled.ast, context, whereCompiled.modifiers);
+						const whereMatches = FilterParser.evaluateFlatEntry(whereCompiled.ast, entry, HighlightSpaceRepeatPlugin.settings.categories, whereCompiled.modifiers);
 						if (!whereMatches) {
 							continue;
 						}
@@ -2511,73 +2552,63 @@ Examples:
 
 					// If showAll is active, ignore SELECT clause and show all matching WHERE
 					if (showAll && whereCompiled) {
-						matchingRecords.push({ entry, record });
+						matchingFiles.push({ entry, file });
 						continue;
 					}
 
 					// Then apply SELECT clause
-					if (FilterParser.evaluate(selectCompiled.ast, context, selectCompiled.modifiers)) {
-						matchingRecords.push({ entry, record });
+					if (FilterParser.evaluateFlatEntry(selectCompiled.ast, entry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers)) {
+						matchingFiles.push({ entry, file });
 					}
 				}
 			}
 
-			let limitedRecords = matchingRecords;
+			let limitedFiles = matchingFiles;
 
 			// Apply topRecordOnly filter if enabled (from flag OR button)
 			if (topRecordOnly && filterExpression) {
-				limitedRecords = limitedRecords.filter(({ entry, record }) => {
+				limitedFiles = limitedFiles.filter(({ entry, file }) => {
 					if (entry.type === 'codeblock') {
 						return true;
 					}
-					const topLevelContext: FilterMatchContext = {
-						filePath: record.filePath,
-						fileName: record.fileName,
-						tags: record.tags.map(tag => tag.startsWith('#') ? tag : '#' + tag),
-						keywords: entry.keywords || [],
-						code: entry.text || '',
-						languages: [],
-						auxiliaryKeywords: [],
-						keywordData: { categories: HighlightSpaceRepeatPlugin.settings.categories }
+					// Create a copy of entry with only top-level keywords (no subitems)
+					const topLevelEntry: FlatEntry = {
+						...entry,
+						keywords: entry.keywords || []
 					};
-					return FilterParser.evaluate(selectCompiled.ast, topLevelContext, selectCompiled.modifiers);
+					return FilterParser.evaluateFlatEntry(selectCompiled.ast, topLevelEntry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers);
 				});
 			}
 
 			// Apply trim filter if enabled (from flag OR button) - filter sub-items
 			if (trimSubItems) {
-				limitedRecords = limitedRecords.map(({ entry, record }) => {
+				limitedFiles = limitedFiles.map(({ entry, file }) => {
 					if (entry.subItems && entry.subItems.length > 0) {
 						// Filter sub-items to only those matching the SELECT clause
 						const filteredSubItems = entry.subItems.filter(subItem => {
 							if (!subItem.keywords || subItem.keywords.length === 0) {
 								return false;
 							}
-							// Build context for this subitem
-							const subItemContext: FilterMatchContext = {
-								filePath: record.filePath,
-								fileName: record.fileName,
-								tags: record.tags.map(tag => tag.startsWith('#') ? tag : '#' + tag),
+							// Create a FlatEntry for this subitem with its own keywords
+							const subItemEntry: FlatEntry = {
+								...entry,
 								keywords: subItem.keywords,
-								code: subItem.content || '',
-								languages: [],
-								auxiliaryKeywords: [],
-								keywordData: { categories: HighlightSpaceRepeatPlugin.settings.categories }
+								text: subItem.content || ''
 							};
 							// Check if this subitem matches the SELECT clause
-							return FilterParser.evaluate(selectCompiled.ast, subItemContext, selectCompiled.modifiers);
+							return FilterParser.evaluateFlatEntry(selectCompiled.ast, subItemEntry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers);
 						});
 
 						return {
 							entry: { ...entry, subItems: filteredSubItems },
-							record
+							file
 						};
 					}
-					return { entry, record };
+					return { entry, file };
 				});
 			}
 
-			return limitedRecords;
+			return limitedFiles;
 		} catch (error) {
 			console.error('[KHMatrixWidget] Error getting filtered entries:', error);
 			return [];
@@ -2618,7 +2649,7 @@ Examples:
 	/**
 	 * Get all tags from a parsed record (file-level tags + all header tags)
 	 */
-	private getRecordTags(record: ParsedRecord): string[] {
+	private getRecordTags(record: ParsedFile): string[] {
 		const tags = new Set<string>();
 
 		// Add file-level tags (ensure they have #)
@@ -2626,19 +2657,24 @@ Examples:
 			tags.add(tag.startsWith('#') ? tag : '#' + tag);
 		});
 
-		// Recursively collect header tags
-		const collectHeaderTags = (headers: RecordHeader[]) => {
-			for (const header of headers) {
-				header.tags.forEach(tag => {
+		// Collect tags from all entry headers (h1/h2/h3)
+		for (const entry of record.entries) {
+			if (entry.h1?.tags) {
+				entry.h1.tags.forEach(tag => {
 					tags.add(tag.startsWith('#') ? tag : '#' + tag);
 				});
-				if (header.children) {
-					collectHeaderTags(header.children);
-				}
 			}
-		};
-
-		collectHeaderTags(record.headers);
+			if (entry.h2?.tags) {
+				entry.h2.tags.forEach(tag => {
+					tags.add(tag.startsWith('#') ? tag : '#' + tag);
+				});
+			}
+			if (entry.h3?.tags) {
+				entry.h3.tags.forEach(tag => {
+					tags.add(tag.startsWith('#') ? tag : '#' + tag);
+				});
+			}
+		}
 
 		return Array.from(tags);
 	}
@@ -2646,10 +2682,10 @@ Examples:
 	/**
 	 * Count parsed records that have ALL specified tags
 	 */
-	private countFilesWithTags(parsedRecords: ParsedRecord[], tags: string[]): number {
+	private countFilesWithTags(parsedFiles: ParsedFile[], tags: string[]): number {
 		if (tags.length === 0) return 0;
 
-		return parsedRecords.filter(record => {
+		return parsedFiles.filter(record => {
 			const fileTags = this.getRecordTags(record);
 			return tags.every(tag => fileTags.includes(tag));
 		}).length;
@@ -2661,44 +2697,43 @@ Examples:
 	 * FIXED: Headers are checked across ALL files - we don't filter by file tags first
 	 * because headers have their own tags/keywords independent of file-level tags
 	 */
-	private countHeadersForSingleTopic(parsedRecords: ParsedRecord[], requiredTags: string[], topic: Topic): number {
+	private countHeadersForSingleTopic(parsedFiles: ParsedFile[], requiredTags: string[], topic: Topic): number {
 		// FIXED: Don't filter by file tags - headers have their own tags!
 		// We check ALL files and only filter at the header level
 		let count = 0;
 
-		// Recursively count matching headers
-		const countInHeaders = (headers: RecordHeader[], filePath?: string) => {
-			for (const header of headers) {
-				if (header.text) {
-					// Check if topic keyword is in header.keywords array
-					let keywordMatch = false;
-					if (topic.topicKeyword && header.keywords) {
-						keywordMatch = header.keywords.some(kw =>
-							kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
-						);
+		// Check ALL files - don't pre-filter by file tags
+		for (const file of parsedFiles) {
+			for (const entry of file.entries) {
+				const headerLevels = [
+					entry.h1 ? { level: 1, info: entry.h1 } : null,
+					entry.h2 ? { level: 2, info: entry.h2 } : null,
+					entry.h3 ? { level: 3, info: entry.h3 } : null
+				].filter(h => h !== null);
+
+				for (const headerLevel of headerLevels) {
+					const header = headerLevel!.info;
+					if (header.text) {
+						// Check if topic keyword is in header.keywords array
+						let keywordMatch = false;
+						if (topic.topicKeyword && header.keywords) {
+							keywordMatch = header.keywords?.some(kw =>
+								kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
+							);
+						}
+
+						// Check if header tags include the topic tag
+						const tagMatch = topic.topicTag && header.tags?.some(tag => {
+							const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
+							return normalizedTag === topic.topicTag;
+						});
+
+						if (keywordMatch || tagMatch) {
+							count++;
+						}
 					}
-
-					// Check if header tags include the topic tag
-					const tagMatch = topic.topicTag && header.tags.some(tag => {
-						const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
-						return normalizedTag === topic.topicTag;
-					});
-
-					if (keywordMatch || tagMatch) {
-						count++;
-					}
-				}
-
-				// Recurse into children
-				if (header.children) {
-					countInHeaders(header.children, filePath);
 				}
 			}
-		};
-
-		// Check ALL files - don't pre-filter by file tags
-		for (const record of parsedRecords) {
-			countInHeaders(record.headers, record.filePath);
 		}
 
 		return count;
@@ -2709,34 +2744,41 @@ Examples:
 	 * NEW LOGIC: Secondary topic at header level (keyword OR tag), primary topic at file level
 	 * topic1 = primaryTopic (row), topic2 = secondaryTopic (column)
 	 */
-	private countHeadersForIntersection(parsedRecords: ParsedRecord[], requiredTags: string[], topic1: Topic, topic2: Topic): number {
-		const matchingRecords = parsedRecords.filter(record => {
+	private countHeadersForIntersection(parsedFiles: ParsedFile[], requiredTags: string[], topic1: Topic, topic2: Topic): number {
+		const matchingFiles = parsedFiles.filter(record => {
 			const fileTags = this.getRecordTags(record);
 			return requiredTags.every(tag => fileTags.includes(tag));
 		});
 
 		let count = 0;
 
-		for (const record of matchingRecords) {
+		for (const record of matchingFiles) {
 			const fileTags = this.getRecordTags(record);
 
 			// Primary topic (topic1) must be in FILE
 			const primaryInFile = topic1.topicTag && fileTags.includes(topic1.topicTag);
 			if (!primaryInFile) continue;
 
-			// Recursively count matching headers where secondary topic is in header
-			const countInHeaders = (headers: RecordHeader[]) => {
-				for (const header of headers) {
+			// Count matching headers where secondary topic is in header
+			for (const entry of record.entries) {
+				const headerLevels = [
+					entry.h1 ? { level: 1, info: entry.h1 } : null,
+					entry.h2 ? { level: 2, info: entry.h2 } : null,
+					entry.h3 ? { level: 3, info: entry.h3 } : null
+				].filter(h => h !== null);
+
+				for (const headerLevel of headerLevels) {
+					const header = headerLevel!.info;
 					if (header.text) {
 						// Secondary topic (topic2) must be in HEADER (keyword OR tag)
 						let secondaryKeywordMatch = false;
 						if (topic2.topicKeyword && header.keywords) {
-							secondaryKeywordMatch = header.keywords.some(kw =>
+							secondaryKeywordMatch = header.keywords?.some(kw =>
 								kw.toLowerCase() === topic2.topicKeyword!.toLowerCase()
 							);
 						}
 
-						const secondaryTagMatch = topic2.topicTag && header.tags.some(tag => {
+						const secondaryTagMatch = topic2.topicTag && header.tags?.some(tag => {
 							const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
 							return normalizedTag === topic2.topicTag;
 						});
@@ -2747,15 +2789,8 @@ Examples:
 							count++;
 						}
 					}
-
-					// Recurse into children
-					if (header.children) {
-						countInHeaders(header.children);
-					}
 				}
-			};
-
-			countInHeaders(record.headers);
+			}
 		}
 
 		return count;
@@ -2977,7 +3012,7 @@ Examples:
 	 * Supports W: syntax for WHERE clause (file filtering)
 	 */
 	private countRecordsWithExpression(
-		parsedRecords: ParsedRecord[],
+		parsedFiles: ParsedFile[],
 		filterExpression: string,
 		primaryTopic: Topic | null,
 		subject?: Subject,
@@ -3018,8 +3053,8 @@ Examples:
 		}
 
 		// Compile expressions
-		let selectCompiled;
-		let whereCompiled;
+		let selectCompiled: import('../interfaces/FilterInterfaces').CompiledFilter;
+		let whereCompiled: import('../interfaces/FilterInterfaces').CompiledFilter | null = null;
 
 		try {
 			selectCompiled = FilterParser.compile(selectExpr);
@@ -3031,23 +3066,20 @@ Examples:
 			return 0;
 		}
 
-		// Convert ParsedRecords to FilterMatchContext and count matches
+		// Count matching entries using FlatEntry
 		let matchCount = 0;
-		for (const parsedRecord of parsedRecords) {
-			// Create contexts from this record (one context per entry/code block)
-			const results = this.parsedRecordToContexts(parsedRecord);
-
-			// Filter contexts
-			for (const { context } of results) {
+		
+		for (const file of parsedFiles) {
+			for (const entry of file.entries) {
 				// First apply WHERE clause (if present)
 				if (whereCompiled) {
-					if (!FilterParser.evaluate(whereCompiled.ast, context, whereCompiled.modifiers)) {
+					if (!FilterParser.evaluateFlatEntry(whereCompiled.ast, entry, HighlightSpaceRepeatPlugin.settings.categories, whereCompiled.modifiers)) {
 						continue; // Doesn't match WHERE clause, skip
 					}
 				}
 
 				// Then apply SELECT clause
-				if (FilterParser.evaluate(selectCompiled.ast, context, selectCompiled.modifiers)) {
+				if (FilterParser.evaluateFlatEntry(selectCompiled.ast, entry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers)) {
 					matchCount++;
 				}
 			}
@@ -3091,86 +3123,10 @@ Examples:
 	}
 
 	/**
-	 * Convert ParsedRecord to FilterMatchContext array
-	 * Creates one context per keyword entry/code block
-	 * Also returns the original entry for display purposes
-	 */
-	private parsedRecordToContexts(record: ParsedRecord): Array<{ context: FilterMatchContext; entry: RecordEntry; record: ParsedRecord }> {
-		const results: Array<{ context: FilterMatchContext; entry: RecordEntry; record: ParsedRecord }> = [];
-
-		// CRITICAL FIX: Collect ALL tags from the entire file (file-level + all headers)
-		// Tags anywhere in the file should match the WHERE clause
-		const allFileTags = new Set<string>();
-
-		// Add file-level tags with # normalization
-		record.tags.forEach(tag => {
-			const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
-			allFileTags.add(normalizedTag);
-		});
-
-		const collectAllTags = (headers: RecordHeader[]) => {
-			for (const header of headers) {
-				header.tags.forEach(tag => {
-					const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
-					allFileTags.add(normalizedTag);
-				});
-				if (header.children && header.children.length > 0) {
-					collectAllTags(header.children);
-				}
-			}
-		};
-		collectAllTags(record.headers);
-
-		const allFileTagsArray = Array.from(allFileTags);
-
-		// Process entries within headers
-		const processHeaders = (headers: RecordHeader[]) => {
-			for (const header of headers) {
-				// Process entries in this header
-				if (header.entries && header.entries.length > 0) {
-					for (const entry of header.entries) {
-						// Collect keywords from entry and all subitems
-						const allKeywords = [...(entry.keywords || [])];
-						if (entry.subItems && entry.subItems.length > 0) {
-							for (const subItem of entry.subItems) {
-								if (subItem.keywords && subItem.keywords.length > 0) {
-									allKeywords.push(...subItem.keywords);
-								}
-							}
-						}
-
-						const context: FilterMatchContext = {
-							filePath: record.filePath,
-							fileName: record.fileName,
-							tags: allFileTagsArray,  // Use ALL tags from entire file
-							keywords: allKeywords,  // Include keywords from entry and all subitems
-							code: entry.text || '',
-							languages: entry.type === 'codeblock' && entry.language ? [entry.language] : [],
-							auxiliaryKeywords: [],
-							keywordData: { categories: HighlightSpaceRepeatPlugin.settings.categories }
-						};
-
-						results.push({ context, entry, record });
-					}
-				}
-
-				// Process children recursively
-				if (header.children && header.children.length > 0) {
-					processHeaders(header.children);
-				}
-			}
-		};
-
-		processHeaders(record.headers);
-
-		return results;
-	}
-
-	/**
 	 * Check if any records for a given cell context match the filter
 	 */
 	private cellMatchesFilter(
-		parsedRecords: ParsedRecord[],
+		parsedFiles: ParsedFile[],
 		compiledFilter: ReturnType<typeof FilterParser.compile>,
 		subject: Subject,
 		secondaryTopic: Topic | null,
@@ -3181,18 +3137,15 @@ Examples:
 		const tags = this.getTags(subject, secondaryTopic, primaryTopic, includesSubjectTag);
 
 		// Filter records to those matching the cell's tags
-		const matchingRecords = parsedRecords.filter(record => {
-			const fileTags = this.getRecordTags(record);
+		const matchingFiles = parsedFiles.filter(file => {
+			const fileTags = this.getRecordTags(file);
 			return tags.every(tag => fileTags.includes(tag));
 		});
 
 		// Check if any record matches the filter expression
-		for (const record of matchingRecords) {
-			const contexts = this.parsedRecordToContexts(record);
-			for (const { context } of contexts) {
-				if (FilterParser.evaluate(compiledFilter.ast, context, compiledFilter.modifiers)) {
-					return true; // Found at least one match
-				}
+		for (const record of matchingFiles) {
+			if (fileHasMatch(record, compiledFilter)) {
+				return true; // Found at least one match
 			}
 		}
 

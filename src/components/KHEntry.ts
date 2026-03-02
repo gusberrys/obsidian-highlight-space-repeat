@@ -1,6 +1,6 @@
 import { Component, MarkdownRenderer } from 'obsidian';
 import type { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
-import type { RecordEntry, ParsedRecord, RecordSubItem } from '../interfaces/ParsedRecord';
+import type { ParsedEntry, ParsedFile, ParsedEntrySubItem } from '../interfaces/ParsedFile';
 
 /**
  * Shared component for rendering keyword records with images and quotes
@@ -50,8 +50,8 @@ export class KHEntry {
 	 */
 	static renderKeywordEntry(
 		container: HTMLElement,
-		entry: RecordEntry,
-		record: ParsedRecord,
+		entry: ParsedEntry,
+		record: ParsedFile,
 		plugin: HighlightSpaceRepeatPlugin,
 		compact: boolean = false
 	): Promise<void> {
@@ -131,7 +131,7 @@ export class KHEntry {
 	private static renderImageOnly(
 		container: HTMLElement,
 		imageMatch: RegExpMatchArray,
-		record: ParsedRecord,
+		record: ParsedFile,
 		plugin: HighlightSpaceRepeatPlugin
 	): Promise<void> {
 		const filename = imageMatch[1];
@@ -170,8 +170,8 @@ export class KHEntry {
 	 */
 	private static async renderWithBlockReference(
 		container: HTMLElement,
-		entry: RecordEntry,
-		record: ParsedRecord,
+		entry: ParsedEntry,
+		record: ParsedFile,
 		plugin: HighlightSpaceRepeatPlugin,
 		blockRefMatch: RegExpMatchArray,
 		compact: boolean
@@ -261,8 +261,8 @@ export class KHEntry {
 	 */
 	private static async renderWithMultipleBlockReferences(
 		container: HTMLElement,
-		entry: RecordEntry,
-		record: ParsedRecord,
+		entry: ParsedEntry,
+		record: ParsedFile,
 		plugin: HighlightSpaceRepeatPlugin,
 		blockRefMatches: RegExpMatchArray[],
 		compact: boolean
@@ -628,8 +628,8 @@ export class KHEntry {
 	 */
 	private static async renderNormalText(
 		container: HTMLElement,
-		entry: RecordEntry,
-		record: ParsedRecord,
+		entry: ParsedEntry,
+		record: ParsedFile,
 		plugin: HighlightSpaceRepeatPlugin,
 		compact: boolean = false
 	): Promise<void> {
@@ -714,8 +714,8 @@ export class KHEntry {
 	 */
 	private static async renderTextWithImages(
 		container: HTMLElement,
-		entry: RecordEntry,
-		record: ParsedRecord,
+		entry: ParsedEntry,
+		record: ParsedFile,
 		plugin: HighlightSpaceRepeatPlugin,
 		imageMatches: RegExpMatchArray[],
 		compact: boolean = false
@@ -790,8 +790,8 @@ export class KHEntry {
 	 */
 	private static renderTextWithQuotes(
 		container: HTMLElement,
-		entry: RecordEntry,
-		record: ParsedRecord,
+		entry: ParsedEntry,
+		record: ParsedFile,
 		plugin: HighlightSpaceRepeatPlugin,
 		compact: boolean = false
 	): void {
@@ -850,8 +850,8 @@ export class KHEntry {
 	 */
 	private static renderSubItems(
 		container: HTMLElement,
-		subItems: RecordSubItem[],
-		record: ParsedRecord,
+		subItems: ParsedEntrySubItem[],
+		record: ParsedFile,
 		plugin: HighlightSpaceRepeatPlugin
 	): Promise<void> {
 		const subItemsContainer = container.createDiv({ cls: 'kh-sub-items' });

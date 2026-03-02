@@ -1,5 +1,5 @@
 import { App, TFile } from 'obsidian';
-import type { ParsedRecord, RecordHeader, RecordEntry, RecordSubItem } from '../interfaces/ParsedRecord';
+import type { ParsedFile, ParsedHeader, ParsedEntry, ParsedEntrySubItem, FlatEntry, HeaderInfo } from '../interfaces/ParsedFile';
 
 /**
  * RecordParser - Hierarchical file parser for highlight-space-repeat
@@ -38,7 +38,7 @@ export class RecordParser {
 	 * @param aliasMap Map of alias -> main keyword (optional)
 	 * @returns Parsed file with hierarchical headers
 	 */
-	async parseFile(file: TFile, parsedKeywords: string[], aliasMap?: Map<string, string>): Promise<ParsedRecord> {
+	async parseFile(file: TFile, parsedKeywords: string[], aliasMap?: Map<string, string>): Promise<ParsedFile> {
 		const content = await this.app.vault.read(file);
 		const lines = content.split('\n');
 
@@ -67,37 +67,28 @@ export class RecordParser {
 			}
 		}
 
-		const headers: RecordHeader[] = [];
+		const flatEntries: FlatEntry[] = [];
 
 		// Track inline tags from content before any headers
 		const fileInlineTags = new Set<string>();
 
-		// Check if file contains any "pin ::" entries - if yes, create pin tab (null header)
-		const hasPinEntries = lines.some(line => {
-			const keywordMatch = line.match(/^([\w\s]+)::\s*(.*)$/);
-			if (keywordMatch) {
-				const keywordsStr = keywordMatch[1].trim();
-				const parsedKws = keywordsStr.split(/\s+/).map(k => k.toLowerCase()).filter(k => k.length > 0);
-				const resolved = this.resolveKeywords(parsedKws, aliasMap);
-				// Check if any resolved keyword is "pin"
-				return resolved.some(kw => kw === 'pin');
-			}
-			return false;
-		});
-
 		// Track whether we're inside a code block
 		let insideCodeBlock = false;
 
-		// Current header tracking - initialize with pin tab if needed
-		let currentH1: RecordHeader | null = hasPinEntries ? this.createNullHeader(0) : null;
-		let currentH2: RecordHeader | null = null;
-		let currentH3: RecordHeader | null = null;
+		// Current header context as HeaderInfo (for flat entries)
+		let currentH1Info: HeaderInfo | undefined;
+		let currentH2Info: HeaderInfo | undefined;
+		let currentH3Info: HeaderInfo | undefined;
+
+		// Header context for first-list entries (parent headers only)
+		let firstListH1Info: HeaderInfo | undefined;
+		let firstListH2Info: HeaderInfo | undefined;
+		let firstListH3Info: HeaderInfo | undefined;
 
 		// Track first list after header with keywords
 		let firstListAfterKeywordHeader: string[] | null = null;
 		let hasSeenContentAfterHeader = false;
-		let firstListHeaderEntry: RecordEntry | null = null;
-		let firstListTargetHeader: RecordHeader | null = null;
+		let firstListHeaderEntry: ParsedEntry | null = null;
 		let firstListHeaderLineNumber: number | null = null;
 
 		let i = 0;
@@ -111,147 +102,146 @@ export class RecordParser {
 				const headerContent = headerMatch[2];
 
 				if (level === 1) {
-			// Finalize any pending first-list header entry before saving headers
-			if (firstListHeaderEntry && firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0 && firstListTargetHeader) {
-				firstListTargetHeader.entries.push(firstListHeaderEntry);
-				firstListHeaderEntry = null;
-				firstListTargetHeader = null;
-			}
-
-					// Save all pending headers before creating new H1
-					if (currentH3 && currentH2) {
-						if (!currentH2.children) currentH2.children = [];
-						currentH2.children.push(currentH3);
-					}
-					if (currentH2 && currentH1) {
-						if (!currentH1.children) currentH1.children = [];
-						currentH1.children.push(currentH2);
-					}
-					if (currentH1) {
-						headers.push(currentH1);
-					}
-
-					// Create new H1
-					currentH1 = this.parseHeader(headerContent, 1, aliasMap);
-					currentH2 = null;
-					currentH3 = null;
-
-					// Track if header has keywords for first-list conversion
-					if (currentH1.keywords && currentH1.keywords.length > 0) {
-						firstListAfterKeywordHeader = currentH1.keywords;
-						hasSeenContentAfterHeader = false;
-						// Create entry for keyword header
-						firstListHeaderEntry = {
-							type: 'keyword',
-							lineNumber: i + 1,
-							text: currentH1.text || '',
-							keywords: currentH1.keywords,
-							subItems: []
-						};
-						firstListTargetHeader = currentH1;
-						firstListHeaderLineNumber = i + 1;
-					} else {
-						firstListAfterKeywordHeader = null;
-						hasSeenContentAfterHeader = false;
-						firstListHeaderEntry = null;
-						firstListTargetHeader = null;
-						firstListHeaderLineNumber = null;
-					}
-
-				} else if (level === 2) {
-			// Finalize any pending first-list header entry before saving headers
-			if (firstListHeaderEntry && firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0 && firstListTargetHeader) {
-				firstListTargetHeader.entries.push(firstListHeaderEntry);
-				firstListHeaderEntry = null;
-				firstListTargetHeader = null;
-			}
-
-					// Save previous H3 and H2 before creating new H2
-					if (currentH3 && currentH2) {
-						if (!currentH2.children) currentH2.children = [];
-						currentH2.children.push(currentH3);
-					}
-					if (currentH2 && currentH1) {
-						if (!currentH1.children) currentH1.children = [];
-						currentH1.children.push(currentH2);
-					}
-
-					// Create new H2
-					if (!currentH1) {
-						// Create implicit null H1 if H2 appears without H1
-						currentH1 = this.createNullHeader(1);
-					}
-					currentH2 = this.parseHeader(headerContent, 2, aliasMap);
-					currentH3 = null;
-
-					// Track if header has keywords for first-list conversion
-					if (currentH2.keywords && currentH2.keywords.length > 0) {
-						firstListAfterKeywordHeader = currentH2.keywords;
-						hasSeenContentAfterHeader = false;
-						// Create entry for keyword header
-						firstListHeaderEntry = {
-							type: 'keyword',
-							lineNumber: i + 1,
-							text: currentH2.text || '',
-							keywords: currentH2.keywords,
-							subItems: []
-						};
-						firstListTargetHeader = currentH2;
-						firstListHeaderLineNumber = i + 1;
-					} else {
-						firstListAfterKeywordHeader = null;
-						hasSeenContentAfterHeader = false;
-						firstListHeaderEntry = null;
-						firstListTargetHeader = null;
-						firstListHeaderLineNumber = null;
-					}
-
-				} else if (level === 3) {
-			// Finalize any pending first-list header entry before saving headers
-			if (firstListHeaderEntry && firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0 && firstListTargetHeader) {
-				firstListTargetHeader.entries.push(firstListHeaderEntry);
-				firstListHeaderEntry = null;
-				firstListTargetHeader = null;
-			}
-
-					// Save previous H3 if exists
-					if (currentH3 && currentH2) {
-						if (!currentH2.children) currentH2.children = [];
-						currentH2.children.push(currentH3);
-					}
-
-					// Create new H3
-					if (!currentH2) {
-						// Create implicit null H2 if H3 appears without H2
-						if (!currentH1) {
-							currentH1 = this.createNullHeader(1);
-						}
-						currentH2 = this.createNullHeader(2);
-					}
-					currentH3 = this.parseHeader(headerContent, 3, aliasMap);
-
-					// Track if header has keywords for first-list conversion
-					if (currentH3.keywords && currentH3.keywords.length > 0) {
-						firstListAfterKeywordHeader = currentH3.keywords;
-						hasSeenContentAfterHeader = false;
-						// Create entry for keyword header
-						firstListHeaderEntry = {
-							type: 'keyword',
-							lineNumber: i + 1,
-							text: currentH3.text || '',
-							keywords: currentH3.keywords,
-							subItems: []
-						};
-						firstListTargetHeader = currentH3;
-						firstListHeaderLineNumber = i + 1;
-					} else {
-						firstListAfterKeywordHeader = null;
-						hasSeenContentAfterHeader = false;
-						firstListHeaderEntry = null;
-						firstListTargetHeader = null;
-						firstListHeaderLineNumber = null;
-					}
+				// Finalize any pending first-list header entry
+				if (firstListHeaderEntry && firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0) {
+					const flatEntry = this.createFlatEntry(firstListHeaderEntry,
+						firstListH1Info,
+						firstListH2Info,
+						firstListH3Info
+					);
+					flatEntries.push(flatEntry);
+					firstListHeaderEntry = null;
 				}
+
+				// Parse new H1 header
+				const h1Header = this.parseHeader(headerContent, 1, aliasMap);
+
+				// Update header context for flat entries
+				currentH1Info = h1Header.text ? {
+					text: h1Header.text,
+					tags: h1Header.tags,
+					keywords: h1Header.keywords || []
+				} : undefined;
+				currentH2Info = undefined;
+				currentH3Info = undefined;
+
+				// Track if header has keywords for first-list conversion
+				if (h1Header.keywords && h1Header.keywords.length > 0) {
+					firstListAfterKeywordHeader = h1Header.keywords;
+					hasSeenContentAfterHeader = false;
+					// Create entry for keyword header
+					firstListHeaderEntry = {
+						type: 'keyword',
+						lineNumber: i + 1,
+						text: h1Header.text || '',
+						keywords: h1Header.keywords,
+						subItems: []
+					};
+					firstListHeaderLineNumber = i + 1;
+					// H1 entries have no parent headers
+					firstListH1Info = undefined;
+					firstListH2Info = undefined;
+					firstListH3Info = undefined;
+				} else {
+					firstListAfterKeywordHeader = null;
+					hasSeenContentAfterHeader = false;
+					firstListHeaderEntry = null;
+					firstListHeaderLineNumber = null;
+				}
+
+			} else if (level === 2) {
+				// Finalize any pending first-list header entry
+				if (firstListHeaderEntry && firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0) {
+					const flatEntry = this.createFlatEntry(firstListHeaderEntry,
+						firstListH1Info,
+						firstListH2Info,
+						firstListH3Info
+					);
+					flatEntries.push(flatEntry);
+					firstListHeaderEntry = null;
+				}
+
+				// Parse new H2 header
+				const h2Header = this.parseHeader(headerContent, 2, aliasMap);
+
+				// Update header context for flat entries
+				currentH2Info = h2Header.text ? {
+					text: h2Header.text,
+					tags: h2Header.tags,
+					keywords: h2Header.keywords || []
+				} : undefined;
+				currentH3Info = undefined;
+
+				// Track if header has keywords for first-list conversion
+				if (h2Header.keywords && h2Header.keywords.length > 0) {
+					firstListAfterKeywordHeader = h2Header.keywords;
+					hasSeenContentAfterHeader = false;
+					// Create entry for keyword header
+					firstListHeaderEntry = {
+						type: 'keyword',
+						lineNumber: i + 1,
+						text: h2Header.text || '',
+						keywords: h2Header.keywords,
+						subItems: []
+					};
+					firstListHeaderLineNumber = i + 1;
+					// H2 entries have H1 parent (if it exists)
+					firstListH1Info = currentH1Info;
+					firstListH2Info = undefined;
+					firstListH3Info = undefined;
+				} else {
+					firstListAfterKeywordHeader = null;
+					hasSeenContentAfterHeader = false;
+					firstListHeaderEntry = null;
+					firstListHeaderLineNumber = null;
+				}
+
+			} else if (level === 3) {
+				// Finalize any pending first-list header entry
+				if (firstListHeaderEntry && firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0) {
+					const flatEntry = this.createFlatEntry(firstListHeaderEntry,
+						firstListH1Info,
+						firstListH2Info,
+						firstListH3Info
+					);
+					flatEntries.push(flatEntry);
+					firstListHeaderEntry = null;
+				}
+
+				// Parse new H3 header
+				const h3Header = this.parseHeader(headerContent, 3, aliasMap);
+
+				// Update header context for flat entries
+				currentH3Info = h3Header.text ? {
+					text: h3Header.text,
+					tags: h3Header.tags,
+					keywords: h3Header.keywords || []
+				} : undefined;
+
+				// Track if header has keywords for first-list conversion
+				if (h3Header.keywords && h3Header.keywords.length > 0) {
+					firstListAfterKeywordHeader = h3Header.keywords;
+					hasSeenContentAfterHeader = false;
+					// Create entry for keyword header
+					firstListHeaderEntry = {
+						type: 'keyword',
+						lineNumber: i + 1,
+						text: h3Header.text || '',
+						keywords: h3Header.keywords,
+						subItems: []
+					};
+					firstListHeaderLineNumber = i + 1;
+					// H3 entries have H1 and H2 parents (if they exist)
+					firstListH1Info = currentH1Info;
+					firstListH2Info = currentH2Info;
+					firstListH3Info = undefined;
+				} else {
+					firstListAfterKeywordHeader = null;
+					hasSeenContentAfterHeader = false;
+					firstListHeaderEntry = null;
+					firstListHeaderLineNumber = null;
+				}
+			}
 
 				i++;
 				continue;
@@ -262,15 +252,8 @@ export class RecordParser {
 				const tagMatches = line.matchAll(/#([\w-]+)/g);
 				for (const match of tagMatches) {
 					const tag = match[1];
-					// Add to current header context, or file-level if no header
-					const targetHeader = currentH3 || currentH2 || currentH1;
-					if (targetHeader) {
-						if (!targetHeader.tags.includes(tag)) {
-							targetHeader.tags.push(tag);
-						}
-					} else {
-						fileInlineTags.add(tag);
-					}
+					// Add to file-level tags (will be included in all entries)
+					fileInlineTags.add(tag);
 				}
 			}
 
@@ -293,11 +276,17 @@ export class RecordParser {
 						// If list item has keyword syntax with non-empty content, treat as separate entry
 						if (itemContent.trim().length > 0) {
 							// Finalize the header entry if it has any subitems
-							if (firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0 && firstListTargetHeader) {
-								firstListTargetHeader.entries.push(firstListHeaderEntry);
+							if (firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0) {
+
+								// Create flat entry with parent header context
+								const flatEntry = this.createFlatEntry(firstListHeaderEntry,
+									firstListH1Info,
+									firstListH2Info,
+									firstListH3Info
+								);
+								flatEntries.push(flatEntry);
 							}
 							firstListHeaderEntry = null;
-							firstListTargetHeader = null;
 							hasSeenContentAfterHeader = true;
 
 							// Check if any keyword is in parsedKeywords list
@@ -313,24 +302,21 @@ export class RecordParser {
 							tempLines[i] = reconstructedLine;
 							const entry = await this.parseKeywordEntry(tempLines, i, itemKeywords, parsedKeywords, aliasMap);
 
-							// Add entry to appropriate header level
-							const targetHeader = currentH3 || currentH2 || currentH1;
-							if (targetHeader) {
-								targetHeader.entries.push(entry.entry);
-								i = entry.nextIndex;
-							} else {
-								// No header - create null header
-								if (!currentH1) {
-									currentH1 = this.createNullHeader(0);
-								}
-								currentH1.entries.push(entry.entry);
-								i = entry.nextIndex;
-							}
+							// Create flat entry with header context
+							const flatEntry = this.createFlatEntry(
+								entry.entry,
+								currentH1Info,
+								currentH2Info,
+								currentH3Info
+							);
+							flatEntries.push(flatEntry);
+
+							i = entry.nextIndex;
 							continue;
 						} else {
 							// List item with keyword but no content - treat as subitem
 							const listType = line.trim().startsWith('*') ? 'asterisk' : 'dash';
-							const subItem: RecordSubItem = {
+							const subItem: ParsedEntrySubItem = {
 								content: itemContent,
 								listType,
 								keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined
@@ -347,7 +333,7 @@ export class RecordParser {
 					} else {
 						// List item without keywords - treat as subitem
 						const listType = line.trim().startsWith('*') ? 'asterisk' : 'dash';
-						const subItem: RecordSubItem = {
+						const subItem: ParsedEntrySubItem = {
 							content: itemContent,
 							listType,
 							keywords: undefined
@@ -363,11 +349,17 @@ export class RecordParser {
 					}
 				} else if (line.trim() !== '') {
 					// Non-list, non-empty content seen - finalize the header entry and disable conversion
-					if (firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0 && firstListTargetHeader) {
-						firstListTargetHeader.entries.push(firstListHeaderEntry);
+					if (firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0) {
+
+						// Create flat entry with parent header context
+						const flatEntry = this.createFlatEntry(firstListHeaderEntry,
+							firstListH1Info,
+							firstListH2Info,
+							firstListH3Info
+						);
+						flatEntries.push(flatEntry);
 					}
 					firstListHeaderEntry = null;
-					firstListTargetHeader = null;
 					hasSeenContentAfterHeader = true;
 				}
 			}
@@ -376,10 +368,17 @@ export class RecordParser {
 			const keywordMatch = line.match(/^([\w\s]+)::\s*(.*)$/);
 			if (keywordMatch) {
 				// Finalize first-list header entry if exists
-				if (firstListHeaderEntry && firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0 && firstListTargetHeader) {
-					firstListTargetHeader.entries.push(firstListHeaderEntry);
+				if (firstListHeaderEntry && firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0) {
+
+					// Create flat entry with parent header context
+					const flatEntry = this.createFlatEntry(firstListHeaderEntry,
+						firstListH1Info,
+						firstListH2Info,
+						firstListH3Info
+					);
+					flatEntries.push(flatEntry);
+
 					firstListHeaderEntry = null;
-					firstListTargetHeader = null;
 				}
 				// Keyword entry seen - disable first-list conversion
 				hasSeenContentAfterHeader = true;
@@ -397,19 +396,16 @@ export class RecordParser {
 
 				const entry = await this.parseKeywordEntry(lines, i, keywords, parsedKeywords, aliasMap);
 
-				// Add entry to appropriate header level
-				const targetHeader = currentH3 || currentH2 || currentH1;
-				if (targetHeader) {
-					targetHeader.entries.push(entry.entry);
-					i = entry.nextIndex;
-				} else {
-					// No header - create null header
-					if (!currentH1) {
-						currentH1 = this.createNullHeader(0);
-					}
-					currentH1.entries.push(entry.entry);
-					i = entry.nextIndex;
-				}
+				// Create flat entry with header context
+				const flatEntry = this.createFlatEntry(
+					entry.entry,
+					currentH1Info,
+					currentH2Info,
+					currentH3Info
+				);
+				flatEntries.push(flatEntry);
+
+				i = entry.nextIndex;
 				continue;
 			}
 
@@ -417,28 +413,33 @@ export class RecordParser {
 			const codeBlockMatch = line.match(/^```(\w+)\s*$/);
 			if (codeBlockMatch) {
 				// Finalize first-list header entry if exists
-				if (firstListHeaderEntry && firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0 && firstListTargetHeader) {
-					firstListTargetHeader.entries.push(firstListHeaderEntry);
+				if (firstListHeaderEntry && firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0) {
+
+					// Create flat entry with parent header context
+					const flatEntry = this.createFlatEntry(firstListHeaderEntry,
+						firstListH1Info,
+						firstListH2Info,
+						firstListH3Info
+					);
+					flatEntries.push(flatEntry);
+
 					firstListHeaderEntry = null;
-					firstListTargetHeader = null;
 				}
 				// Code block seen - disable first-list conversion
 				hasSeenContentAfterHeader = true;
 
 				const entry = this.parseCodeBlockEntry(lines, i, codeBlockMatch[1]);
 
-				// Add to appropriate header
-				const targetHeader = currentH3 || currentH2 || currentH1;
-				if (targetHeader) {
-					targetHeader.entries.push(entry.entry);
-					i = entry.nextIndex;
-				} else {
-					if (!currentH1) {
-						currentH1 = this.createNullHeader(0);
-					}
-					currentH1.entries.push(entry.entry);
-					i = entry.nextIndex;
-				}
+				// Create flat entry with header context
+				const flatEntry = this.createFlatEntry(
+					entry.entry,
+					currentH1Info,
+					currentH2Info,
+					currentH3Info
+				);
+				flatEntries.push(flatEntry);
+
+				i = entry.nextIndex;
 				continue;
 			}
 
@@ -451,39 +452,66 @@ export class RecordParser {
 		}
 
 		// Finalize any pending first-list header entry
-		if (firstListHeaderEntry && firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0 && firstListTargetHeader) {
-			firstListTargetHeader.entries.push(firstListHeaderEntry);
+		if (firstListHeaderEntry && firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0) {
+
+			// Create flat entry with parent header context (not including the header that created this entry)
+			const flatEntry = this.createFlatEntry(firstListHeaderEntry,
+				firstListH1Info,
+				firstListH2Info,
+				firstListH3Info
+			);
+			flatEntries.push(flatEntry);
 		}
 
-		// Save remaining headers
-		if (currentH3 && currentH2) {
-			if (!currentH2.children) currentH2.children = [];
-			currentH2.children.push(currentH3);
-		}
-		if (currentH2 && currentH1) {
-			if (!currentH1.children) currentH1.children = [];
-			currentH1.children.push(currentH2);
-		}
-		if (currentH1) {
-			headers.push(currentH1);
-		}
-
-		// Combine file tags: frontmatter + inline tags from before headers
+		// Combine file tags: frontmatter + inline tags
 		const allFileTags = new Set([...tags, ...fileInlineTags]);
 
-		return {
+		const parsedFile: ParsedFile = {
 			filePath: file.path,
-			fileName: file.name,
 			tags: [...allFileTags],
 			aliases: [...new Set(aliases)],
-			headers
+			entries: flatEntries
 		};
+
+		// Add file context references to each entry (for runtime use, not stored on disk)
+		for (const entry of parsedFile.entries) {
+			entry.filePath = parsedFile.filePath;
+			entry.fileTags = parsedFile.tags;
+		}
+
+		return parsedFile;
+	}
+
+	/**
+	 * Helper to create FlatEntry from ParsedEntry with current header context
+	 * Note: File context (filePath, fileName, tags) is on ParsedFile, not duplicated in each entry
+	 */
+	private createFlatEntry(
+		entry: ParsedEntry,
+		h1?: HeaderInfo,
+		h2?: HeaderInfo,
+		h3?: HeaderInfo
+	): FlatEntry {
+		const flatEntry: FlatEntry = {
+			type: entry.type,
+			keywords: entry.keywords,
+			text: entry.text,
+			lineNumber: entry.lineNumber,
+			language: entry.language,
+			subItems: entry.subItems
+		};
+
+		if (h1) flatEntry.h1 = h1;
+		if (h2) flatEntry.h2 = h2;
+		if (h3) flatEntry.h3 = h3;
+
+		return flatEntry;
 	}
 
 	/**
 	 * Parse a header line (NEW SYNTAX: foo bar baz :: text)
 	 */
-	private parseHeader(headerContent: string, level: number, aliasMap?: Map<string, string>): RecordHeader {
+	private parseHeader(headerContent: string, level: number, aliasMap?: Map<string, string>): ParsedHeader {
 		// Check for keyword pattern: foo bar baz :: text
 		const keywordMatch = headerContent.match(/^([\w\s]+)::\s*(.*)$/);
 		let keywords: string[] | undefined;
@@ -515,7 +543,7 @@ export class RecordParser {
 	/**
 	 * Create a null header (for entries without headers)
 	 */
-	private createNullHeader(level: number): RecordHeader {
+	private createNullHeader(level: number): ParsedHeader {
 		return {
 			text: null,
 			level,
@@ -533,7 +561,7 @@ export class RecordParser {
 		keywords: string[],
 		parsedKeywords: string[],
 		aliasMap?: Map<string, string>
-	): Promise<{ entry: RecordEntry; nextIndex: number }> {
+	): Promise<{ entry: ParsedEntry; nextIndex: number }> {
 		const line = lines[startIndex];
 		const match = line.match(/^([\w\s]+)::\s*(.*)$/);
 		if (!match) {
@@ -586,7 +614,7 @@ export class RecordParser {
 		const text = textLines.join('\n').trim();
 
 		// Collect sub-items
-		const subItems: RecordSubItem[] = [];
+		const subItems: ParsedEntrySubItem[] = [];
 		let j = continuationIndex;
 
 		while (j < lines.length) {
@@ -658,7 +686,7 @@ export class RecordParser {
 					content = '';
 				}
 
-				const subItem: RecordSubItem = {
+				const subItem: ParsedEntrySubItem = {
 					content,
 					listType: 'checkbox',
 					checked,
@@ -735,7 +763,7 @@ export class RecordParser {
 					content = '';
 				}
 
-				const subItem: RecordSubItem = {
+				const subItem: ParsedEntrySubItem = {
 					content,
 					listType: 'dash',
 					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined
@@ -811,7 +839,7 @@ export class RecordParser {
 					content = '';
 				}
 
-				const subItem: RecordSubItem = {
+				const subItem: ParsedEntrySubItem = {
 					content,
 					listType: 'asterisk',
 					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined
@@ -887,7 +915,7 @@ export class RecordParser {
 					content = '';
 				}
 
-				const subItem: RecordSubItem = {
+				const subItem: ParsedEntrySubItem = {
 					content,
 					listType: 'numbered',
 					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined
@@ -993,7 +1021,7 @@ export class RecordParser {
 		lines: string[],
 		startIndex: number,
 		language: string
-	): { entry: RecordEntry; nextIndex: number } {
+	): { entry: ParsedEntry; nextIndex: number } {
 		const codeLines: string[] = [];
 		let i = startIndex + 1;
 

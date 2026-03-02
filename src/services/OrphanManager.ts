@@ -1,6 +1,6 @@
 import { App } from 'obsidian';
 import { SRSManager } from './SRSManager';
-import { ParsedRecord, RecordHeader, RecordEntry } from '../interfaces/ParsedRecord';
+import { ParsedFile, ParsedHeader, ParsedEntry } from '../interfaces/ParsedFile';
 import { ContentHasher } from './ContentHasher';
 import { SRSCardData } from '../interfaces/SRSData';
 
@@ -16,11 +16,11 @@ export class OrphanManager {
 
 	/**
 	 * Scan database for orphaned cards
-	 * Run this after parsed-records.json is regenerated
+	 * Run this after parsed-files.json is regenerated
 	 *
 	 * @param parsedRecords All parsed records from cache
 	 */
-	async detectOrphans(parsedRecords: ParsedRecord[]): Promise<void> {
+	async detectOrphans(parsedRecords: ParsedFile[]): Promise<void> {
 		console.log('[Orphan] Starting orphan detection...');
 
 		// Build index of all current entries
@@ -90,40 +90,22 @@ export class OrphanManager {
 	 * Build index of all entries from parsed records
 	 * Key format: "filePath::lineNumber::keyword::type"
 	 */
-	private buildEntryIndex(parsedRecords: ParsedRecord[]): Map<string, RecordEntry> {
-		const index = new Map<string, RecordEntry>();
+	private buildEntryIndex(parsedRecords: ParsedFile[]): Map<string, ParsedEntry> {
+		const index = new Map<string, ParsedEntry>();
 
 		for (const record of parsedRecords) {
-			this.indexRecordHeaders(record.headers, record.filePath, index);
-		}
-
-		return index;
-	}
-
-	/**
-	 * Recursively index all entries from headers
-	 */
-	private indexRecordHeaders(
-		headers: RecordHeader[],
-		filePath: string,
-		index: Map<string, RecordEntry>
-	): void {
-		for (const header of headers) {
-			// Index entries
-			for (const entry of header.entries) {
+			// Entries are already flat in record.entries
+			for (const entry of record.entries) {
 				if (entry.keywords) {
 					for (const keyword of entry.keywords) {
-						const key = `${filePath}::${entry.lineNumber}::${keyword}::${entry.type}`;
+						const key = `${record.filePath}::${entry.lineNumber}::${keyword}::${entry.type}`;
 						index.set(key, entry);
 					}
 				}
 			}
-
-			// Recurse into child headers
-			if (header.children) {
-				this.indexRecordHeaders(header.children, filePath, index);
-			}
 		}
+
+		return index;
 	}
 
 	/**
@@ -131,40 +113,19 @@ export class OrphanManager {
 	 */
 	private findFuzzyMatchInFile(
 		card: any,
-		parsedRecord: ParsedRecord | undefined
-	): RecordEntry | null {
+		parsedRecord: ParsedFile | undefined
+	): ParsedEntry | null {
 		if (!parsedRecord) {
 			return null;
 		}
 
 		// Search all entries in this file for matching content hash
-		return this.searchHeadersForHash(parsedRecord.headers, card.contentHash, card.keyword, card.type);
-	}
-
-	/**
-	 * Recursively search headers for entry with matching content hash
-	 */
-	private searchHeadersForHash(
-		headers: RecordHeader[],
-		contentHash: string,
-		keyword: string,
-		type: string
-	): RecordEntry | null {
-		for (const header of headers) {
-			for (const entry of header.entries) {
-				if (entry.type === type && entry.keywords?.includes(keyword)) {
-					const entryHash = ContentHasher.hashContent(entry.text);
-					if (entryHash === contentHash) {
-						return entry;
-					}
-				}
-			}
-
-			// Recurse into children
-			if (header.children) {
-				const found = this.searchHeadersForHash(header.children, contentHash, keyword, type);
-				if (found) {
-					return found;
+		// Entries are already flat in record.entries
+		for (const entry of parsedRecord.entries) {
+			if (entry.type === card.type && entry.keywords?.includes(card.keyword)) {
+				const entryHash = ContentHasher.hashContent(entry.text);
+				if (entryHash === card.contentHash) {
+					return entry;
 				}
 			}
 		}
@@ -216,7 +177,7 @@ export class OrphanManager {
 	 * @param parsedRecords All parsed records from cache
 	 * @returns Number of orphans reconnected
 	 */
-	async attemptReconnection(parsedRecords: ParsedRecord[]): Promise<number> {
+	async attemptReconnection(parsedRecords: ParsedFile[]): Promise<number> {
 		const database = this.srsManager.getDatabase();
 		if (!database.orphans) {
 			return 0;
@@ -235,12 +196,18 @@ export class OrphanManager {
 				continue;
 			}
 
-			const matchedEntry = this.searchHeadersForHash(
-				parsedRecord.headers,
-				orphan.contentHash,
-				orphan.keyword,
-				orphan.type
-			);
+			// Search all entries in this file for matching content hash
+			// Entries are already flat in record.entries
+			let matchedEntry: ParsedEntry | null = null;
+			for (const entry of parsedRecord.entries) {
+				if (entry.type === orphan.type && entry.keywords?.includes(orphan.keyword)) {
+					const entryHash = ContentHasher.hashContent(entry.text);
+					if (entryHash === orphan.contentHash) {
+						matchedEntry = entry;
+						break;
+					}
+				}
+			}
 
 			if (matchedEntry) {
 				// Found match! Restore orphan

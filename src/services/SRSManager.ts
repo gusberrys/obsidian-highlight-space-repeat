@@ -1,6 +1,7 @@
 import { App } from 'obsidian';
+import { DATA_PATHS } from '../shared/data-paths';
 import { SRSCardData, SRSDatabase, ReviewButton, ReviewQuality, SRSStats } from '../interfaces/SRSData';
-import { RecordEntry } from '../interfaces/ParsedRecord';
+import { ParsedEntry } from '../interfaces/ParsedFile';
 import { ContentHasher } from './ContentHasher';
 
 /**
@@ -12,8 +13,8 @@ export class SRSManager {
 	private dataPath: string;
 	private loaded: boolean = false;
 
-	constructor(private app: App) {
-		this.dataPath = '.obsidian/plugins/highlight-space-repeat/app-data/srs-data.json';
+	constructor(private app: App, pluginDir: string) {
+		this.dataPath = DATA_PATHS.SRS_DATA;
 		this.database = this.createEmptyDatabase();
 	}
 
@@ -143,7 +144,7 @@ export class SRSManager {
 		lineNumber: number,
 		keyword: string,
 		type: 'keyword' | 'codeblock',
-		entry: RecordEntry
+		entry: ParsedEntry
 	): SRSCardData {
 		const contentHash = ContentHasher.hashContent(entry.text);
 		const currentCardId = this.generateCardId(filePath, lineNumber, keyword, type);
@@ -240,7 +241,7 @@ export class SRSManager {
 		lineNumber: number,
 		keyword: string,
 		type: 'keyword' | 'codeblock',
-		entry: RecordEntry
+		entry: ParsedEntry
 	): SRSCardData {
 		const cardId = this.generateCardId(filePath, lineNumber, keyword, type);
 		const contentHash = ContentHasher.hashContent(entry.text);

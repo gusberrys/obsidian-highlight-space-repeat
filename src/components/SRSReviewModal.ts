@@ -1,8 +1,10 @@
 import { App, Modal, ButtonComponent, Notice } from 'obsidian';
+import { DATA_PATHS } from '../shared/data-paths';
 import type { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
 import { SRSCardData, ReviewButton } from '../interfaces/SRSData';
-import { RecordEntry, ParsedRecord } from '../interfaces/ParsedRecord';
+import { ParsedEntry, ParsedFile, FlatEntry } from '../interfaces/ParsedFile';
 import { KHEntry } from './KHEntry';
+import { getFileNameFromPath } from '../utils/file-helpers';
 
 /**
  * SRS Review Modal
@@ -10,8 +12,8 @@ import { KHEntry } from './KHEntry';
  */
 export class SRSReviewModal extends Modal {
 	private card: SRSCardData;
-	private entry: RecordEntry;
-	private record: ParsedRecord;
+	private entry: FlatEntry;
+	private record: ParsedFile;
 	private onReview: (button: ReviewButton) => void;
 	private isAnswerShown: boolean = false;
 	private contentContainer: HTMLElement | null = null;
@@ -20,8 +22,8 @@ export class SRSReviewModal extends Modal {
 		app: App,
 		private plugin: HighlightSpaceRepeatPlugin,
 		card: SRSCardData,
-		entry: RecordEntry,
-		record: ParsedRecord,
+		entry: FlatEntry,
+		record: ParsedFile,
 		onReview: (button: ReviewButton) => void
 	) {
 		super(app);
@@ -223,51 +225,41 @@ export class SRSReviewModal extends Modal {
 	/**
 	 * Check if entry is at top level (no meaningful header)
 	 */
-	private isEntryAtTopLevel(headers: any[], targetLineNumber: number): boolean {
-		for (const header of headers) {
-			if (header.entries) {
-				for (const entry of header.entries) {
-					if (entry.lineNumber === targetLineNumber) {
-						return !header.text || header.text.trim() === '';
-					}
-				}
-			}
-			if (header.children) {
-				const result = this.isEntryAtTopLevel(header.children, targetLineNumber);
-				if (result !== null) return result;
-			}
-		}
-		return false;
+	private isEntryAtTopLevel(entry: FlatEntry): boolean {
+		// Entry is at top level if all headers are null or have empty text
+		const h1Empty = !entry.h1 || !entry.h1.text || entry.h1.text.trim() === '';
+		const h2Empty = !entry.h2 || !entry.h2.text || entry.h2.text.trim() === '';
+		const h3Empty = !entry.h3 || !entry.h3.text || entry.h3.text.trim() === '';
+
+		return h1Empty && h2Empty && h3Empty;
 	}
 
 	/**
 	 * Find header with same keyword
 	 */
-	private findHeaderWithKeyword(headers: any[], targetLineNumber: number, keyword: string): string | null {
-		for (const header of headers) {
+	private findHeaderWithKeyword(entry: FlatEntry, keyword: string): string | null {
+		// Check each header level (h1, h2, h3) for the keyword
+		const headerLevels = [
+			entry.h3 ? { info: entry.h3 } : null,  // Check h3 first (most specific)
+			entry.h2 ? { info: entry.h2 } : null,
+			entry.h1 ? { info: entry.h1 } : null
+		].filter(h => h !== null);
+
+		for (const headerLevel of headerLevels) {
+			const header = headerLevel!.info;
 			const headerHasKeyword = header.keywords?.includes(keyword);
-			if (header.entries) {
-				for (const entry of header.entries) {
-					if (entry.lineNumber === targetLineNumber) {
-						if (headerHasKeyword && header.text) {
-							return header.text;
-						}
-						return null;
-					}
-				}
-			}
-			if (header.children) {
-				const found = this.findHeaderWithKeyword(header.children, targetLineNumber, keyword);
-				if (found) return found;
+			if (headerHasKeyword && header.text) {
+				return header.text;
 			}
 		}
+
 		return null;
 	}
 
 	/**
 	 * Process entry and all sub-items for display (recursive hiding)
 	 */
-	private processEntryForDisplay(entry: RecordEntry): RecordEntry {
+	private processEntryForDisplay(entry: FlatEntry): FlatEntry {
 		let mainText = entry.text;
 
 		// Check if entry has testable patterns
@@ -291,23 +283,23 @@ export class SRSReviewModal extends Modal {
 		// If no explicit patterns, add context (header or filename) as bold
 		if (!hasExplicitPatterns && !subItemsHavePatterns) {
 			// Check if entry is at top level
-			const atTopLevel = this.isEntryAtTopLevel(this.record.headers, entry.lineNumber);
+			const atTopLevel = this.isEntryAtTopLevel(entry);
 
 			// Check if header has same keyword
-			const headerWithKeyword = this.findHeaderWithKeyword(this.record.headers, entry.lineNumber, this.card.keyword);
+			const headerWithKeyword = this.findHeaderWithKeyword(entry, this.card.keyword);
 
 			if (headerWithKeyword) {
 				// Use header as context
 				mainText = `**${headerWithKeyword}**: ${mainText}`;
 			} else if (atTopLevel) {
 				// Use filename as context
-				const fileNameWithoutExt = this.record.fileName.replace(/\.[^/.]+$/, '');
+				const fileNameWithoutExt = getFileNameFromPath(entry.filePath!).replace(/\.[^/.]+$/, '');
 				mainText = `**${fileNameWithoutExt}**: ${mainText}`;
 			}
 		}
 
 		// Deep copy the entry with modified text
-		const displayEntry: RecordEntry = {
+		const displayEntry: FlatEntry = {
 			...entry,
 			text: this.isAnswerShown ? mainText : this.hideContent(mainText)
 		};
@@ -420,32 +412,21 @@ export class SRSReviewModal extends Modal {
 	 * Find the header that contains this entry for context
 	 */
 	private findHeaderContext(): string | null {
-		if (!this.record || !this.record.headers) {
+		if (!this.record) {
 			return null;
 		}
 
-		// Recursively search for the header containing this entry
-		const findInHeaders = (headers: any[]): string | null => {
-			for (const header of headers) {
-				if (header.entries) {
-					for (const entry of header.entries) {
-						if (entry.lineNumber === this.entry.lineNumber &&
-						    entry.keywords?.includes(this.card.keyword)) {
-							// Found the entry in this header
-							return header.text || null;
-						}
-					}
-				}
-				// Check children recursively
-				if (header.children) {
-					const found = findInHeaders(header.children);
-					if (found) return found;
-				}
-			}
-			return null;
-		};
-
-		return findInHeaders(this.record.headers);
+		// Check header levels from most specific to least specific (h3 -> h2 -> h1)
+		if (this.entry.h3?.text) {
+			return this.entry.h3.text;
+		}
+		if (this.entry.h2?.text) {
+			return this.entry.h2.text;
+		}
+		if (this.entry.h1?.text) {
+			return this.entry.h1.text;
+		}
+		return null;
 	}
 
 	onClose(): void {
@@ -462,7 +443,7 @@ export class SRSReviewSession {
 	private cards: SRSCardData[];
 	private currentIndex: number = 0;
 	private reviewedCount: number = 0;
-	private parsedRecords: ParsedRecord[] = [];
+	private parsedRecords: ParsedFile[] = [];
 
 	constructor(
 		private app: App,
@@ -486,7 +467,7 @@ export class SRSReviewSession {
 	}
 
 	private async loadParsedRecords(): Promise<void> {
-		const parsedRecordsPath = '.obsidian/plugins/highlight-space-repeat/app-data/parsed-records.json';
+		const parsedRecordsPath = DATA_PATHS.PARSED_FILES;
 		const exists = await this.app.vault.adapter.exists(parsedRecordsPath);
 
 		if (!exists) {
@@ -498,31 +479,17 @@ export class SRSReviewSession {
 		this.parsedRecords = JSON.parse(jsonContent);
 	}
 
-	private findEntry(card: SRSCardData): { entry: RecordEntry; record: ParsedRecord } | null {
+	private findEntry(card: SRSCardData): { entry: FlatEntry; record: ParsedFile } | null {
 		// Find the record for this card
 		const record = this.parsedRecords.find(r => r.filePath === card.filePath);
 		if (!record) return null;
 
-		// Search through headers to find the entry
-		const findInHeaders = (headers: any[]): RecordEntry | null => {
-			for (const header of headers) {
-				if (header.entries) {
-					for (const entry of header.entries) {
-						if (entry.lineNumber === card.lineNumber &&
-						    entry.keywords?.includes(card.keyword)) {
-							return entry;
-						}
-					}
-				}
-				if (header.children) {
-					const found = findInHeaders(header.children);
-					if (found) return found;
-				}
-			}
-			return null;
-		};
+		// Entries are now flat in record.entries
+		const entry = record.entries.find(e =>
+			e.lineNumber === card.lineNumber &&
+			e.keywords?.includes(card.keyword)
+		);
 
-		const entry = findInHeaders(record.headers);
 		if (!entry) return null;
 
 		return { entry, record };
@@ -541,8 +508,8 @@ export class SRSReviewSession {
 		// Find the full entry from parsed records
 		const found = this.findEntry(card);
 
-		let entry: RecordEntry;
-		let record: ParsedRecord;
+		let entry: FlatEntry;
+		let record: ParsedFile;
 
 		if (found) {
 			entry = found.entry;
@@ -553,14 +520,17 @@ export class SRSReviewSession {
 				type: card.type,
 				lineNumber: card.lineNumber,
 				text: card.contentPreview,
-				keywords: [card.keyword]
+				keywords: [card.keyword],
+				filePath: card.filePath,
+
+				fileTags: []
 			};
 			record = {
 				filePath: card.filePath,
-				fileName: card.filePath.split('/').pop() || card.filePath,
+
 				tags: [],
-				headers: [],
-				aliases: []
+								aliases: [],
+				entries: []
 			};
 		}
 

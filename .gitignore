@@ -49,3 +49,4 @@ src/reader-extension/__tests__/
 src/widgets/__tests__/
 *.test.ts
 *.test.js
+node_modules.broken/

@@ -3,7 +3,7 @@ import { RangeSet, StateField, StateEffect } from '@codemirror/state';
 import type { Extension } from '@codemirror/state';
 import { CollectingStatus, isSpaced } from '../shared/collecting-status';
 import type { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
-import type { RecordEntry } from '../interfaces/ParsedRecord';
+import type { ParsedEntry } from '../interfaces/ParsedFile';
 import { settingsStore } from '../stores/settings-store';
 import { get } from 'svelte/store';
 
@@ -56,7 +56,7 @@ function generateRecordYaml(lineText: string, lineNumber: number, plugin: Highli
 	if (keywords.length === 0) return null;
 
 	// Build record representation
-	const record: Partial<RecordEntry> = {
+	const record: Partial<ParsedEntry> = {
 		type: 'keyword',
 		lineNumber,
 		text,
