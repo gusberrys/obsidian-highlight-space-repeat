@@ -22,6 +22,7 @@
   import type { ParserScanResult } from 'src/interfaces/ParserSettings';
   import type { ParsedRecord } from 'src/interfaces/ParsedRecord';
   import { SubjectModal } from './SubjectModal';
+  import { DATA_PATHS } from 'src/shared/data-paths';
 
   export let settingsStore: Writable<PluginSettings>;
   export let plugin: HighlightSpaceRepeatPlugin;
@@ -839,60 +840,73 @@
           const parsedRecord = await recordParser.parseFile(file, keywordsToparse, aliasMap);
           parsedRecords.push(parsedRecord);
 
-          // Count keywords in headers
-          function countInHeaders(headers: any[]) {
-            for (const header of headers) {
-              if (header.keywords) {
-                for (const kw of header.keywords) {
+          // Count keywords in flat entries
+          function countInEntries(entries: any[]) {
+            for (const entry of entries) {
+              // Count keywords from header context
+              if (entry.h1?.keywords) {
+                for (const kw of entry.h1.keywords) {
+                  keywordCounts[kw] = (keywordCounts[kw] || 0) + 1;
+                }
+              }
+              if (entry.h2?.keywords) {
+                for (const kw of entry.h2.keywords) {
+                  keywordCounts[kw] = (keywordCounts[kw] || 0) + 1;
+                }
+              }
+              if (entry.h3?.keywords) {
+                for (const kw of entry.h3.keywords) {
                   keywordCounts[kw] = (keywordCounts[kw] || 0) + 1;
                 }
               }
 
-              // Count in entries
-              if (header.entries) {
-                for (const entry of header.entries) {
-                  if (entry.keywords) {
-                    for (const kw of entry.keywords) {
-                      keywordCounts[kw] = (keywordCounts[kw] || 0) + 1;
-                    }
-                  }
+              // Count in entry keywords
+              if (entry.keywords) {
+                for (const kw of entry.keywords) {
+                  keywordCounts[kw] = (keywordCounts[kw] || 0) + 1;
+                }
+              }
 
-                  // Count in sub-items
-                  if (entry.subItems) {
-                    for (const subItem of entry.subItems) {
-                      if (subItem.keywords) {
-                        for (const kw of subItem.keywords) {
-                          keywordCounts[kw] = (keywordCounts[kw] || 0) + 1;
-                        }
-                      }
+              // Count in sub-items
+              if (entry.subItems) {
+                for (const subItem of entry.subItems) {
+                  if (subItem.keywords) {
+                    for (const kw of subItem.keywords) {
+                      keywordCounts[kw] = (keywordCounts[kw] || 0) + 1;
                     }
                   }
                 }
               }
-
-              // Recurse into children
-              if (header.children) {
-                countInHeaders(header.children);
-              }
             }
           }
 
-          countInHeaders(parsedRecord.headers);
+          countInEntries(parsedRecord.entries);
         } catch (error) {
           console.error(`Error parsing file ${file.path}:`, error);
         }
       }
 
-      // Save parsed records to JSON file
-      const jsonContent = JSON.stringify(parsedRecords, null, 2);
+      // Save parsed records to JSON file with space-saving optimizations
+      const { stripParsedRecordsForSave } = await import('../utils/parse-helpers');
+      const parsedRecordsForSave = stripParsedRecordsForSave(parsedRecords);
+      const jsonContent = JSON.stringify(parsedRecordsForSave, null, 2);
 
       // Ensure app-data directory exists in plugin directory
-      const appDataPath = '.obsidian/plugins/highlight-space-repeat/app-data';
-      if (!await plugin.app.vault.adapter.exists(appDataPath)) {
-        await plugin.app.vault.adapter.mkdir(appDataPath);
-      }
+      const appDataPath = DATA_PATHS.DIR;
+      try {
+        if (!await plugin.app.vault.adapter.exists(appDataPath)) {
+          console.log('[SettingTab] Creating app-data directory:', appDataPath);
+          await plugin.app.vault.adapter.mkdir(appDataPath);
+        }
 
-      await plugin.app.vault.adapter.write('.obsidian/plugins/highlight-space-repeat/app-data/parsed-records.json', jsonContent);
+        const filePath = DATA_PATHS.PARSED_FILES;
+        console.log('[SettingTab] Writing parsed-files.json with', parsedRecords.length, 'files');
+        await plugin.app.vault.adapter.write(filePath, jsonContent);
+        console.log('[SettingTab] Successfully wrote parsed-files.json');
+      } catch (error) {
+        console.error('[SettingTab] Error writing parsed-files.json:', error);
+        throw error;
+      }
 
       // Create SRS cards for SPACED keywords
       let srsCardsCreated = 0;
@@ -907,36 +921,25 @@
         }
       }
 
-      // Helper to recursively process headers
-      function processHeaders(headers: any[], filePath: string) {
-        for (const header of headers) {
-          for (const entry of header.entries || []) {
-            if (entry.keywords) {
-              for (const kw of entry.keywords) {
-                if (spacedKeywords.has(kw)) {
-                  // Create SRS card for this entry
-                  plugin.srsManager.getCard(
-                    filePath,
-                    entry.lineNumber,
-                    kw,
-                    entry.type,
-                    entry
-                  );
-                  srsCardsCreated++;
-                }
+      // Process flat entries for SRS cards
+      for (const record of parsedRecords) {
+        for (const entry of record.entries) {
+          if (entry.keywords) {
+            for (const kw of entry.keywords) {
+              if (spacedKeywords.has(kw)) {
+                // Create SRS card for this entry
+                plugin.srsManager.getCard(
+                  record.filePath,
+                  entry.lineNumber,
+                  kw,
+                  entry.type,
+                  entry
+                );
+                srsCardsCreated++;
               }
             }
           }
-          // Recurse into child headers
-          if (header.children) {
-            processHeaders(header.children, filePath);
-          }
         }
-      }
-
-      // Process all parsed records
-      for (const record of parsedRecords) {
-        processHeaders(record.headers, record.filePath);
       }
 
       // Save SRS database
@@ -982,8 +985,8 @@
     filterResult = null;
 
     try {
-      // Check if parsed-records.json exists
-      const parsedRecordsPath = '.obsidian/plugins/highlight-space-repeat/app-data/parsed-records.json';
+      // Check if parsed-files.json exists
+      const parsedRecordsPath = DATA_PATHS.PARSED_FILES;
       const exists = await plugin.app.vault.adapter.exists(parsedRecordsPath);
 
       if (!exists) {
@@ -1041,76 +1044,78 @@
       }> = [];
 
       for (const record of parsedRecords) {
-        // Process all entries - WHERE and SELECT both evaluated per-entry
-        function processHeaders(headers: any[], filePath: string) {
-          for (const header of headers) {
-            // Process entries in this header
-            if (header.entries) {
-              for (const entry of header.entries) {
-                if (entry.type !== 'keyword') continue;
+        // Process flat entries - WHERE and SELECT both evaluated per-entry
+        for (const entry of record.entries) {
+          if (entry.type !== 'keyword') continue;
 
-                // Extract languages from this entry's subItems
-                const subItemLanguages: string[] = [];
-                if (entry.subItems) {
-                  for (const subItem of entry.subItems) {
-                    if (subItem.codeBlockLanguage) {
-                      subItemLanguages.push(subItem.codeBlockLanguage);
-                    }
-                  }
-                }
-
-                // Build context with entry's keywords + file's tags/path
-                // This context is used for BOTH WHERE and SELECT evaluation
-                const context = {
-                  filePath: record.filePath,
-                  tags: record.tags || [],
-                  keywords: entry.keywords || [],
-                  headerKeywords: header.keywords || [],
-                  headerTags: header.tags || [],
-                  code: entry.text || '',
-                  language: undefined,
-                  languages: subItemLanguages
-                };
-
-                // First evaluate WHERE clause (if present)
-                // WHERE filters which entries to consider
-                if (whereCompiled) {
-                  if (!FilterParser.evaluate(whereCompiled.ast, context, whereCompiled.modifiers)) {
-                    continue; // Entry doesn't pass WHERE clause, skip it
-                  }
-                }
-
-                // Entry passed WHERE (or no WHERE), now evaluate SELECT filter
-                if (FilterParser.evaluate(selectCompiled.ast, context, selectCompiled.modifiers)) {
-                  totalRecords++;
-
-                  // Count keywords
-                  for (const kw of entry.keywords || []) {
-                    keywordBreakdown[kw] = (keywordBreakdown[kw] || 0) + 1;
-                  }
-
-                  // Add to preview (first 10) with subItems
-                  if (previewRecords.length < 10) {
-                    previewRecords.push({
-                      keyword: entry.keywords?.join(', ') || '',
-                      text: entry.text || '',
-                      filePath: record.filePath,
-                      lineNumber: entry.lineNumber,
-                      subItems: entry.subItems
-                    });
-                  }
-                }
+          // Extract languages from this entry's subItems
+          const subItemLanguages: string[] = [];
+          if (entry.subItems) {
+            for (const subItem of entry.subItems) {
+              if (subItem.codeBlockLanguage) {
+                subItemLanguages.push(subItem.codeBlockLanguage);
               }
             }
+          }
 
-            // Process child headers
-            if (header.children) {
-              processHeaders(header.children, filePath);
+          // Collect header keywords and tags from h1/h2/h3
+          const headerKeywords: string[] = [];
+          const headerTags: string[] = [];
+          if (entry.h1) {
+            headerKeywords.push(...(entry.h1.keywords || []));
+            headerTags.push(...(entry.h1.tags || []));
+          }
+          if (entry.h2) {
+            headerKeywords.push(...(entry.h2.keywords || []));
+            headerTags.push(...(entry.h2.tags || []));
+          }
+          if (entry.h3) {
+            headerKeywords.push(...(entry.h3.keywords || []));
+            headerTags.push(...(entry.h3.tags || []));
+          }
+
+          // Build context with entry's keywords + file's tags/path
+          // This context is used for BOTH WHERE and SELECT evaluation
+          const context = {
+            filePath: record.filePath,
+            tags: record.tags || [],
+            keywords: entry.keywords || [],
+            headerKeywords: headerKeywords,
+            headerTags: headerTags,
+            code: entry.text || '',
+            language: undefined,
+            languages: subItemLanguages
+          };
+
+          // First evaluate WHERE clause (if present)
+          // WHERE filters which entries to consider
+          if (whereCompiled) {
+            if (!FilterParser.evaluate(whereCompiled.ast, context, whereCompiled.modifiers)) {
+              continue; // Entry doesn't pass WHERE clause, skip it
+            }
+          }
+
+          // Entry passed WHERE (or no WHERE), now evaluate SELECT filter
+          if (FilterParser.evaluate(selectCompiled.ast, context, selectCompiled.modifiers)) {
+            totalRecords++;
+
+            // Count keywords
+            for (const kw of entry.keywords || []) {
+              keywordBreakdown[kw] = (keywordBreakdown[kw] || 0) + 1;
+            }
+
+            // Add to preview (first 10) with subItems
+            if (previewRecords.length < 10) {
+              previewRecords.push({
+                keyword: entry.keywords?.join(', ') || '',
+                text: entry.text || '',
+                filePath: record.filePath,
+                lineNumber: entry.lineNumber,
+                subItems: entry.subItems
+              });
             }
           }
         }
-
-        processHeaders(record.headers, record.filePath);
       }
 
       // Set results

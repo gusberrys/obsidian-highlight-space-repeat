@@ -1,10 +1,12 @@
 import { MarkdownPostProcessorContext, MarkdownView, TFile } from 'obsidian';
+import { DATA_PATHS } from '../shared/data-paths';
 import type { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
 import { get } from 'svelte/store';
 import { settingsDataStore, subjectsStore } from '../stores/settings-store';
-import type { ParsedRecord, RecordHeader } from '../interfaces/ParsedRecord';
+import type { ParsedFile, ParsedHeader } from '../interfaces/ParsedFile';
 import type { Topic } from '../interfaces/Topic';
 import type { SubjectsData } from '../shared/subjects-data';
+import { getFileNameFromPath } from '../utils/file-helpers';
 
 // Unique ID for dashboard container to prevent duplicates
 const DASHBOARD_CONTAINER_ID = 'kh-subject-dashboard-container';
@@ -12,8 +14,8 @@ const DASHBOARD_CONTAINER_ID = 'kh-subject-dashboard-container';
 /**
  * Load parsed records from JSON file
  */
-async function loadParsedRecords(plugin: HighlightSpaceRepeatPlugin): Promise<ParsedRecord[]> {
-	const parsedRecordsPath = '.obsidian/plugins/obsidian-highlight-space-repeat/app-data/parsed-records.json';
+async function loadParsedRecords(plugin: HighlightSpaceRepeatPlugin): Promise<ParsedFile[]> {
+	const parsedRecordsPath = DATA_PATHS.PARSED_FILES;
 	const exists = await plugin.app.vault.adapter.exists(parsedRecordsPath);
 
 	if (!exists) {
@@ -29,7 +31,7 @@ async function loadParsedRecords(plugin: HighlightSpaceRepeatPlugin): Promise<Pa
  * Get tags from a parsed record (includes both file-level and header tags)
  * Copied from matrix view to ensure consistent tag collection
  */
-function getRecordTags(record: ParsedRecord): string[] {
+function getRecordTags(record: ParsedFile): string[] {
 	const tags = new Set<string>();
 
 	// Add file-level tags (ensure they have #)
@@ -37,19 +39,24 @@ function getRecordTags(record: ParsedRecord): string[] {
 		tags.add(tag.startsWith('#') ? tag : '#' + tag);
 	});
 
-	// Recursively collect header tags
-	const collectHeaderTags = (headers: RecordHeader[]) => {
-		for (const header of headers) {
-			header.tags.forEach(tag => {
+	// Collect tags from all entry headers (h1/h2/h3)
+	for (const entry of record.entries) {
+		if (entry.h1?.tags) {
+			entry.h1.tags.forEach(tag => {
 				tags.add(tag.startsWith('#') ? tag : '#' + tag);
 			});
-			if (header.children) {
-				collectHeaderTags(header.children);
-			}
 		}
-	};
-
-	collectHeaderTags(record.headers);
+		if (entry.h2?.tags) {
+			entry.h2.tags.forEach(tag => {
+				tags.add(tag.startsWith('#') ? tag : '#' + tag);
+			});
+		}
+		if (entry.h3?.tags) {
+			entry.h3.tags.forEach(tag => {
+				tags.add(tag.startsWith('#') ? tag : '#' + tag);
+			});
+		}
+	}
 
 	return Array.from(tags);
 }
@@ -59,9 +66,9 @@ function getRecordTags(record: ParsedRecord): string[] {
  * Get files that have a specific topic tag
  */
 function getFilesWithTopicTag(
-	parsedRecords: ParsedRecord[],
+	parsedRecords: ParsedFile[],
 	topicTag: string
-): ParsedRecord[] {
+): ParsedFile[] {
 	// Normalize the topic tag
 	const normalizedTag = topicTag.startsWith('#') ? topicTag : '#' + topicTag;
 
@@ -213,7 +220,7 @@ export async function renderSubjectDashboard(
 		const columnsContainer = dashboardContainer.createDiv({ cls: 'kh-dashboard-columns' });
 
 		// Filter files based on selected primary topic
-		let filteredRecords: ParsedRecord[] = [];
+		let filteredRecords: ParsedFile[] = [];
 		if (selectedPrimaryTopicId === 'orphans') {
 			// Get orphans - files that don't have any primary topic tags
 			const primaryTopicTags = primaryTopics.map(t => t.topicTag).filter(Boolean);
@@ -232,7 +239,7 @@ export async function renderSubjectDashboard(
 		// Render each secondary topic as a column (only if it has files)
 		secondaryTopics.forEach(topic => {
 			// Get files for this secondary topic from filtered records
-			let topicFiles: ParsedRecord[] = [];
+			let topicFiles: ParsedFile[] = [];
 			if (topic.topicTag) {
 				topicFiles = filteredRecords.filter(record => {
 					const tags = getRecordTags(record);
@@ -261,7 +268,7 @@ export async function renderSubjectDashboard(
 				topicFiles.forEach(record => {
 					const fileItem = filesList.createDiv({ cls: 'kh-dashboard-file-item' });
 					fileItem.createEl('span', {
-						text: record.fileName.replace('.md', ''),
+						text: getFileNameFromPath(record.filePath).replace('.md', ''),
 						cls: 'kh-dashboard-file-name'
 					});
 					fileItem.addEventListener('click', async () => {
@@ -303,7 +310,7 @@ export async function renderSubjectDashboard(
 			otherFiles.forEach(record => {
 				const fileItem = filesList.createDiv({ cls: 'kh-dashboard-file-item' });
 				fileItem.createEl('span', {
-					text: record.fileName.replace('.md', ''),
+					text: getFileNameFromPath(record.filePath).replace('.md', ''),
 					cls: 'kh-dashboard-file-name'
 				});
 				fileItem.addEventListener('click', async () => {

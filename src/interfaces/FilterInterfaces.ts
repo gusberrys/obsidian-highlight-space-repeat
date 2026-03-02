@@ -1,4 +1,3 @@
-import { PluginSettings } from '../stores/settings-store';
 
 /**
  * Filter expression syntax:
@@ -95,54 +94,4 @@ export interface CompiledFilter {
 
 	/** Extracted modifiers */
 	modifiers: FilterModifiers;
-}
-
-/**
- * Filter match context - data available for matching
- */
-export interface FilterMatchContext {
-	/** File path */
-	filePath: string;
-
-	/** File name (without path) */
-	fileName?: string;
-
-	/** File tags */
-	tags: string[];
-
-	/** Keywords from entry */
-	keywords: string[];
-
-	/** Auxiliary keywords from entry (for .def.foo filtering) */
-	auxiliaryKeywords?: string[];
-
-	/** Header keywords from file headers */
-	headerKeywords?: string[];
-
-	/** Auxiliary keywords from parent header */
-	headerAuxiliaryKeywords?: string[];
-
-	/** Header tags from file headers */
-	headerTags?: string[];
-
-	/** Code block content */
-	code: string;
-
-	/** Code block language (for single code block) */
-	language?: string;
-
-	/** All languages present in file */
-	languages?: string[];
-
-	/** Topic tag for placeholder expansion (#?) */
-	topicTag?: string;
-
-	/** Topic keyword for placeholder expansion (.?) */
-	topicKeyword?: string;
-
-	/** Keyword data for category expansion (contains categories array) */
-	keywordData?: any;
-
-	/** Topic text for placeholder expansion (`?) */
-	topicText?: string;
 }

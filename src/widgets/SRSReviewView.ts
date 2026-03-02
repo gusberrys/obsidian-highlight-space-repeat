@@ -1,8 +1,10 @@
 import { App, ItemView, WorkspaceLeaf, Notice, ButtonComponent, MarkdownView } from 'obsidian';
+import { DATA_PATHS } from '../shared/data-paths';
 import type { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
 import { SRSCardData, ReviewButton } from '../interfaces/SRSData';
-import { RecordEntry, ParsedRecord } from '../interfaces/ParsedRecord';
+import { ParsedEntry, ParsedFile, FlatEntry } from '../interfaces/ParsedFile';
 import { KHEntry } from '../components/KHEntry';
+import { getFileNameFromPath } from '../utils/file-helpers';
 
 export const SRS_REVIEW_VIEW_TYPE = 'kh-srs-review-view';
 
@@ -13,7 +15,7 @@ export class SRSReviewView extends ItemView {
 	private plugin: HighlightSpaceRepeatPlugin;
 	private cards: SRSCardData[] = [];
 	private currentIndex: number = 0;
-	private parsedRecords: ParsedRecord[] = [];
+	private parsedRecords: ParsedFile[] = [];
 	private isAnswerShown: boolean = false;
 	private contentContainer: HTMLElement | null = null;
 
@@ -57,7 +59,7 @@ export class SRSReviewView extends ItemView {
 	 * Load parsed records
 	 */
 	private async loadParsedRecords(): Promise<void> {
-		const parsedRecordsPath = '.obsidian/plugins/highlight-space-repeat/app-data/parsed-records.json';
+		const parsedRecordsPath = DATA_PATHS.PARSED_FILES;
 		const exists = await this.app.vault.adapter.exists(parsedRecordsPath);
 
 		if (!exists) {
@@ -72,29 +74,16 @@ export class SRSReviewView extends ItemView {
 	/**
 	 * Find entry for card
 	 */
-	private findEntry(card: SRSCardData): { entry: RecordEntry; record: ParsedRecord } | null {
+	private findEntry(card: SRSCardData): { entry: FlatEntry; record: ParsedFile } | null {
 		const record = this.parsedRecords.find(r => r.filePath === card.filePath);
 		if (!record) return null;
 
-		const findInHeaders = (headers: any[]): RecordEntry | null => {
-			for (const header of headers) {
-				if (header.entries) {
-					for (const entry of header.entries) {
-						if (entry.lineNumber === card.lineNumber &&
-						    entry.keywords?.includes(card.keyword)) {
-							return entry;
-						}
-					}
-				}
-				if (header.children) {
-					const found = findInHeaders(header.children);
-					if (found) return found;
-				}
-			}
-			return null;
-		};
+		// Entries are now flat in record.entries
+		const entry = record.entries.find(e =>
+			e.lineNumber === card.lineNumber &&
+			e.keywords?.includes(card.keyword)
+		);
 
-		const entry = findInHeaders(record.headers);
 		if (!entry) return null;
 
 		return { entry, record };
@@ -121,8 +110,8 @@ export class SRSReviewView extends ItemView {
 		const card = this.cards[this.currentIndex];
 		const found = this.findEntry(card);
 
-		let entry: RecordEntry;
-		let record: ParsedRecord;
+		let entry: FlatEntry;
+		let record: ParsedFile;
 
 		if (found) {
 			entry = found.entry;
@@ -133,14 +122,17 @@ export class SRSReviewView extends ItemView {
 				type: card.type,
 				lineNumber: card.lineNumber,
 				text: card.contentPreview,
-				keywords: [card.keyword]
+				keywords: [card.keyword],
+				filePath: card.filePath,
+
+				fileTags: []
 			};
 			record = {
 				filePath: card.filePath,
-				fileName: card.filePath.split('/').pop() || card.filePath,
+
 				tags: [],
-				headers: [],
-				aliases: []
+								aliases: [],
+				entries: []
 			};
 		}
 
@@ -279,7 +271,7 @@ export class SRSReviewView extends ItemView {
 	/**
 	 * Render content with optional hiding (processes all levels of content)
 	 */
-	private async renderContent(card: SRSCardData, entry: RecordEntry, record: ParsedRecord): Promise<void> {
+	private async renderContent(card: SRSCardData, entry: FlatEntry, record: ParsedFile): Promise<void> {
 		if (!this.contentContainer) return;
 
 		this.contentContainer.empty();
@@ -325,7 +317,7 @@ export class SRSReviewView extends ItemView {
 	/**
 	 * Check if entry has anything to hide (testable patterns or context)
 	 */
-	private hasAnythingToHide(entry: RecordEntry, record: ParsedRecord, card: SRSCardData): boolean {
+	private hasAnythingToHide(entry: FlatEntry, record: ParsedFile, card: SRSCardData): boolean {
 		// Check main text for patterns
 		if (this.hasTestablePatterns(entry.text)) {
 			return true;
@@ -344,8 +336,8 @@ export class SRSReviewView extends ItemView {
 		}
 
 		// If no patterns, check if there's context (header or filename)
-		const atTopLevel = this.isEntryAtTopLevel(record.headers, entry.lineNumber);
-		const headerWithKeyword = this.findHeaderWithKeyword(record.headers, entry.lineNumber, card.keyword);
+		const atTopLevel = this.isEntryAtTopLevel(entry);
+		const headerWithKeyword = this.findHeaderWithKeyword(entry, card.keyword);
 
 		// Has context to hide if there's a matching header OR entry is at top level
 		return headerWithKeyword !== null || atTopLevel;
@@ -354,51 +346,41 @@ export class SRSReviewView extends ItemView {
 	/**
 	 * Check if entry is at top level (no meaningful header)
 	 */
-	private isEntryAtTopLevel(headers: any[], targetLineNumber: number): boolean {
-		for (const header of headers) {
-			if (header.entries) {
-				for (const entry of header.entries) {
-					if (entry.lineNumber === targetLineNumber) {
-						return !header.text || header.text.trim() === '';
-					}
-				}
-			}
-			if (header.children) {
-				const result = this.isEntryAtTopLevel(header.children, targetLineNumber);
-				if (result !== null) return result;
-			}
-		}
-		return false;
+	private isEntryAtTopLevel(entry: FlatEntry): boolean {
+		// Entry is at top level if all headers are null or have empty text
+		const h1Empty = !entry.h1 || !entry.h1.text || entry.h1.text.trim() === '';
+		const h2Empty = !entry.h2 || !entry.h2.text || entry.h2.text.trim() === '';
+		const h3Empty = !entry.h3 || !entry.h3.text || entry.h3.text.trim() === '';
+
+		return h1Empty && h2Empty && h3Empty;
 	}
 
 	/**
 	 * Find header with same keyword
 	 */
-	private findHeaderWithKeyword(headers: any[], targetLineNumber: number, keyword: string): string | null {
-		for (const header of headers) {
+	private findHeaderWithKeyword(entry: FlatEntry, keyword: string): string | null {
+		// Check each header level (h1, h2, h3) for the keyword
+		const headerLevels = [
+			entry.h3 ? { info: entry.h3 } : null,  // Check h3 first (most specific)
+			entry.h2 ? { info: entry.h2 } : null,
+			entry.h1 ? { info: entry.h1 } : null
+		].filter(h => h !== null);
+
+		for (const headerLevel of headerLevels) {
+			const header = headerLevel!.info;
 			const headerHasKeyword = header.keywords?.includes(keyword);
-			if (header.entries) {
-				for (const entry of header.entries) {
-					if (entry.lineNumber === targetLineNumber) {
-						if (headerHasKeyword && header.text) {
-							return header.text;
-						}
-						return null;
-					}
-				}
-			}
-			if (header.children) {
-				const found = this.findHeaderWithKeyword(header.children, targetLineNumber, keyword);
-				if (found) return found;
+			if (headerHasKeyword && header.text) {
+				return header.text;
 			}
 		}
+
 		return null;
 	}
 
 	/**
 	 * Process entry and all sub-items for display (recursive hiding)
 	 */
-	private processEntryForDisplay(entry: RecordEntry, record: ParsedRecord, card: SRSCardData): RecordEntry {
+	private processEntryForDisplay(entry: FlatEntry, record: ParsedFile, card: SRSCardData): FlatEntry {
 		let mainText = entry.text;
 
 		// Check if entry has testable patterns
@@ -422,17 +404,17 @@ export class SRSReviewView extends ItemView {
 		// If no explicit patterns, add context (header or filename) as bold
 		if (!hasExplicitPatterns && !subItemsHavePatterns) {
 			// Check if entry is at top level
-			const atTopLevel = this.isEntryAtTopLevel(record.headers, entry.lineNumber);
+			const atTopLevel = this.isEntryAtTopLevel(entry);
 
 			// Check if header has same keyword
-			const headerWithKeyword = this.findHeaderWithKeyword(record.headers, entry.lineNumber, card.keyword);
+			const headerWithKeyword = this.findHeaderWithKeyword(entry, card.keyword);
 
 			if (headerWithKeyword) {
 				// Use header as context
 				mainText = `**${headerWithKeyword}**: ${mainText}`;
 			} else if (atTopLevel) {
 				// Use filename as context
-				const fileNameWithoutExt = record.fileName.replace(/\.[^/.]+$/, '');
+				const fileNameWithoutExt = getFileNameFromPath(record.filePath).replace(/\.[^/.]+$/, '');
 				mainText = `**${fileNameWithoutExt}**: ${mainText}`;
 			}
 		}
@@ -442,7 +424,7 @@ export class SRSReviewView extends ItemView {
 
 		// Deep copy the entry with modified text
 		// Only apply hiding if there's something to hide AND answer is not shown
-		const displayEntry: RecordEntry = {
+		const displayEntry: FlatEntry = {
 			...entry,
 			text: (hasContentToHide && !this.isAnswerShown) ? this.hideContent(mainText) : mainText
 		};
@@ -475,7 +457,7 @@ export class SRSReviewView extends ItemView {
 	/**
 	 * Toggle answer visibility
 	 */
-	private async toggleAnswer(card: SRSCardData, entry: RecordEntry, record: ParsedRecord): Promise<void> {
+	private async toggleAnswer(card: SRSCardData, entry: FlatEntry, record: ParsedFile): Promise<void> {
 		this.isAnswerShown = !this.isAnswerShown;
 
 		const answerButton = this.containerEl.querySelector('.srs-answer-button-container button');
@@ -543,30 +525,18 @@ export class SRSReviewView extends ItemView {
 	/**
 	 * Find header context
 	 */
-	private findHeaderContext(entry: RecordEntry, record: ParsedRecord): string | null {
-		if (!record || !record.headers) {
-			return null;
+	private findHeaderContext(entry: FlatEntry, record: ParsedFile): string | null {
+		// Check header levels from most specific to least specific (h3 -> h2 -> h1)
+		if (entry.h3?.text) {
+			return entry.h3.text;
 		}
-
-		const findInHeaders = (headers: any[]): string | null => {
-			for (const header of headers) {
-				if (header.entries) {
-					for (const e of header.entries) {
-						if (e.lineNumber === entry.lineNumber &&
-						    e.keywords?.includes(entry.keywords?.[0])) {
-							return header.text || null;
-						}
-					}
-				}
-				if (header.children) {
-					const found = findInHeaders(header.children);
-					if (found) return found;
-				}
-			}
-			return null;
-		};
-
-		return findInHeaders(record.headers);
+		if (entry.h2?.text) {
+			return entry.h2.text;
+		}
+		if (entry.h1?.text) {
+			return entry.h1.text;
+		}
+		return null;
 	}
 
 	/**

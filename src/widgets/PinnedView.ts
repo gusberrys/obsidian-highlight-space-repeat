@@ -1,5 +1,5 @@
 import { App, ItemView, WorkspaceLeaf, TFile, MarkdownView, Notice, MarkdownRenderer } from 'obsidian';
-import type { ParsedRecord, RecordHeader, RecordEntry } from '../interfaces/ParsedRecord';
+import type { ParsedFile, ParsedHeader, ParsedEntry } from '../interfaces/ParsedFile';
 import { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
 import { KHEntry } from '../components/KHEntry';
 import { KeywordType, getKeywordType } from '../shared/keyword-style';
@@ -245,7 +245,7 @@ export class PinnedView extends ItemView {
 		for (const header of headersToDisplay) {
 			// First pass: check if ANY entries will be displayed under this header
 			let hasDisplayableEntries = false;
-			const entriesToRender: Array<{ entry: RecordEntry; shouldDisplay: boolean }> = [];
+			const entriesToRender: Array<{ entry: ParsedEntry; shouldDisplay: boolean }> = [];
 
 			if (header.entries && header.entries.length > 0) {
 				for (const entry of header.entries) {
@@ -420,7 +420,7 @@ export class PinnedView extends ItemView {
 	 * Compute a hash of the current state to detect changes
 	 * Uses file path + stringified pinned headers data
 	 */
-	private computeHash(filePath: string, pinnedHeaders: RecordHeader[]): string {
+	private computeHash(filePath: string, pinnedHeaders: Array<{ text: string; level: number; keywords: string[]; entries: ParsedEntry[] }>): string {
 		// Create a simplified representation of pinned headers for hashing
 		const headerData = pinnedHeaders.map(header => ({
 			text: header.text,
@@ -442,7 +442,7 @@ export class PinnedView extends ItemView {
 	/**
 	 * Parse the currently open file directly using RecordParser
 	 */
-	private async getCurrentFileRecord(): Promise<ParsedRecord | null> {
+	private async getCurrentFileRecord(): Promise<ParsedFile | null> {
 		if (!this.lastOpenedFile) {
 			return null;
 		}
@@ -516,22 +516,36 @@ export class PinnedView extends ItemView {
 	/**
 	 * Extract ALL headers with entries from a parsed record (for chip generation)
 	 */
-	private extractAllHeaders(currentRecord: ParsedRecord): RecordHeader[] {
-		const allHeaders: RecordHeader[] = [];
-		const collectHeaders = (headerList: RecordHeader[]) => {
-			for (const header of headerList) {
-				// Include all headers that have entries
-				if (header.entries && header.entries.length > 0) {
-					allHeaders.push(header);
-				}
-				// Recursively check children
-				if (header.children) {
-					collectHeaders(header.children);
+	private extractAllHeaders(currentRecord: ParsedFile): Array<{ text: string; level: number; keywords: string[]; entries: ParsedEntry[] }> {
+		// Group entries by their headers using a Map
+		const headerMap = new Map<string, { text: string; level: number; keywords: string[]; entries: ParsedEntry[] }>();
+
+		for (const entry of currentRecord.entries) {
+			// Check all header levels (h1, h2, h3) for this entry
+			const headerLevels = [
+				entry.h1 ? { level: 1, info: entry.h1 } : null,
+				entry.h2 ? { level: 2, info: entry.h2 } : null,
+				entry.h3 ? { level: 3, info: entry.h3 } : null
+			].filter(h => h !== null);
+
+			for (const headerLevel of headerLevels) {
+				const header = headerLevel!.info;
+				if (header.text) {
+					const headerKey = `${headerLevel!.level}:${header.text}`;
+					if (!headerMap.has(headerKey)) {
+						headerMap.set(headerKey, {
+							text: header.text,
+							level: headerLevel!.level,
+							keywords: header.keywords || [],
+							entries: []
+						});
+					}
+					headerMap.get(headerKey)!.entries.push(entry);
 				}
 			}
-		};
-		collectHeaders(currentRecord.headers);
-		return allHeaders;
+		}
+
+		return Array.from(headerMap.values());
 	}
 
 	/**
@@ -539,77 +553,64 @@ export class PinnedView extends ItemView {
 	 * ONLY matches on keywords in header.keywords or entry.keywords - NOT on text content
 	 * If showOnlyPinned is false, returns ALL headers with entries
 	 */
-	private extractPinnedHeaders(currentRecord: ParsedRecord): RecordHeader[] {
-		// console.log('[Pinned View] Current record:', currentRecord.fileName, 'Headers:', currentRecord.headers.length);
-
-		// If showOnlyPinned is false, return ALL headers that have entries
+	private extractPinnedHeaders(currentRecord: ParsedFile): Array<{ text: string; level: number; keywords: string[]; entries: ParsedEntry[] }> {
+		// If showOnlyPinned is false, return ALL headers (same as extractAllHeaders)
 		if (!this.showOnlyPinned) {
-			const allHeaders: RecordHeader[] = [];
-			const collectHeaders = (headerList: RecordHeader[]) => {
-				for (const header of headerList) {
-					// Only include headers that have entries
-					if (header.entries && header.entries.length > 0) {
-						allHeaders.push(header);
-					}
-					// Recursively check children
-					if (header.children) {
-						collectHeaders(header.children);
-					}
-				}
-			};
-			collectHeaders(currentRecord.headers);
-			return allHeaders;
+			return this.extractAllHeaders(currentRecord);
 		}
 
 		// Original behavior: only pinned headers
-		const pinnedHeaders: RecordHeader[] = [];
+		// Group entries by their headers, but only include headers with "pin" keyword
+		const headerMap = new Map<string, { text: string; level: number; keywords: string[]; entries: ParsedEntry[] }>();
 
-		const checkHeaders = (headerList: RecordHeader[]) => {
-			for (const header of headerList) {
-				// Check if header keywords contain "pin"
-				const headerContainsPinKeyword = header.keywords?.some(kw =>
-					kw.toLowerCase().includes('pin')
-				);
+		for (const entry of currentRecord.entries) {
+			// Check all header levels (h1, h2, h3) for this entry
+			const headerLevels = [
+				entry.h1 ? { level: 1, info: entry.h1 } : null,
+				entry.h2 ? { level: 2, info: entry.h2 } : null,
+				entry.h3 ? { level: 3, info: entry.h3 } : null
+			].filter(h => h !== null);
 
-				// Check if any entries contain "pin" in keywords (NOT text content)
-				const hasEntriesWithPin = header.entries?.some(entry => {
+			for (const headerLevel of headerLevels) {
+				const header = headerLevel!.info;
+				if (header.text) {
+					// Check if header keywords contain "pin"
+					const headerContainsPinKeyword = header.keywords?.some(kw =>
+						kw.toLowerCase().includes('pin')
+					);
+
+					// Check if entry contains "pin" in keywords (NOT text content)
 					const keywordMatch = entry.keywords?.some(kw => kw.toLowerCase().includes('pin'));
 					const subItemMatch = entry.subItems?.some(subItem =>
 						subItem.keywords?.some(kw => kw.toLowerCase().includes('pin'))
 					);
-					return keywordMatch || subItemMatch;
-				});
+					const entryHasPin = keywordMatch || subItemMatch;
 
-				// console.log('[Pinned View] Header:', header.text,
-				// 	'Keywords:', header.keywords,
-				// 	'Entries:', header.entries?.length || 0,
-				// 	'Has pin keyword:', headerContainsPinKeyword,
-				// 	'Has pin entries:', hasEntriesWithPin
-				// );
-
-				if (headerContainsPinKeyword || hasEntriesWithPin) {
-					// console.log('[Pinned View] ✓ Found pinned header:', header.text);
-					pinnedHeaders.push(header);
-				}
-
-				// Recursively check children
-				if (header.children) {
-					checkHeaders(header.children);
+					// Only include this header if it has pin keyword or this entry has pin
+					if (headerContainsPinKeyword || entryHasPin) {
+						const headerKey = `${headerLevel!.level}:${header.text}`;
+						if (!headerMap.has(headerKey)) {
+							headerMap.set(headerKey, {
+								text: header.text,
+								level: headerLevel!.level,
+								keywords: header.keywords || [],
+								entries: []
+							});
+						}
+						headerMap.get(headerKey)!.entries.push(entry);
+					}
 				}
 			}
-		};
+		}
 
-		checkHeaders(currentRecord.headers);
-
-		// console.log('[Pinned View] Total pinned headers found:', pinnedHeaders.length);
-		return pinnedHeaders;
+		return Array.from(headerMap.values());
 	}
 
 	/**
 	 * Check if an entry should be displayed based on current filter state
 	 * Also checks against subject filter expression if active
 	 */
-	private shouldDisplayEntry(entry: RecordEntry, matchedSubject: any | null): boolean {
+	private shouldDisplayEntry(entry: ParsedEntry, matchedSubject: any | null): boolean {
 		// First, check if entry passes subject filter expression (if any)
 		if (matchedSubject && matchedSubject.expression) {
 			if (!this.entryMatchesFilterExpression(entry, matchedSubject.expression)) {
@@ -674,7 +675,7 @@ export class PinnedView extends ItemView {
 	/**
 	 * Check if an entry matches the subject's filter expression
 	 */
-	private entryMatchesFilterExpression(entry: RecordEntry, expression: string): boolean {
+	private entryMatchesFilterExpression(entry: ParsedEntry, expression: string): boolean {
 		const parsedFilter = this.parseFilterExpression(expression);
 		if (!parsedFilter) {
 			return true; // No filter, show all
@@ -718,7 +719,7 @@ export class PinnedView extends ItemView {
 	/**
 	 * Render chip filters for keywords, categories, and code blocks
 	 */
-	private async renderChipFilters(container: HTMLElement, pinnedHeaders: RecordHeader[], matchedSubject: any | null): Promise<void> {
+	private async renderChipFilters(container: HTMLElement, pinnedHeaders: Array<{ text: string; level: number; keywords: string[]; entries: ParsedEntry[] }>, matchedSubject: any | null): Promise<void> {
 		console.log('[Pinned View] 🎨 renderChipFilters called with:', {
 			headersCount: pinnedHeaders.length,
 			showOnlyPinned: this.showOnlyPinned,
@@ -994,7 +995,7 @@ export class PinnedView extends ItemView {
 	/**
 	 * Extract available keywords, categories, and code blocks from pinned entries
 	 */
-	private extractAvailableFilters(pinnedHeaders: RecordHeader[]): { keywords: string[], categories: string[], codeBlocks: string[] } {
+	private extractAvailableFilters(pinnedHeaders: Array<{ text: string; level: number; keywords: string[]; entries: ParsedEntry[] }>): { keywords: string[], categories: string[], codeBlocks: string[] } {
 		console.log('[Pinned View] 🔍 extractAvailableFilters called with', pinnedHeaders.length, 'headers');
 
 		const keywords = new Set<string>();
@@ -1210,7 +1211,7 @@ export class PinnedView extends ItemView {
 	/**
 	 * Update SRS button tooltip with due card count
 	 */
-	private async updateSRSButtonTooltip(button: HTMLElement, pinnedHeaders: RecordHeader[]): Promise<void> {
+	private async updateSRSButtonTooltip(button: HTMLElement, pinnedHeaders: Array<{ text: string; level: number; keywords: string[]; entries: ParsedEntry[] }>): Promise<void> {
 		try {
 			if (!this.lastOpenedFile) {
 				button.title = 'SRS Review: No file open';
@@ -1243,7 +1244,7 @@ export class PinnedView extends ItemView {
 	/**
 	 * Start SRS review for ALL cards in the file
 	 */
-	private async startSRSReview(pinnedHeaders: RecordHeader[]): Promise<void> {
+	private async startSRSReview(pinnedHeaders: Array<{ text: string; level: number; keywords: string[]; entries: ParsedEntry[] }>): Promise<void> {
 		if (!this.lastOpenedFile) {
 			new Notice('No file currently open');
 			return;

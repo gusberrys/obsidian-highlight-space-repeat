@@ -1,15 +1,17 @@
 import { ItemView, WorkspaceLeaf, TFile, MarkdownRenderer, MarkdownView, Notice, setIcon } from 'obsidian';
+import { DATA_PATHS } from '../shared/data-paths';
 import { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
 import type { Subject } from '../interfaces/Subject';
 import type { Topic } from '../interfaces/Topic';
-import type { ParsedRecord, RecordHeader, RecordEntry } from '../interfaces/ParsedRecord';
+import type { ParsedFile, ParsedHeader, ParsedEntry, FlatEntry } from '../interfaces/ParsedFile';
 import { get } from 'svelte/store';
 import { settingsDataStore, subjectsStore } from '../stores/settings-store';
 import { FilterParser } from '../services/FilterParser';
-import type { FilterMatchContext } from '../interfaces/FilterInterfaces';
 import { KHEntry } from '../components/KHEntry';
 import { resolveIconKeywordNames } from '../shared/priority-resolver';
 import type { KeywordStyle } from '../shared/keyword-style';
+import { fileHasMatch } from '../utils/filter-helpers';
+import { getFileNameFromPath } from '../utils/file-helpers';
 
 export const SUBJECT_DASHBOARD_VIEW_TYPE = 'kh-subject-dashboard-view';
 
@@ -20,7 +22,7 @@ export class SubjectDashboardView extends ItemView {
 	private selectedPrimaryTopicId: string = 'orphans';
 	private activeFilterExpression: string | null = null;
 	private activeChips: Set<string> = new Set();
-	private selectedRecords: ParsedRecord[] | null = null;
+	private selectedRecords: ParsedFile[] | null = null;
 	private selectedContext: string = '';
 	private selectedKeywordFilter: string | null = null; // Filter entries by this keyword when showing records
 	private selectedTopicTag: string | null = null; // Filter headers by this tag when showing headers
@@ -319,25 +321,9 @@ export class SubjectDashboardView extends ItemView {
 			}
 
 			// Extract all entries from filtered records for SRS
-			const entries: any[] = [];
+			const entries: FlatEntry[] = [];
 			for (const record of filteredRecords) {
-				const processHeaders = (headers: any[]) => {
-					for (const header of headers) {
-						if (header.entries) {
-							for (const entry of header.entries) {
-								entries.push({
-									...entry,
-									filePath: record.filePath,
-									fileName: record.fileName
-								});
-							}
-						}
-						if (header.children) {
-							processHeaders(header.children);
-						}
-					}
-				};
-				processHeaders(record.headers);
+				entries.push(...record.entries);
 			}
 
 			console.log('[SubjectDashboard] SRS button clicked, entries:', entries.length);
@@ -397,7 +383,7 @@ export class SubjectDashboardView extends ItemView {
 	 * Extract available filters from parsed records
 	 * Returns what's actually in the data
 	 */
-	private extractAvailableFilters(parsedRecords: ParsedRecord[]): {
+	private extractAvailableFilters(parsedRecords: ParsedFile[]): {
 		keywords: string[],
 		categories: string[],
 		codeBlocks: string[]
@@ -408,43 +394,31 @@ export class SubjectDashboardView extends ItemView {
 
 		// Process all records
 		parsedRecords.forEach(record => {
-			const processHeaders = (headers: RecordHeader[]) => {
-				for (const header of headers) {
-					if (header.entries) {
-						for (const entry of header.entries) {
-							// Collect keywords
-							if (entry.keywords) {
-								entry.keywords.forEach(kw => keywordSet.add(kw));
-							}
+			for (const entry of record.entries) {
+				// Collect keywords
+				if (entry.keywords) {
+					entry.keywords.forEach(kw => keywordSet.add(kw));
+				}
 
-							// Collect code blocks
-							if (entry.type === 'codeblock' && entry.language) {
-								codeBlockSet.add(entry.language);
-							}
+				// Collect code blocks
+				if (entry.type === 'codeblock' && entry.language) {
+					codeBlockSet.add(entry.language);
+				}
 
-							// Collect categories from keywords
-							if (entry.keywords && HighlightSpaceRepeatPlugin.settings.categories) {
-								entry.keywords.forEach(kw => {
-									// Search through all categories to find the keyword
-									for (const category of HighlightSpaceRepeatPlugin.settings.categories) {
-										const keywordDef = category.keywords?.find((k: any) => k.keyword === kw);
-										if (keywordDef) {
-											categorySet.add(category.id || '');
-											break;
-										}
-									}
-								});
+				// Collect categories from keywords
+				if (entry.keywords && HighlightSpaceRepeatPlugin.settings.categories) {
+					entry.keywords.forEach(kw => {
+						// Search through all categories to find the keyword
+						for (const category of HighlightSpaceRepeatPlugin.settings.categories) {
+							const keywordDef = category.keywords?.find((k: any) => k.keyword === kw);
+							if (keywordDef) {
+								categorySet.add(category.id || '');
+								break;
 							}
 						}
-					}
-
-					if (header.children) {
-						processHeaders(header.children);
-					}
+					});
 				}
-			};
-
-			processHeaders(record.headers);
+			}
 		});
 
 		return {
@@ -613,7 +587,7 @@ export class SubjectDashboardView extends ItemView {
 	/**
 	 * Render chip filters parsed from subject's expression field
 	 */
-	private async renderChipFilters(chipsContainer: HTMLElement, parsedRecords: ParsedRecord[]): Promise<void> {
+	private async renderChipFilters(chipsContainer: HTMLElement, parsedRecords: ParsedFile[]): Promise<void> {
 		chipsContainer.empty();
 
 		// Get selected primary topic for chip enhancement
@@ -779,7 +753,7 @@ export class SubjectDashboardView extends ItemView {
 	 * Filter records to only those matching active chips
 	 * For primary topic chips, apply the full filterExpression to respect scope constraints
 	 */
-	private filterRecordsByActiveChips(parsedRecords: ParsedRecord[]): ParsedRecord[] {
+	private filterRecordsByActiveChips(parsedRecords: ParsedFile[]): ParsedFile[] {
 		if (this.activeChips.size === 0) {
 			return parsedRecords;
 		}
@@ -793,13 +767,10 @@ export class SubjectDashboardView extends ItemView {
 			if (selectedPrimaryTopic?.filterExpression) {
 				try {
 					const compiled = FilterParser.compile(selectedPrimaryTopic.filterExpression);
-					const matchingRecords: ParsedRecord[] = [];
+					const matchingRecords: ParsedFile[] = [];
 
 					for (const record of parsedRecords) {
-						const contexts = this.parsedRecordToContexts(record);
-						const hasMatch = contexts.some(({ context }) =>
-							FilterParser.evaluate(compiled.ast, context, compiled.modifiers)
-						);
+						const hasMatch = fileHasMatch(record, compiled, HighlightSpaceRepeatPlugin.settings.categories);
 						if (hasMatch) {
 							matchingRecords.push(record);
 						}
@@ -861,60 +832,43 @@ export class SubjectDashboardView extends ItemView {
 	 * Check if record has at least one entry matching the filter criteria
 	 */
 	private recordHasMatchingEntry(
-		record: ParsedRecord,
+		record: ParsedFile,
 		matchingKeywords: Set<string>,
 		matchingCodeBlocks: Set<string>
 	): boolean {
-		const checkHeaders = (headers: RecordHeader[]): boolean => {
-			for (const header of headers) {
-				if (header.entries) {
-					for (const entry of header.entries) {
-						// Check main entry keywords
-						if (entry.keywords && entry.keywords.length > 0) {
-							const hasMatchingKeyword = entry.keywords.some(kw =>
-								matchingKeywords.has(kw)
-							);
-							if (hasMatchingKeyword) {
-								return true;
-							}
-						}
-
-						// Check subitem keywords
-						if (entry.subItems && entry.subItems.length > 0) {
-							for (const subItem of entry.subItems) {
-								if (subItem.keywords && subItem.keywords.length > 0) {
-									const hasMatchingKeyword = subItem.keywords.some(kw =>
-										matchingKeywords.has(kw)
-									);
-									if (hasMatchingKeyword) {
-										return true;
-									}
-								}
-							}
-						}
-
-						// Check code blocks
-						if (entry.type === 'codeblock' && entry.language) {
-							if (matchingCodeBlocks.has(entry.language)) {
-								return true;
-							}
-						}
-					}
-				}
-
-				// Check children recursively
-				if (header.children && this.recordHasMatchingEntry(
-					{ ...record, headers: header.children },
-					matchingKeywords,
-					matchingCodeBlocks
-				)) {
+		for (const entry of record.entries) {
+			// Check main entry keywords
+			if (entry.keywords && entry.keywords.length > 0) {
+				const hasMatchingKeyword = entry.keywords.some(kw =>
+					matchingKeywords.has(kw)
+				);
+				if (hasMatchingKeyword) {
 					return true;
 				}
 			}
-			return false;
-		};
 
-		return checkHeaders(record.headers);
+			// Check subitem keywords
+			if (entry.subItems && entry.subItems.length > 0) {
+				for (const subItem of entry.subItems) {
+					if (subItem.keywords && subItem.keywords.length > 0) {
+						const hasMatchingKeyword = subItem.keywords.some(kw =>
+							matchingKeywords.has(kw)
+						);
+						if (hasMatchingKeyword) {
+							return true;
+						}
+					}
+				}
+			}
+
+			// Check code blocks
+			if (entry.type === 'codeblock' && entry.language) {
+				if (matchingCodeBlocks.has(entry.language)) {
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	private async renderColumns(container: HTMLElement, primaryTopics: Topic[], secondaryTopics: Topic[]): Promise<void> {
@@ -933,7 +887,7 @@ export class SubjectDashboardView extends ItemView {
 		const columnsContainer = container.createDiv({ cls: 'kh-dashboard-columns' });
 
 		// Filter files based on selected primary topic
-		let filteredRecords: ParsedRecord[] = [];
+		let filteredRecords: ParsedFile[] = [];
 		if (this.selectedPrimaryTopicId === 'orphans') {
 			// Get orphans - files that don't have any primary topic tags
 			const primaryTopicTags = primaryTopics.map(t => t.topicTag).filter(Boolean);
@@ -996,7 +950,7 @@ export class SubjectDashboardView extends ItemView {
 			otherFiles.forEach(record => {
 				const fileItem = filesList.createDiv({ cls: 'kh-dashboard-file-item' });
 				fileItem.createEl('span', {
-					text: record.fileName.replace('.md', ''),
+					text: getFileNameFromPath(record.filePath).replace('.md', ''),
 					cls: 'kh-dashboard-file-name'
 				});
 				fileItem.style.cursor = 'pointer';
@@ -1011,7 +965,7 @@ export class SubjectDashboardView extends ItemView {
 					// Normal click: Show records from this file
 					else {
 						this.selectedRecords = [record];
-						this.selectedContext = `${record.fileName.replace('.md', '')} (1 file)`;
+						this.selectedContext = `${getFileNameFromPath(record.filePath).replace('.md', '')} (1 file)`;
 						this.selectedKeywordFilter = null;
 						this.selectedTopicTag = null;
 						this.selectedHeaderMode = false;
@@ -1028,8 +982,8 @@ export class SubjectDashboardView extends ItemView {
 	private renderTotalsColumn(
 		columnsContainer: HTMLElement,
 		primaryTopic: Topic,
-		filteredRecords: ParsedRecord[],
-		allRecords: ParsedRecord[]
+		filteredRecords: ParsedFile[],
+		allRecords: ParsedFile[]
 	): void {
 		// Count files matching primary topic tag
 		const fileCount = filteredRecords.length;
@@ -1037,62 +991,60 @@ export class SubjectDashboardView extends ItemView {
 		// Count headers matching primary topic keyword/tag (check ALL files!)
 		// EXACT same logic as matrix view's countHeadersForSingleTopic
 		let headerCount = 0;
-		const recordsWithMatchingHeaders: ParsedRecord[] = [];
-
-		const countInHeaders = (record: ParsedRecord, headers: RecordHeader[], filePath?: string): boolean => {
-			let foundInThisRecord = false;
-
-			for (const header of headers) {
-				if (header.text) {
-					// Check if topic keyword is in header.keywords array
-					let keywordMatch = false;
-					if (primaryTopic.topicKeyword && header.keywords) {
-						keywordMatch = header.keywords.some(kw =>
-							kw.toLowerCase() === primaryTopic.topicKeyword!.toLowerCase()
-						);
-					}
-
-					// Check if header tags include the topic tag
-					const tagMatch = primaryTopic.topicTag && header.tags.some(tag => {
-						const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
-						return normalizedTag === primaryTopic.topicTag;
-					});
-
-					// DEBUG for german
-					if (primaryTopic.topicKeyword === 'ger' || primaryTopic.topicTag === '#german') {
-						if (keywordMatch || tagMatch) {
-							console.log(`[DASHBOARD DEBUG] Found matching header:`, {
-								filePath,
-								headerText: header.text,
-								headerKeywords: header.keywords,
-								headerTags: header.tags,
-								topicKeyword: primaryTopic.topicKeyword,
-								topicTag: primaryTopic.topicTag,
-								keywordMatch,
-								tagMatch
-							});
-						}
-					}
-
-					if (keywordMatch || tagMatch) {
-						headerCount++;
-						foundInThisRecord = true;
-					}
-				}
-
-				// Recurse into children
-				if (header.children) {
-					const childFound = countInHeaders(record, header.children, filePath);
-					foundInThisRecord = foundInThisRecord || childFound;
-				}
-			}
-
-			return foundInThisRecord;
-		};
+		const recordsWithMatchingHeaders: ParsedFile[] = [];
 
 		// Check ALL files - headers have independent tags/keywords!
 		for (const record of allRecords) {
-			const hasMatchingHeader = countInHeaders(record, record.headers, record.filePath);
+			let hasMatchingHeader = false;
+
+			for (const entry of record.entries) {
+				const headerLevels = [
+					entry.h1 ? { level: 1, info: entry.h1 } : null,
+					entry.h2 ? { level: 2, info: entry.h2 } : null,
+					entry.h3 ? { level: 3, info: entry.h3 } : null
+				].filter(h => h !== null);
+
+				for (const headerLevel of headerLevels) {
+					const header = headerLevel!.info;
+					if (header.text) {
+						// Check if topic keyword is in header.keywords array
+						let keywordMatch = false;
+						if (primaryTopic.topicKeyword && header.keywords) {
+							keywordMatch = header.keywords?.some(kw =>
+								kw.toLowerCase() === primaryTopic.topicKeyword!.toLowerCase()
+							);
+						}
+
+						// Check if header tags include the topic tag
+						const tagMatch = primaryTopic.topicTag && header.tags?.some(tag => {
+							const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
+							return normalizedTag === primaryTopic.topicTag;
+						});
+
+						// DEBUG for german
+						if (primaryTopic.topicKeyword === 'ger' || primaryTopic.topicTag === '#german') {
+							if (keywordMatch || tagMatch) {
+								console.log(`[DASHBOARD DEBUG] Found matching header:`, {
+									filePath: record.filePath,
+									headerText: header.text,
+									headerKeywords: header.keywords,
+									headerTags: header.tags,
+									topicKeyword: primaryTopic.topicKeyword,
+									topicTag: primaryTopic.topicTag,
+									keywordMatch,
+									tagMatch
+								});
+							}
+						}
+
+						if (keywordMatch || tagMatch) {
+							headerCount++;
+							hasMatchingHeader = true;
+						}
+					}
+				}
+			}
+
 			if (hasMatchingHeader && !recordsWithMatchingHeaders.includes(record)) {
 				recordsWithMatchingHeaders.push(record);
 			}
@@ -1109,48 +1061,37 @@ export class SubjectDashboardView extends ItemView {
 		// For now, just count entries with the topic keyword (ignoring file tags and complex expressions)
 		// TODO: Use full FilterParser evaluation like matrix view
 		let recordCount = 0;
-		const recordsWithMatchingEntries: ParsedRecord[] = [];
+		const recordsWithMatchingEntries: ParsedFile[] = [];
 
 		if (primaryTopic.topicKeyword) {
 			for (const record of allRecords) {
 				let fileHasMatchingEntry = false;
 
-				const countEntries = (headers: RecordHeader[]) => {
-					for (const header of headers) {
-						if (header.entries && header.entries.length > 0) {
-							for (const entry of header.entries) {
-								// Entry matches if it has the topic keyword (in entry or subitems)
-								let hasKeyword = false;
+				// Entries are now flat in record.entries, no need to traverse headers
+				for (const entry of record.entries) {
+					// Entry matches if it has the topic keyword (in entry or subitems)
+					let hasKeyword = false;
 
-								// Check main entry keywords
-								if (entry.keywords && entry.keywords.includes(primaryTopic.topicKeyword!)) {
-									hasKeyword = true;
-								}
+					// Check main entry keywords
+					if (entry.keywords && entry.keywords.includes(primaryTopic.topicKeyword!)) {
+						hasKeyword = true;
+					}
 
-								// Check subitem keywords
-								if (!hasKeyword && entry.subItems && entry.subItems.length > 0) {
-									for (const subItem of entry.subItems) {
-										if (subItem.keywords && subItem.keywords.includes(primaryTopic.topicKeyword!)) {
-											hasKeyword = true;
-											break;
-										}
-									}
-								}
-
-								if (hasKeyword) {
-									recordCount++;
-									fileHasMatchingEntry = true;
-								}
+					// Check subitem keywords
+					if (!hasKeyword && entry.subItems && entry.subItems.length > 0) {
+						for (const subItem of entry.subItems) {
+							if (subItem.keywords && subItem.keywords.includes(primaryTopic.topicKeyword!)) {
+								hasKeyword = true;
+								break;
 							}
 						}
-
-						if (header.children) {
-							countEntries(header.children);
-						}
 					}
-				};
 
-				countEntries(record.headers);
+					if (hasKeyword) {
+						recordCount++;
+						fileHasMatchingEntry = true;
+					}
+				}
 
 				if (fileHasMatchingEntry) {
 					recordsWithMatchingEntries.push(record);
@@ -1256,7 +1197,7 @@ export class SubjectDashboardView extends ItemView {
 		limitedFiles.forEach(record => {
 			const fileItem = content.createDiv({ cls: 'kh-dashboard-file-item' });
 			fileItem.createEl('span', {
-				text: record.fileName.replace('.md', ''),
+				text: getFileNameFromPath(record.filePath).replace('.md', ''),
 				cls: 'kh-dashboard-file-name'
 			});
 			fileItem.style.cursor = 'pointer';
@@ -1271,7 +1212,7 @@ export class SubjectDashboardView extends ItemView {
 				// Normal click: Show records from this file
 				else {
 					this.selectedRecords = [record];
-					this.selectedContext = `${record.fileName.replace('.md', '')} (1 file)`;
+					this.selectedContext = `${getFileNameFromPath(record.filePath).replace('.md', '')} (1 file)`;
 					this.selectedKeywordFilter = null;
 					this.selectedTopicTag = null;
 					this.selectedHeaderMode = false;
@@ -1284,9 +1225,9 @@ export class SubjectDashboardView extends ItemView {
 	/**
 	 * Render column in FILES mode - show files matching topic tag
 	 */
-	private renderColumnFiles(columnsContainer: HTMLElement, topic: Topic, filteredRecords: ParsedRecord[], allRecords: ParsedRecord[]): void {
+	private renderColumnFiles(columnsContainer: HTMLElement, topic: Topic, filteredRecords: ParsedFile[], allRecords: ParsedFile[]): void {
 		// Count files with topic tag (from filtered records for current primary topic)
-		let topicFiles: ParsedRecord[] = [];
+		let topicFiles: ParsedFile[] = [];
 		if (topic.topicTag) {
 			topicFiles = filteredRecords.filter(record => {
 				const tags = this.getRecordTags(record);
@@ -1297,46 +1238,44 @@ export class SubjectDashboardView extends ItemView {
 
 		// Count headers matching topic keyword/tag (check ALL files!)
 		let headerCount = 0;
-		const recordsWithMatchingHeaders: ParsedRecord[] = [];
-
-		const countInHeaders = (record: ParsedRecord, headers: RecordHeader[]): boolean => {
-			let foundInThisRecord = false;
-
-			for (const header of headers) {
-				if (header.text) {
-					// Check if topic keyword is in header.keywords array
-					let keywordMatch = false;
-					if (topic.topicKeyword && header.keywords) {
-						keywordMatch = header.keywords.some(kw =>
-							kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
-						);
-					}
-
-					// Check if header tags include the topic tag
-					const tagMatch = topic.topicTag && header.tags.some(tag => {
-						const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
-						return normalizedTag === topic.topicTag;
-					});
-
-					if (keywordMatch || tagMatch) {
-						headerCount++;
-						foundInThisRecord = true;
-					}
-				}
-
-				// Recurse into children
-				if (header.children) {
-					const childFound = countInHeaders(record, header.children);
-					foundInThisRecord = foundInThisRecord || childFound;
-				}
-			}
-
-			return foundInThisRecord;
-		};
+		const recordsWithMatchingHeaders: ParsedFile[] = [];
 
 		// Check ALL files for headers
 		for (const record of allRecords) {
-			const hasMatchingHeader = countInHeaders(record, record.headers);
+			let hasMatchingHeader = false;
+
+			for (const entry of record.entries) {
+				const headerLevels = [
+					entry.h1 ? { level: 1, info: entry.h1 } : null,
+					entry.h2 ? { level: 2, info: entry.h2 } : null,
+					entry.h3 ? { level: 3, info: entry.h3 } : null
+				].filter(h => h !== null);
+
+				for (const headerLevel of headerLevels) {
+					const header = headerLevel!.info;
+					if (header.text) {
+						// Check if topic keyword is in header.keywords array
+						let keywordMatch = false;
+						if (topic.topicKeyword && header.keywords) {
+							keywordMatch = header.keywords?.some(kw =>
+								kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
+							);
+						}
+
+						// Check if header tags include the topic tag
+						const tagMatch = topic.topicTag && header.tags?.some(tag => {
+							const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
+							return normalizedTag === topic.topicTag;
+						});
+
+						if (keywordMatch || tagMatch) {
+							headerCount++;
+							hasMatchingHeader = true;
+						}
+					}
+				}
+			}
+
 			if (hasMatchingHeader && !recordsWithMatchingHeaders.includes(record)) {
 				recordsWithMatchingHeaders.push(record);
 			}
@@ -1344,7 +1283,7 @@ export class SubjectDashboardView extends ItemView {
 
 		// Count entries matching topic keyword (check ALL files!)
 		let recordCount = 0;
-		const recordsWithMatchingEntries: ParsedRecord[] = [];
+		const recordsWithMatchingEntries: ParsedFile[] = [];
 
 		if (topic.topicKeyword) {
 			for (const record of allRecords) {
@@ -1448,7 +1387,7 @@ export class SubjectDashboardView extends ItemView {
 			topicFiles.slice(0, 10).forEach(record => {
 				const fileItem = filesList.createDiv({ cls: 'kh-dashboard-file-item' });
 				fileItem.createEl('span', {
-					text: record.fileName.replace('.md', ''),
+					text: getFileNameFromPath(record.filePath).replace('.md', ''),
 					cls: 'kh-dashboard-file-name'
 				});
 				fileItem.style.cursor = 'pointer';
@@ -1463,7 +1402,7 @@ export class SubjectDashboardView extends ItemView {
 					// Normal click: Show records from this file
 					else {
 						this.selectedRecords = [record];
-						this.selectedContext = `${record.fileName.replace('.md', '')} (1 file)`;
+						this.selectedContext = `${getFileNameFromPath(record.filePath).replace('.md', '')} (1 file)`;
 						this.selectedKeywordFilter = null;
 						this.selectedTopicTag = null;
 						this.selectedHeaderMode = false;
@@ -1477,9 +1416,9 @@ export class SubjectDashboardView extends ItemView {
 	/**
 	 * Render column in HEADERS mode - show headers matching topic keyword/tag
 	 */
-	private renderColumnHeaders(columnsContainer: HTMLElement, topic: Topic, filteredRecords: ParsedRecord[], allRecords: ParsedRecord[]): void {
+	private renderColumnHeaders(columnsContainer: HTMLElement, topic: Topic, filteredRecords: ParsedFile[], allRecords: ParsedFile[]): void {
 		// Count files with topic tag (from filtered records for current primary topic)
-		let topicFiles: ParsedRecord[] = [];
+		let topicFiles: ParsedFile[] = [];
 		if (topic.topicTag) {
 			topicFiles = filteredRecords.filter(record => {
 				const tags = this.getRecordTags(record);
@@ -1490,48 +1429,46 @@ export class SubjectDashboardView extends ItemView {
 
 		// Count headers matching topic keyword/tag (check ALL files!)
 		let headerCount = 0;
-		const recordsWithMatchingHeaders: ParsedRecord[] = [];
-		const matchingHeaders: { record: ParsedRecord; header: RecordHeader }[] = [];
-
-		const checkHeaders = (record: ParsedRecord, headers: RecordHeader[]): boolean => {
-			let foundInThisRecord = false;
-
-			for (const header of headers) {
-				if (header.text) {
-					// Check if topic keyword is in header.keywords array
-					let keywordMatch = false;
-					if (topic.topicKeyword && header.keywords) {
-						keywordMatch = header.keywords.some(kw =>
-							kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
-						);
-					}
-
-					// Check if header tags include the topic tag
-					const tagMatch = topic.topicTag && header.tags.some(tag => {
-						const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
-						return normalizedTag === topic.topicTag;
-					});
-
-					if (keywordMatch || tagMatch) {
-						matchingHeaders.push({ record, header });
-						headerCount++;
-						foundInThisRecord = true;
-					}
-				}
-
-				// Recurse into children
-				if (header.children) {
-					const childFound = checkHeaders(record, header.children);
-					foundInThisRecord = foundInThisRecord || childFound;
-				}
-			}
-
-			return foundInThisRecord;
-		};
+		const recordsWithMatchingHeaders: ParsedFile[] = [];
+		const matchingHeaders: { record: ParsedFile; header: { text: string } }[] = [];
 
 		// Check ALL files for headers
 		for (const record of allRecords) {
-			const hasMatchingHeader = checkHeaders(record, record.headers);
+			let hasMatchingHeader = false;
+
+			for (const entry of record.entries) {
+				const headerLevels = [
+					entry.h1 ? { level: 1, info: entry.h1 } : null,
+					entry.h2 ? { level: 2, info: entry.h2 } : null,
+					entry.h3 ? { level: 3, info: entry.h3 } : null
+				].filter(h => h !== null);
+
+				for (const headerLevel of headerLevels) {
+					const header = headerLevel!.info;
+					if (header.text) {
+						// Check if topic keyword is in header.keywords array
+						let keywordMatch = false;
+						if (topic.topicKeyword && header.keywords) {
+							keywordMatch = header.keywords?.some(kw =>
+								kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
+							);
+						}
+
+						// Check if header tags include the topic tag
+						const tagMatch = topic.topicTag && header.tags?.some(tag => {
+							const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
+							return normalizedTag === topic.topicTag;
+						});
+
+						if (keywordMatch || tagMatch) {
+							matchingHeaders.push({ record, header });
+							headerCount++;
+							hasMatchingHeader = true;
+						}
+					}
+				}
+			}
+
 			if (hasMatchingHeader && !recordsWithMatchingHeaders.includes(record)) {
 				recordsWithMatchingHeaders.push(record);
 			}
@@ -1539,7 +1476,7 @@ export class SubjectDashboardView extends ItemView {
 
 		// Count entries matching topic keyword (check ALL files!)
 		let recordCount = 0;
-		const recordsWithMatchingEntries: ParsedRecord[] = [];
+		const recordsWithMatchingEntries: ParsedFile[] = [];
 
 		if (topic.topicKeyword) {
 			for (const record of allRecords) {
@@ -1643,7 +1580,7 @@ export class SubjectDashboardView extends ItemView {
 			matchingHeaders.slice(0, 10).forEach(({ record, header }) => {
 				const headerItem = headersList.createDiv({ cls: 'kh-dashboard-file-item' });
 				headerItem.createEl('span', {
-					text: `${record.fileName.replace('.md', '')} #${header.text}`,
+					text: `${getFileNameFromPath(record.filePath).replace('.md', '')} #${header.text}`,
 					cls: 'kh-dashboard-file-name'
 				});
 				headerItem.style.cursor = 'pointer';
@@ -1663,9 +1600,9 @@ export class SubjectDashboardView extends ItemView {
 	/**
 	 * Render column in RECORDS mode - show files with entries matching topic filterExpression
 	 */
-	private renderColumnRecords(columnsContainer: HTMLElement, topic: Topic, filteredRecords: ParsedRecord[], allRecords: ParsedRecord[]): void {
+	private renderColumnRecords(columnsContainer: HTMLElement, topic: Topic, filteredRecords: ParsedFile[], allRecords: ParsedFile[]): void {
 		// Count files with topic tag (from filtered records for current primary topic)
-		let topicFiles: ParsedRecord[] = [];
+		let topicFiles: ParsedFile[] = [];
 		if (topic.topicTag) {
 			topicFiles = filteredRecords.filter(record => {
 				const tags = this.getRecordTags(record);
@@ -1676,46 +1613,44 @@ export class SubjectDashboardView extends ItemView {
 
 		// Count headers matching topic keyword/tag (check ALL files!)
 		let headerCount = 0;
-		const recordsWithMatchingHeaders: ParsedRecord[] = [];
-
-		const countInHeaders = (record: ParsedRecord, headers: RecordHeader[]): boolean => {
-			let foundInThisRecord = false;
-
-			for (const header of headers) {
-				if (header.text) {
-					// Check if topic keyword is in header.keywords array
-					let keywordMatch = false;
-					if (topic.topicKeyword && header.keywords) {
-						keywordMatch = header.keywords.some(kw =>
-							kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
-						);
-					}
-
-					// Check if header tags include the topic tag
-					const tagMatch = topic.topicTag && header.tags.some(tag => {
-						const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
-						return normalizedTag === topic.topicTag;
-					});
-
-					if (keywordMatch || tagMatch) {
-						headerCount++;
-						foundInThisRecord = true;
-					}
-				}
-
-				// Recurse into children
-				if (header.children) {
-					const childFound = countInHeaders(record, header.children);
-					foundInThisRecord = foundInThisRecord || childFound;
-				}
-			}
-
-			return foundInThisRecord;
-		};
+		const recordsWithMatchingHeaders: ParsedFile[] = [];
 
 		// Check ALL files for headers
 		for (const record of allRecords) {
-			const hasMatchingHeader = countInHeaders(record, record.headers);
+			let hasMatchingHeader = false;
+
+			for (const entry of record.entries) {
+				const headerLevels = [
+					entry.h1 ? { level: 1, info: entry.h1 } : null,
+					entry.h2 ? { level: 2, info: entry.h2 } : null,
+					entry.h3 ? { level: 3, info: entry.h3 } : null
+				].filter(h => h !== null);
+
+				for (const headerLevel of headerLevels) {
+					const header = headerLevel!.info;
+					if (header.text) {
+						// Check if topic keyword is in header.keywords array
+						let keywordMatch = false;
+						if (topic.topicKeyword && header.keywords) {
+							keywordMatch = header.keywords?.some(kw =>
+								kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
+							);
+						}
+
+						// Check if header tags include the topic tag
+						const tagMatch = topic.topicTag && header.tags?.some(tag => {
+							const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
+							return normalizedTag === topic.topicTag;
+						});
+
+						if (keywordMatch || tagMatch) {
+							headerCount++;
+							hasMatchingHeader = true;
+						}
+					}
+				}
+			}
+
 			if (hasMatchingHeader && !recordsWithMatchingHeaders.includes(record)) {
 				recordsWithMatchingHeaders.push(record);
 			}
@@ -1723,7 +1658,7 @@ export class SubjectDashboardView extends ItemView {
 
 		// Count entries matching topic keyword (check ALL files!)
 		let recordCount = 0;
-		const recordsWithMatchingEntries: ParsedRecord[] = [];
+		const recordsWithMatchingEntries: ParsedFile[] = [];
 
 		if (topic.topicKeyword) {
 			for (const record of allRecords) {
@@ -1827,7 +1762,7 @@ export class SubjectDashboardView extends ItemView {
 			recordsWithMatchingEntries.slice(0, 10).forEach(record => {
 				const recordItem = recordsList.createDiv({ cls: 'kh-dashboard-file-item' });
 				recordItem.createEl('span', {
-					text: record.fileName.replace('.md', ''),
+					text: getFileNameFromPath(record.filePath).replace('.md', ''),
 					cls: 'kh-dashboard-file-name'
 				});
 				recordItem.style.cursor = 'pointer';
@@ -1847,8 +1782,8 @@ export class SubjectDashboardView extends ItemView {
 	/**
 	 * Load parsed records from JSON file
 	 */
-	private async loadParsedRecords(): Promise<ParsedRecord[]> {
-		const parsedRecordsPath = '.obsidian/plugins/highlight-space-repeat/app-data/parsed-records.json';
+	private async loadParsedRecords(): Promise<ParsedFile[]> {
+		const parsedRecordsPath = DATA_PATHS.PARSED_FILES;
 		const exists = await this.plugin.app.vault.adapter.exists(parsedRecordsPath);
 
 		if (!exists) {
@@ -1863,7 +1798,7 @@ export class SubjectDashboardView extends ItemView {
 	/**
 	 * Get tags from a parsed record (includes both file-level and header tags)
 	 */
-	private getRecordTags(record: ParsedRecord): string[] {
+	private getRecordTags(record: ParsedFile): string[] {
 		const tags = new Set<string>();
 
 		// Add file-level tags (ensure they have #)
@@ -1871,19 +1806,24 @@ export class SubjectDashboardView extends ItemView {
 			tags.add(tag.startsWith('#') ? tag : '#' + tag);
 		});
 
-		// Recursively collect header tags
-		const collectHeaderTags = (headers: RecordHeader[]) => {
-			for (const header of headers) {
-				header.tags.forEach(tag => {
+		// Collect tags from all entry headers (h1/h2/h3)
+		for (const entry of record.entries) {
+			if (entry.h1?.tags) {
+				entry.h1.tags.forEach(tag => {
 					tags.add(tag.startsWith('#') ? tag : '#' + tag);
 				});
-				if (header.children) {
-					collectHeaderTags(header.children);
-				}
 			}
-		};
-
-		collectHeaderTags(record.headers);
+			if (entry.h2?.tags) {
+				entry.h2.tags.forEach(tag => {
+					tags.add(tag.startsWith('#') ? tag : '#' + tag);
+				});
+			}
+			if (entry.h3?.tags) {
+				entry.h3.tags.forEach(tag => {
+					tags.add(tag.startsWith('#') ? tag : '#' + tag);
+				});
+			}
+		}
 
 		return Array.from(tags);
 	}
@@ -1891,7 +1831,7 @@ export class SubjectDashboardView extends ItemView {
 	/**
 	 * Get files that have a specific topic tag
 	 */
-	private getFilesWithTopicTag(parsedRecords: ParsedRecord[], topicTag: string): ParsedRecord[] {
+	private getFilesWithTopicTag(parsedRecords: ParsedFile[], topicTag: string): ParsedFile[] {
 		// Normalize the topic tag
 		const normalizedTag = topicTag.startsWith('#') ? topicTag : '#' + topicTag;
 
@@ -1905,22 +1845,17 @@ export class SubjectDashboardView extends ItemView {
 	 * Filter records by a filter expression (chip filter)
 	 * Returns only the records (files) that contain at least one entry matching the expression
 	 */
-	private async filterRecordsByExpression(parsedRecords: ParsedRecord[], filterExpression: string): Promise<ParsedRecord[]> {
+	private async filterRecordsByExpression(parsedRecords: ParsedFile[], filterExpression: string): Promise<ParsedFile[]> {
 		try {
 			// Compile the filter expression
 			const compiled = FilterParser.compile(filterExpression);
 
 			// Filter records - keep only those with at least one matching entry
-			const matchingRecords: ParsedRecord[] = [];
+			const matchingRecords: ParsedFile[] = [];
 
 			for (const record of parsedRecords) {
-				// Convert record to contexts (one per entry)
-				const contexts = this.parsedRecordToContexts(record);
-
 				// Check if any entry in this record matches the filter
-				const hasMatch = contexts.some(({ context }) =>
-					FilterParser.evaluate(compiled.ast, context, compiled.modifiers)
-				);
+				const hasMatch = fileHasMatch(record, compiled, HighlightSpaceRepeatPlugin.settings.categories);
 
 				if (hasMatch) {
 					matchingRecords.push(record);
@@ -1932,80 +1867,6 @@ export class SubjectDashboardView extends ItemView {
 			console.error('[SubjectDashboardView] Error filtering records:', error);
 			return parsedRecords; // Return unfiltered on error
 		}
-	}
-
-	/**
-	 * Convert ParsedRecord to FilterMatchContext array
-	 * Creates one context per keyword entry/code block
-	 */
-	private parsedRecordToContexts(record: ParsedRecord): Array<{ context: FilterMatchContext; entry: RecordEntry }> {
-		const results: Array<{ context: FilterMatchContext; entry: RecordEntry }> = [];
-
-		// Collect ALL tags from the entire file (file-level + all headers)
-		const allFileTags = new Set<string>();
-
-		// Add file-level tags with # normalization
-		record.tags.forEach(tag => {
-			const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
-			allFileTags.add(normalizedTag);
-		});
-
-		const collectAllTags = (headers: RecordHeader[]) => {
-			for (const header of headers) {
-				header.tags.forEach(tag => {
-					const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
-					allFileTags.add(normalizedTag);
-				});
-				if (header.children && header.children.length > 0) {
-					collectAllTags(header.children);
-				}
-			}
-		};
-		collectAllTags(record.headers);
-
-		const allFileTagsArray = Array.from(allFileTags);
-
-		// Process entries within headers
-		const processHeaders = (headers: RecordHeader[]) => {
-			for (const header of headers) {
-				// Process entries in this header
-				if (header.entries && header.entries.length > 0) {
-					for (const entry of header.entries) {
-						// Collect keywords from entry and all subitems
-						const allKeywords = [...(entry.keywords || [])];
-						if (entry.subItems && entry.subItems.length > 0) {
-							for (const subItem of entry.subItems) {
-								if (subItem.keywords && subItem.keywords.length > 0) {
-									allKeywords.push(...subItem.keywords);
-								}
-							}
-						}
-
-						const context: FilterMatchContext = {
-							filePath: record.filePath,
-							fileName: record.fileName,
-							tags: allFileTagsArray,
-							keywords: allKeywords,
-							code: entry.text || '',
-							languages: entry.type === 'codeblock' && entry.language ? [entry.language] : [],
-							auxiliaryKeywords: [],
-							keywordData: { categories: HighlightSpaceRepeatPlugin.settings.categories }
-						};
-
-						results.push({ context, entry });
-					}
-				}
-
-				// Process children recursively
-				if (header.children && header.children.length > 0) {
-					processHeaders(header.children);
-				}
-			}
-		};
-
-		processHeaders(record.headers);
-
-		return results;
 	}
 
 	/**
@@ -2061,7 +1922,7 @@ export class SubjectDashboardView extends ItemView {
 				if (tempContainer.childNodes.length > 0) {
 					// File header
 					const fileHeader = recordsSection.createDiv({ cls: 'kh-dashboard-record-file' });
-					fileHeader.createEl('strong', { text: record.fileName.replace('.md', '') });
+					fileHeader.createEl('strong', { text: getFileNameFromPath(record.filePath).replace('.md', '') });
 
 					// Container for entries
 					const entriesContainer = recordsSection.createDiv({ cls: 'kh-dashboard-record-entries' });
@@ -2081,17 +1942,27 @@ export class SubjectDashboardView extends ItemView {
 	private async renderSelectedHeaders(container: HTMLElement): Promise<void> {
 		if (!this.selectedRecords) return;
 
-		const headers: { record: ParsedRecord; header: RecordHeader }[] = [];
+		const headers: { record: ParsedFile; headerText: string; headerLevel: number; entries: ParsedEntry[] }[] = [];
 
 		// Collect matching headers (EXACT same logic as counting)
 		for (const record of this.selectedRecords) {
-			const checkHeaders = (headerList: RecordHeader[]) => {
-				for (const header of headerList) {
+			// Group entries by their headers for this record
+			const headerToEntriesMap = new Map<string, { level: number; text: string; entries: ParsedEntry[] }>();
+
+			for (const entry of record.entries) {
+				const headerLevels = [
+					entry.h1 ? { level: 1, info: entry.h1 } : null,
+					entry.h2 ? { level: 2, info: entry.h2 } : null,
+					entry.h3 ? { level: 3, info: entry.h3 } : null
+				].filter(h => h !== null);
+
+				for (const headerLevel of headerLevels) {
+					const header = headerLevel!.info;
 					if (header.text) {
 						// Check if keyword is in header.keywords array
 						let keywordMatch = false;
 						if (this.selectedKeywordFilter && header.keywords) {
-							keywordMatch = header.keywords.some(kw =>
+							keywordMatch = header.keywords?.some(kw =>
 								kw.toLowerCase() === this.selectedKeywordFilter!.toLowerCase()
 							);
 						}
@@ -2099,24 +1970,41 @@ export class SubjectDashboardView extends ItemView {
 						// Check if header tags include the topic tag
 						let tagMatch = false;
 						if (this.selectedTopicTag && header.tags) {
-							tagMatch = header.tags.some(tag => {
+							tagMatch = header.tags?.some(tag => {
 								const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
 								return normalizedTag === this.selectedTopicTag;
 							});
 						}
 
 						if (keywordMatch || tagMatch) {
-							headers.push({ record, header });
+							// Create unique key for this header
+							const headerKey = `${headerLevel!.level}:${header.text}`;
+
+							// Initialize or update header group
+							if (!headerToEntriesMap.has(headerKey)) {
+								headerToEntriesMap.set(headerKey, {
+									level: headerLevel!.level,
+									text: header.text,
+									entries: []
+								});
+							}
+
+							// Add this entry to the header's entry list
+							headerToEntriesMap.get(headerKey)!.entries.push(entry);
 						}
 					}
-
-					if (header.children) {
-						checkHeaders(header.children);
-					}
 				}
-			};
+			}
 
-			checkHeaders(record.headers);
+			// Convert map to headers array
+			for (const headerGroup of headerToEntriesMap.values()) {
+				headers.push({
+					record,
+					headerText: headerGroup.text,
+					headerLevel: headerGroup.level,
+					entries: headerGroup.entries
+				});
+			}
 		}
 
 		if (headers.length === 0) {
@@ -2128,8 +2016,8 @@ export class SubjectDashboardView extends ItemView {
 		}
 
 		// Render each header with toggle
-		for (const { record, header } of headers) {
-			const headerId = `${record.filePath}:${header.level}:${header.text}`;
+		for (const { record, headerText, headerLevel, entries } of headers) {
+			const headerId = `${record.filePath}:${headerLevel}:${headerText}`;
 			const isExpanded = this.expandedHeaders.has(headerId);
 
 			// Header group container
@@ -2155,7 +2043,7 @@ export class SubjectDashboardView extends ItemView {
 			});
 
 			// Filename (truncated)
-			const fileName = record.fileName.replace('.md', '');
+			const fileName = getFileNameFromPath(record.filePath).replace('.md', '');
 			const truncatedName = fileName.length > 15 ? fileName.substring(0, 12) + '...' : fileName;
 			const fileSpan = headerItem.createEl('span', {
 				text: truncatedName,
@@ -2165,14 +2053,14 @@ export class SubjectDashboardView extends ItemView {
 
 			// Header text
 			headerItem.createEl('span', {
-				text: ` #${header.text}`,
+				text: ` #${headerText}`,
 				cls: 'kh-widget-filter-header-text'
 			});
 
 			// If expanded, show entries under this header
-			if (isExpanded && header.entries && header.entries.length > 0) {
+			if (isExpanded && entries && entries.length > 0) {
 				const entriesContainer = headerGroup.createDiv({ cls: 'kh-widget-filter-entries' });
-				for (const entry of header.entries) {
+				for (const entry of entries) {
 					if (entry.type === 'keyword' && entry.keywords && entry.keywords.length > 0) {
 						const iconKeywords = this.resolveIconKeywords(entry.keywords);
 						const primaryKeyword = entry.keywords[0];
@@ -2269,146 +2157,133 @@ export class SubjectDashboardView extends ItemView {
 	/**
 	 * Render entries from a record
 	 */
-	private async renderRecordEntries(record: ParsedRecord, container: HTMLElement): Promise<void> {
-		const processHeaders = async (headers: RecordHeader[]) => {
-			for (const header of headers) {
-				if (header.entries && header.entries.length > 0) {
-					for (const entry of header.entries) {
-						// Filter by keyword if selectedKeywordFilter is set
-						if (this.selectedKeywordFilter) {
-							let hasKeyword = false;
+	private async renderRecordEntries(record: ParsedFile, container: HTMLElement): Promise<void> {
+		for (const entry of record.entries) {
+			// Filter by keyword if selectedKeywordFilter is set
+			if (this.selectedKeywordFilter) {
+				let hasKeyword = false;
 
-							// Check main entry keywords
-							if (entry.keywords && entry.keywords.includes(this.selectedKeywordFilter)) {
-								hasKeyword = true;
-							}
+				// Check main entry keywords
+				if (entry.keywords && entry.keywords.includes(this.selectedKeywordFilter)) {
+					hasKeyword = true;
+				}
 
-							// Check subitem keywords
-							if (!hasKeyword && entry.subItems && entry.subItems.length > 0) {
-								for (const subItem of entry.subItems) {
-									if (subItem.keywords && subItem.keywords.includes(this.selectedKeywordFilter)) {
-										hasKeyword = true;
-										break;
-									}
-								}
-							}
-
-							if (!hasKeyword) continue; // Skip this entry if it doesn't have the keyword
-						}
-
-						// Filter entries by active chips if any are selected
-						if (this.activeChips.size > 0) {
-							const hasMatch = this.entryMatchesActiveChips(entry);
-							if (!hasMatch) continue;
-						}
-
-						if (entry.type === 'keyword' && entry.keywords && entry.keywords.length > 0) {
-							const iconKeywords = this.resolveIconKeywords(entry.keywords);
-							const primaryKeyword = entry.keywords[0];
-							const primaryKeywordClass = this.getKeywordClass(primaryKeyword);
-							const entryItem = container.createDiv({
-								cls: `kh-widget-filter-entry ${primaryKeywordClass}`
-							});
-
-							// Apply keyword-based styling (background color and text color)
-	
-							// Make entry clickable - navigate to line in source file
-							entryItem.style.cursor = 'pointer';
-							entryItem.addEventListener('click', async (e: MouseEvent) => {
-								// Only open file on Command/Ctrl + click
-								if ((e.metaKey || e.ctrlKey) && entry.lineNumber !== undefined) {
-									const file = this.plugin.app.vault.getAbstractFileByPath(record.filePath);
-									if (file instanceof TFile) {
-										// Open the file
-										const leaf = this.plugin.app.workspace.getLeaf(false);
-										await leaf.openFile(file, {
-											eState: { line: entry.lineNumber }
-										});
-
-										// Navigate to the specific line
-										const view = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
-										if (view && view.editor) {
-											view.editor.setCursor({ line: entry.lineNumber, ch: 0 });
-											const scrollToLine = Math.max(0, entry.lineNumber - 3);
-											view.editor.scrollIntoView({
-												from: { line: scrollToLine, ch: 0 },
-												to: { line: scrollToLine, ch: 0 }
-											}, true);
-										}
-									}
-								}
-							});
-
-							// Render icons from all keywords with Icon/StyleAndIcon priority
-							for (const iconKeyword of iconKeywords) {
-								const mark = entryItem.createEl('mark', { cls: `kh-icon ${iconKeyword}` });
-								mark.innerHTML = '&nbsp;';
-							}
-							entryItem.createEl('span', { text: ' ', cls: 'kh-separator' });
-
-							// Render entry text with image/quote support (compact mode)
-							await KHEntry.renderKeywordEntry(
-								entryItem,
-								entry,
-								record,
-								this.plugin,
-								true // compact mode
-							);
-						} else if (entry.type === 'codeblock' && (entry as any).language) {
-							const codeblockItem = container.createDiv({
-								cls: 'kh-widget-filter-entry codeblock kh-entry-compact'
-							});
-
-							codeblockItem.style.cursor = 'pointer';
-							codeblockItem.addEventListener('click', async (e: MouseEvent) => {
-								// Only open file on Command/Ctrl + click
-								if ((e.metaKey || e.ctrlKey) && entry.lineNumber !== undefined) {
-									const file = this.plugin.app.vault.getAbstractFileByPath(record.filePath);
-									if (file instanceof TFile) {
-										const leaf = this.plugin.app.workspace.getLeaf(false);
-										await leaf.openFile(file, {
-											eState: { line: entry.lineNumber }
-										});
-
-										const view = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
-										if (view && view.editor) {
-											view.editor.setCursor({ line: entry.lineNumber, ch: 0 });
-											const scrollToLine = Math.max(0, entry.lineNumber - 3);
-											view.editor.scrollIntoView({
-												from: { line: scrollToLine, ch: 0 },
-												to: { line: scrollToLine, ch: 0 }
-											}, true);
-										}
-									}
-								}
-							});
-
-							// Render code block with syntax highlighting
-							const codeMarkdown = '```' + ((entry as any).language || '') + '\n' + ((entry as any).text || '') + '\n```';
-							MarkdownRenderer.renderMarkdown(
-								codeMarkdown,
-								codeblockItem,
-								record.filePath,
-								this.plugin as any
-							);
+				// Check subitem keywords
+				if (!hasKeyword && entry.subItems && entry.subItems.length > 0) {
+					for (const subItem of entry.subItems) {
+						if (subItem.keywords && subItem.keywords.includes(this.selectedKeywordFilter)) {
+							hasKeyword = true;
+							break;
 						}
 					}
 				}
 
-				// Process children recursively
-				if (header.children && header.children.length > 0) {
-					await processHeaders(header.children);
-				}
+				if (!hasKeyword) continue; // Skip this entry if it doesn't have the keyword
 			}
-		};
 
-		await processHeaders(record.headers);
+			// Filter entries by active chips if any are selected
+			if (this.activeChips.size > 0) {
+				const hasMatch = this.entryMatchesActiveChips(entry);
+				if (!hasMatch) continue;
+			}
+
+			if (entry.type === 'keyword' && entry.keywords && entry.keywords.length > 0) {
+				const iconKeywords = this.resolveIconKeywords(entry.keywords);
+				const primaryKeyword = entry.keywords[0];
+				const primaryKeywordClass = this.getKeywordClass(primaryKeyword);
+				const entryItem = container.createDiv({
+					cls: `kh-widget-filter-entry ${primaryKeywordClass}`
+				});
+
+				// Apply keyword-based styling (background color and text color)
+
+				// Make entry clickable - navigate to line in source file
+				entryItem.style.cursor = 'pointer';
+				entryItem.addEventListener('click', async (e: MouseEvent) => {
+					// Only open file on Command/Ctrl + click
+					if ((e.metaKey || e.ctrlKey) && entry.lineNumber !== undefined) {
+						const file = this.plugin.app.vault.getAbstractFileByPath(record.filePath);
+						if (file instanceof TFile) {
+							// Open the file
+							const leaf = this.plugin.app.workspace.getLeaf(false);
+							await leaf.openFile(file, {
+								eState: { line: entry.lineNumber }
+							});
+
+							// Navigate to the specific line
+							const view = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
+							if (view && view.editor) {
+								view.editor.setCursor({ line: entry.lineNumber, ch: 0 });
+								const scrollToLine = Math.max(0, entry.lineNumber - 3);
+								view.editor.scrollIntoView({
+									from: { line: scrollToLine, ch: 0 },
+									to: { line: scrollToLine, ch: 0 }
+								}, true);
+							}
+						}
+					}
+				});
+
+				// Render icons from all keywords with Icon/StyleAndIcon priority
+				for (const iconKeyword of iconKeywords) {
+					const mark = entryItem.createEl('mark', { cls: `kh-icon ${iconKeyword}` });
+					mark.innerHTML = '&nbsp;';
+				}
+				entryItem.createEl('span', { text: ' ', cls: 'kh-separator' });
+
+				// Render entry text with image/quote support (compact mode)
+				await KHEntry.renderKeywordEntry(
+					entryItem,
+					entry,
+					record,
+					this.plugin,
+					true // compact mode
+				);
+			} else if (entry.type === 'codeblock' && (entry as any).language) {
+				const codeblockItem = container.createDiv({
+					cls: 'kh-widget-filter-entry codeblock kh-entry-compact'
+				});
+
+				codeblockItem.style.cursor = 'pointer';
+				codeblockItem.addEventListener('click', async (e: MouseEvent) => {
+					// Only open file on Command/Ctrl + click
+					if ((e.metaKey || e.ctrlKey) && entry.lineNumber !== undefined) {
+						const file = this.plugin.app.vault.getAbstractFileByPath(record.filePath);
+						if (file instanceof TFile) {
+							const leaf = this.plugin.app.workspace.getLeaf(false);
+							await leaf.openFile(file, {
+								eState: { line: entry.lineNumber }
+							});
+
+							const view = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
+							if (view && view.editor) {
+								view.editor.setCursor({ line: entry.lineNumber, ch: 0 });
+								const scrollToLine = Math.max(0, entry.lineNumber - 3);
+								view.editor.scrollIntoView({
+									from: { line: scrollToLine, ch: 0 },
+									to: { line: scrollToLine, ch: 0 }
+								}, true);
+							}
+						}
+					}
+				});
+
+				// Render code block with syntax highlighting
+				const codeMarkdown = '```' + ((entry as any).language || '') + '\n' + ((entry as any).text || '') + '\n```';
+				MarkdownRenderer.renderMarkdown(
+					codeMarkdown,
+					codeblockItem,
+					record.filePath,
+					this.plugin as any
+				);
+			}
+		}
 	}
 
 	/**
 	 * Check if entry matches active chips
 	 */
-	private entryMatchesActiveChips(entry: RecordEntry): boolean {
+	private entryMatchesActiveChips(entry: ParsedEntry): boolean {
 		if (this.activeChips.size === 0) return true;
 
 		// Extract active filters from chip IDs

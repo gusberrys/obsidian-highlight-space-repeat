@@ -1,17 +1,19 @@
 /**
- * Constants for application data file paths
- * All data files are stored in the app-data folder within the plugin directory
+ * Data paths - MUST call initDataPaths() first with plugin directory
  */
+let _pluginDir = '';
 
-const APP_DATA_DIR = 'app-data';
-const BASE_PATH = '.obsidian/plugins/obsidian-highlight-space-repeat/app-data';
+export function initDataPaths(pluginDir: string): void {
+  _pluginDir = pluginDir;
+}
 
 export const DATA_PATHS = {
-  DIR: APP_DATA_DIR,
-  BASE: BASE_PATH,
-  KEYWORD: BASE_PATH + '/keyword.json',
-  SETTINGS: BASE_PATH + '/settings.json',
-  SUBJECTS: BASE_PATH + '/subjects.json',
-  CODEBLOCKS: BASE_PATH + '/codeblocks.json',
-  PARSED_RECORDS: BASE_PATH + '/parsed-records.json',
-} as const;
+  get DIR() { return `${_pluginDir}/app-data`; },
+  get KEYWORD() { return `${_pluginDir}/app-data/keyword.json`; },
+  get SETTINGS() { return `${_pluginDir}/app-data/settings.json`; },
+  get SUBJECTS() { return `${_pluginDir}/app-data/subjects.json`; },
+  get CODEBLOCKS() { return `${_pluginDir}/app-data/codeblocks.json`; },
+  get AUXILIARY_KEYWORDS() { return `${_pluginDir}/app-data/auxiliary-keywords.json`; },
+  get PARSED_FILES() { return `${_pluginDir}/app-data/parsed-files.json`; },
+  get SRS_DATA() { return `${_pluginDir}/app-data/srs-data.json`; },
+};

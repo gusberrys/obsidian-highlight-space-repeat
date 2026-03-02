@@ -1,10 +1,11 @@
 import type { MarkdownPostProcessorContext } from 'obsidian';
 import type { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
 import { CollectingStatus, isSpaced } from '../shared/collecting-status';
-import type { RecordEntry, ParsedRecord, RecordHeader } from '../interfaces/ParsedRecord';
+import type { ParsedEntry, ParsedFile, ParsedHeader, FlatEntry } from '../interfaces/ParsedFile';
 import { settingsStore, settingsDataStore } from '../stores/settings-store';
 import { get } from 'svelte/store';
 import { DATA_PATHS } from '../shared/data-paths';
+import { getFileNameFromPath } from '../utils/file-helpers';
 
 
 /**
@@ -29,9 +30,9 @@ function getCollectingStatus(keywords: string[]): CollectingStatus | null {
 /**
  * Load parsed records from JSON file
  */
-async function loadParsedRecords(plugin: HighlightSpaceRepeatPlugin): Promise<ParsedRecord[] | null> {
+async function loadParsedRecords(plugin: HighlightSpaceRepeatPlugin): Promise<ParsedFile[] | null> {
 	try {
-		const data = await plugin.app.vault.adapter.read(DATA_PATHS.PARSED_RECORDS);
+		const data = await plugin.app.vault.adapter.read(DATA_PATHS.PARSED_FILES);
 		return JSON.parse(data);
 	} catch (error) {
 		console.log('[RecordBadge] Failed to load parsed records:', error);
@@ -40,33 +41,17 @@ async function loadParsedRecords(plugin: HighlightSpaceRepeatPlugin): Promise<Pa
 }
 
 /**
- * Find a parsed entry by line number in headers hierarchy
+ * Find a parsed entry by line number in flat entries array
  */
-function findEntryByLineNumber(headers: RecordHeader[], targetLineNumber: number): RecordEntry | null {
-	for (const header of headers) {
-		// Check entries in this header
-		if (header.entries) {
-			for (const entry of header.entries) {
-				if (entry.lineNumber === targetLineNumber) {
-					return entry;
-				}
-			}
-		}
-
-		// Recursively check children
-		if (header.children) {
-			const found = findEntryByLineNumber(header.children, targetLineNumber);
-			if (found) return found;
-		}
-	}
-
-	return null;
+function findEntryByLineNumber(record: ParsedFile, targetLineNumber: number): FlatEntry | null {
+	// Entries are now flat in record.entries
+	return record.entries.find(e => e.lineNumber === targetLineNumber) || null;
 }
 
 /**
  * Convert a parsed entry to YAML format
  */
-function entryToYaml(entry: RecordEntry): string {
+function entryToYaml(entry: ParsedEntry): string {
 	let yaml = `type: ${entry.type}\n`;
 	yaml += `lineNumber: ${entry.lineNumber}\n`;
 	yaml += `text: "${entry.text}"\n`;
@@ -128,7 +113,7 @@ function hasTestablePatterns(text: string): boolean {
 /**
  * Check if entry or its sub-items have testable patterns or content
  */
-function entryHasTestableContent(entry: RecordEntry): boolean {
+function entryHasTestableContent(entry: ParsedEntry): boolean {
 	// Check main text
 	if (hasTestablePatterns(entry.text)) {
 		return true;
@@ -145,28 +130,19 @@ function entryHasTestableContent(entry: RecordEntry): boolean {
 /**
  * Find header containing this entry and check if it has the same keyword
  */
-function findHeaderWithKeyword(headers: RecordHeader[], targetLineNumber: number, keyword: string): string | null {
-	for (const header of headers) {
-		// Check if this header has the keyword
+function findHeaderWithKeyword(entry: FlatEntry, keyword: string): string | null {
+	// Check each header level (h1, h2, h3) for the keyword
+	const headerLevels = [
+		entry.h3 ? { info: entry.h3 } : null,  // Check h3 first (most specific)
+		entry.h2 ? { info: entry.h2 } : null,
+		entry.h1 ? { info: entry.h1 } : null
+	].filter(h => h !== null);
+
+	for (const headerLevel of headerLevels) {
+		const header = headerLevel!.info;
 		const headerHasKeyword = header.keywords?.includes(keyword);
-
-		// Check entries in this header
-		if (header.entries) {
-			for (const entry of header.entries) {
-				if (entry.lineNumber === targetLineNumber) {
-					// Found the entry! Check if header has the keyword
-					if (headerHasKeyword && header.text) {
-						return header.text;
-					}
-					return null;
-				}
-			}
-		}
-
-		// Recursively check children
-		if (header.children) {
-			const found = findHeaderWithKeyword(header.children, targetLineNumber, keyword);
-			if (found) return found;
+		if (headerHasKeyword && header.text) {
+			return header.text;
 		}
 	}
 
@@ -176,26 +152,13 @@ function findHeaderWithKeyword(headers: RecordHeader[], targetLineNumber: number
 /**
  * Check if entry is at top level (no meaningful header)
  */
-function isEntryAtTopLevel(headers: RecordHeader[], targetLineNumber: number): boolean {
-	for (const header of headers) {
-		// Check entries in this header
-		if (header.entries) {
-			for (const entry of header.entries) {
-				if (entry.lineNumber === targetLineNumber) {
-					// Found the entry! Check if header has no text (top-level)
-					return !header.text || header.text.trim() === '';
-				}
-			}
-		}
+function isEntryAtTopLevel(entry: FlatEntry): boolean {
+	// Entry is at top level if all headers are null or have empty text
+	const h1Empty = !entry.h1 || !entry.h1.text || entry.h1.text.trim() === '';
+	const h2Empty = !entry.h2 || !entry.h2.text || entry.h2.text.trim() === '';
+	const h3Empty = !entry.h3 || !entry.h3.text || entry.h3.text.trim() === '';
 
-		// Recursively check children
-		if (header.children) {
-			const result = isEntryAtTopLevel(header.children, targetLineNumber);
-			if (result !== null) return result;
-		}
-	}
-
-	return false;
+	return h1Empty && h2Empty && h3Empty;
 }
 
 /**
@@ -256,7 +219,7 @@ function hideContent(text: string): string {
 /**
  * Convert entry to SRS preview format (with patterns hidden)
  */
-function entryToSRSPreview(entry: RecordEntry, context?: string, _unused?: string): string {
+function entryToSRSPreview(entry: ParsedEntry, context?: string, _unused?: string): string {
 	let mainText = entry.text;
 	let hasExplicitPatterns = hasTestablePatterns(mainText);
 
@@ -416,7 +379,7 @@ export function addRecordBadgesToReadingView(element: HTMLElement, context: Mark
 			}
 
 			// Find the entry at this line number
-			const entry = findEntryByLineNumber(fileRecord.headers, lineNumber);
+			const entry = findEntryByLineNumber(fileRecord, lineNumber);
 			if (!entry) {
 				tooltip.innerHTML = `<pre>No parsed entry found at line ${lineNumber}</pre>`;
 				return;
@@ -430,13 +393,13 @@ export function addRecordBadgesToReadingView(element: HTMLElement, context: Mark
 			if (isSpaced(status)) {
 				// Check if there's something to hide
 				const hasPatterns = entryHasTestableContent(entry);
-				const atTopLevel = isEntryAtTopLevel(fileRecord.headers, lineNumber);
-				const headerWithKeyword = findHeaderWithKeyword(fileRecord.headers, lineNumber, keywords[0]);
+				const atTopLevel = isEntryAtTopLevel(entry);
+				const headerWithKeyword = findHeaderWithKeyword(entry, keywords[0]);
 				const shouldShowSRS = hasPatterns || atTopLevel || headerWithKeyword !== null;
 
 				if (shouldShowSRS) {
 					// Determine context
-					const fileNameWithoutExt = fileRecord.fileName.replace(/\.[^/.]+$/, '');
+					const fileNameWithoutExt = getFileNameFromPath(fileRecord.filePath).replace(/\.[^/.]+$/, '');
 					let contextToUse: string | undefined = undefined;
 					if (headerWithKeyword) {
 						contextToUse = headerWithKeyword;
@@ -477,7 +440,7 @@ export function addRecordBadgesToReadingView(element: HTMLElement, context: Mark
 					return;
 				}
 
-				const entry = findEntryByLineNumber(fileRecord.headers, lineNumber);
+				const entry = findEntryByLineNumber(fileRecord, lineNumber);
 				if (!entry) {
 					console.log('[RecordBadge] No entry found at line:', lineNumber);
 					return;
@@ -490,10 +453,10 @@ export function addRecordBadgesToReadingView(element: HTMLElement, context: Mark
 				const hasPatterns = entryHasTestableContent(entry);
 
 				// 5: Entry is at top level (no header) → hide filename
-				const atTopLevel = isEntryAtTopLevel(fileRecord.headers, lineNumber);
+				const atTopLevel = isEntryAtTopLevel(entry);
 
 				// 6: Entry is under header with same keyword → hide header
-				const headerWithKeyword = findHeaderWithKeyword(fileRecord.headers, lineNumber, keywords[0]);
+				const headerWithKeyword = findHeaderWithKeyword(entry, keywords[0]);
 
 				console.log('[RecordBadge] Brain icon decision:', {
 					hasPatterns,
@@ -529,7 +492,7 @@ export function addRecordBadgesToReadingView(element: HTMLElement, context: Mark
 					srsTooltip.classList.add('visible');
 
 					// Get filename without extension for context
-					const fileNameWithoutExt = fileRecord.fileName.replace(/\.[^/.]+$/, '');
+					const fileNameWithoutExt = getFileNameFromPath(fileRecord.filePath).replace(/\.[^/.]+$/, '');
 
 					// Determine context: header if available, otherwise filename if at top level
 					let contextToUse: string | undefined = undefined;

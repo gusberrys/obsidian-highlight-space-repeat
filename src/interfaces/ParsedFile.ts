@@ -1,14 +1,14 @@
 /**
- * RecordParser data structures for highlight-space-repeat
+ * File parser data structures for highlight-space-repeat
  *
  * Hierarchical file structure supporting H1, H2, and H3 headers
  * Uses new syntax: foo bar baz :: content (all keywords space-separated before ::)
  */
 
 /**
- * Entry in a file (keyword record or code block)
+ * Entry in a file (keyword line or code block)
  */
-export interface RecordEntry {
+export interface ParsedEntry {
 	/** Entry type */
 	type: 'keyword' | 'codeblock';
 
@@ -25,13 +25,13 @@ export interface RecordEntry {
 	language?: string;
 
 	/** Sub-items (list items, code blocks) */
-	subItems?: RecordSubItem[];
+	subItems?: ParsedEntrySubItem[];
 }
 
 /**
  * Sub-item within an entry
  */
-export interface RecordSubItem {
+export interface ParsedEntrySubItem {
 	/** All keywords for sub-item (space-separated before ::) */
 	keywords?: string[];
 
@@ -58,7 +58,7 @@ export interface RecordSubItem {
  * Header at any level (H1, H2, or H3)
  * Supports recursive nesting
  */
-export interface RecordHeader {
+export interface ParsedHeader {
 	/** Header text (null if entries have no header) */
 	text: string | null;
 
@@ -72,28 +72,65 @@ export interface RecordHeader {
 	tags: string[];
 
 	/** Entries directly under this header */
-	entries: RecordEntry[];
+	entries: ParsedEntry[];
 
 	/** Child headers (H2s under H1, H3s under H2) */
-	children?: RecordHeader[];
+	children?: ParsedHeader[];
+}
+
+/**
+ * Header context information stored with each flat entry
+ */
+export interface HeaderInfo {
+	/** Header text */
+	text: string;
+
+	/** Tags from this header line (optional - omitted if empty) */
+	tags?: string[];
+
+	/** Keywords from this header line (optional - omitted if empty) */
+	keywords?: string[];
+}
+
+/**
+ * Flat entry structure - combines entry data with full header context
+ * Replaces hierarchical ParsedHeader structure for efficient filtering/rendering
+ *
+ * Note: filePath, fileTags are NOT stored in parsed-files.json.
+ * They are added at runtime when the file is loaded (as references to ParsedFile properties).
+ */
+export interface FlatEntry {
+	// Entry data
+	type: 'keyword' | 'codeblock';
+	keywords?: string[];
+	text: string;
+	lineNumber: number;
+	language?: string;
+	subItems?: ParsedEntrySubItem[];
+
+	// Header context (optional - only if entry is under headers)
+	h1?: HeaderInfo;
+	h2?: HeaderInfo;
+	h3?: HeaderInfo;
+
+	// File context (added at runtime, not stored on disk)
+	filePath?: string;
+	fileTags?: string[];
 }
 
 /**
  * Parsed file structure
  */
-export interface ParsedRecord {
+export interface ParsedFile {
 	/** File path */
 	filePath: string;
-
-	/** File name (with extension) */
-	fileName: string;
 
 	/** Tags from frontmatter (excludes header tags) */
 	tags: string[];
 
-	/** Aliases from frontmatter */
-	aliases: string[];
+	/** Aliases from frontmatter (optional - omitted if empty) */
+	aliases?: string[];
 
-	/** Headers with hierarchical structure (H1 → H2 → H3) */
-	headers: RecordHeader[];
+	/** Flat entries array - all entries with header context embedded */
+	entries: FlatEntry[];
 }

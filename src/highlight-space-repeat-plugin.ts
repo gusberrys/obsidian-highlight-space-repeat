@@ -160,13 +160,17 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
   async onload(): Promise<void> {
     console.log('[Keyword Highlighter] Starting plugin load...');
 
+    // Initialize data paths FIRST
+    const { initDataPaths } = require('./shared/data-paths');
+    initDataPaths(this.manifest.dir || '.obsidian/plugins/obsidian-highlight-space-repeat');
+
     // CRITICAL: Wait for settings to load before continuing
     await initStore(this);
     console.log('[Keyword Highlighter] Settings loaded, categories:', HighlightSpaceRepeatPlugin.settings?.categories?.length || 0);
 
     // Initialize SRS (Spaced Repetition System)
     console.log('[Keyword Highlighter] Initializing SRS...');
-    this.srsManager = new SRSManager(this.app);
+    this.srsManager = new SRSManager(this.app, this.manifest.dir || '.obsidian/plugins/obsidian-highlight-space-repeat');
     await this.srsManager.load();
     this.orphanManager = new OrphanManager(this.app, this.srsManager);
     console.log('[Keyword Highlighter] SRS initialized');
@@ -576,9 +580,11 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       parsedRecords.push(parsed);
     }
 
-    // Save parsed records
-    const parsedRecordsPath = `${this.manifest.dir}/${DATA_PATHS.DIR}/parsed-records.json`;
-    await this.app.vault.adapter.write(parsedRecordsPath, JSON.stringify(parsedRecords, null, 2));
+    // Save parsed records with space-saving optimizations
+    const { stripParsedRecordsForSave } = await import('./utils/parse-helpers');
+    const parsedRecordsForSave = stripParsedRecordsForSave(parsedRecords);
+    const parsedRecordsPath = DATA_PATHS.PARSED_FILES;
+    await this.app.vault.adapter.write(parsedRecordsPath, JSON.stringify(parsedRecordsForSave, null, 2));
 
     // Refresh views if open
     this.refreshPinnedView();
@@ -599,6 +605,7 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     }
   }
 
+
   /**
    * Refresh Subject Dashboard View if it's currently open
    */
@@ -615,7 +622,7 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
 
   // Override loadData to use keyword.json
   async loadData(): Promise<PluginSettings | null> {
-    const filePath = `${this.manifest.dir}/${DATA_PATHS.DIR}/keyword.json`;
+    const filePath = DATA_PATHS.KEYWORD;
     try {
       const data = await this.app.vault.adapter.read(filePath);
       return JSON.parse(data);
@@ -627,13 +634,13 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
 
   // Override saveData to use keyword.json
   async saveData(data: PluginSettings): Promise<void> {
-    const filePath = `${this.manifest.dir}/${DATA_PATHS.DIR}/keyword.json`;
+    const filePath = DATA_PATHS.KEYWORD;
     await this.app.vault.adapter.write(filePath, JSON.stringify(data, null, 2));
   }
 
   // Load settings from settings.json
   async loadSettingsData(): Promise<Settings | null> {
-    const filePath = `${this.manifest.dir}/${DATA_PATHS.DIR}/settings.json`;
+    const filePath = DATA_PATHS.SETTINGS;
     try {
       const data = await this.app.vault.adapter.read(filePath);
       return JSON.parse(data);
@@ -645,13 +652,13 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
 
   // Save settings to settings.json
   async saveSettingsData(data: Settings): Promise<void> {
-    const filePath = `${this.manifest.dir}/${DATA_PATHS.DIR}/settings.json`;
+    const filePath = DATA_PATHS.SETTINGS;
     await this.app.vault.adapter.write(filePath, JSON.stringify(data, null, 2));
   }
 
   // Load auxiliary keywords from auxiliary-keywords.json
   async loadAuxiliaryKeywords(): Promise<AuxiliaryCategory[] | null> {
-    const filePath = `${this.manifest.dir}/${DATA_PATHS.DIR}/auxiliary-keywords.json`;
+    const filePath = DATA_PATHS.AUXILIARY_KEYWORDS;
     try {
       const data = await this.app.vault.adapter.read(filePath);
       return JSON.parse(data);
@@ -663,13 +670,13 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
 
   // Save auxiliary keywords to auxiliary-keywords.json
   async saveAuxiliaryKeywords(data: AuxiliaryCategory[]): Promise<void> {
-    const filePath = `${this.manifest.dir}/${DATA_PATHS.DIR}/auxiliary-keywords.json`;
+    const filePath = DATA_PATHS.AUXILIARY_KEYWORDS;
     await this.app.vault.adapter.write(filePath, JSON.stringify(data, null, 2));
   }
 
   // Load code blocks from codeblocks.json
   async loadCodeBlocks(): Promise<CodeBlockLanguage[] | null> {
-    const filePath = `${this.manifest.dir}/${DATA_PATHS.DIR}/codeblocks.json`;
+    const filePath = DATA_PATHS.CODEBLOCKS;
     try {
       const data = await this.app.vault.adapter.read(filePath);
       return JSON.parse(data);
@@ -681,14 +688,14 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
 
   // Save code blocks to codeblocks.json
   async saveCodeBlocks(data: CodeBlockLanguage[]): Promise<void> {
-    const filePath = `${this.manifest.dir}/${DATA_PATHS.DIR}/codeblocks.json`;
+    const filePath = DATA_PATHS.CODEBLOCKS;
     await this.app.vault.adapter.write(filePath, JSON.stringify(data, null, 2));
   }
 
 
   // Load subjects and topics from subjects.json
   async loadSubjects(): Promise<SubjectsData | null> {
-    const filePath = `${this.manifest.dir}/${DATA_PATHS.DIR}/subjects.json`;
+    const filePath = DATA_PATHS.SUBJECTS;
     try {
       const data = await this.app.vault.adapter.read(filePath);
       return JSON.parse(data);
@@ -700,7 +707,7 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
 
   // Save subjects and topics to subjects.json
   async saveSubjects(data: SubjectsData): Promise<void> {
-    const filePath = `${this.manifest.dir}/${DATA_PATHS.DIR}/subjects.json`;
+    const filePath = DATA_PATHS.SUBJECTS;
     console.log('[Plugin.saveSubjects] Writing to file:', filePath, {
       subjectsCount: data.subjects.length,
       topicsCount: data.topics.length
