@@ -30,13 +30,13 @@ export class FilterExpressionService {
 		// Transform expression to add OR operators between keywords
 		const transformedExpr = this.transformFilterExpression(expandedExpr);
 
-		// Split on W: to separate SELECT and WHERE clauses
-		const hasWhere = transformedExpr.includes('W:');
+		// Split on W: or w: to separate SELECT and WHERE clauses (case-insensitive)
+		const hasWhere = /\s+[Ww]:\s+/.test(transformedExpr);
 		let selectExpr = transformedExpr;
 		let whereExpr = '';
 
 		if (hasWhere) {
-			const parts = transformedExpr.split(/W:/);
+			const parts = transformedExpr.split(/\s+[Ww]:\s+/);
 			selectExpr = parts[0].trim();
 			whereExpr = parts[1]?.trim() || '';
 		}
@@ -157,13 +157,13 @@ export class FilterExpressionService {
 		// Remove modifiers from ENTIRE expression first (before splitting on W:)
 		expression = expression.replace(/\\[hast]/g, '').trim();
 
-		// Extract SELECT and WHERE clauses
-		const hasWhere = expression.includes('W:');
+		// Extract SELECT and WHERE clauses (case-insensitive: W: or w:)
+		const hasWhere = /\s+[Ww]:\s+/.test(expression);
 		let selectExpr = expression;
 		let whereExpr = '';
 
 		if (hasWhere) {
-			const parts = expression.split(/W:/);
+			const parts = expression.split(/\s+[Ww]:\s+/);
 			selectExpr = parts[0].trim();
 			whereExpr = parts[1]?.trim() || '';
 		}
