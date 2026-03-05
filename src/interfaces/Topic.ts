@@ -97,20 +97,10 @@ export interface Topic {
 	fhDisabled?: boolean;
 
 	/**
-	 * My Own mode - ONLY for secondary topics, applies to OWN cell only (not intersections)
-	 * When enabled:
-	 * - Files: Only count if they have this topic's own tag
-	 * - Headers: Only count if the header itself has this topic's tag
-	 * More restrictive collection - requires the topic's own tag to be present
-	 */
-	myOwn?: boolean;
-
-	/**
 	 * AND mode - Require subject tag for F/H entries
 	 * - Primary topics: All cells in this row require subject tag
 	 * - Secondary topics: Own cell and all intersections in this column require subject tag
 	 * Visual indicator: White border
-	 * Mutually exclusive with My Own mode (for secondary topics)
 	 */
 	andMode?: boolean;
 }

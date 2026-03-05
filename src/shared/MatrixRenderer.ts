@@ -93,16 +93,6 @@ export class MatrixRenderer {
 				cell.classList.add('kb-matrix-fh-disabled');
 			}
 
-			// Apply My Own mode styling (red/blue or black/blue stripes, secondary cell only)
-			if (topic.myOwn) {
-				if (topic.fhDisabled) {
-					// F/H disabled (checked): red/blue alternating stripes (most restrictive)
-					cell.classList.add('kb-matrix-myown-enabled');
-				} else {
-					// F/H enabled (unchecked): black/blue alternating stripes
-					cell.classList.add('kb-matrix-myown-fh-disabled');
-				}
-			}
 
 			// Display topic icon
 			const displayText = topic.icon || '🔗';

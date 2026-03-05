@@ -436,26 +436,6 @@ Examples:
 			cell1x1.style.backgroundColor = bgColor1x1;
 		}
 
-		// Add orphan files count in white text (files with ONLY subject tag, no topic tags)
-		const orphanCount = await this.countOrphanFiles();
-		if (orphanCount > 0) {
-			const countsDiv = cell1x1.querySelector('.kh-matrix-counts') || cell1x1.createDiv({ cls: 'kh-matrix-counts' });
-			const orphanSpan = countsDiv.createEl('span', {
-				cls: 'kh-count-orphan',
-				text: `(${orphanCount})`
-			});
-			orphanSpan.style.color = 'white';
-			orphanSpan.style.cursor = 'pointer';
-			orphanSpan.title = `${orphanCount} orphan files (only #${this.currentSubject.mainTag}, no topic tags). Click to view.`;
-
-			// Click handler to show orphan files
-			orphanSpan.addEventListener('click', async (e) => {
-				e.stopPropagation();
-				const orphanFiles = await this.getOrphanFiles();
-				await this.renderOrphanFiles(orphanFiles);
-			});
-		}
-
 		// Cells 1x2, 1x3, ...: Secondary topics
 		secondaryTopics.forEach((topic, index) => {
 			const col = index + 2;
@@ -481,16 +461,6 @@ Examples:
 				cell.classList.add('kb-matrix-fh-disabled');
 			}
 
-			// Apply My Own mode styling (gold/bronze border, secondary cell only)
-			if (topic.myOwn) {
-				if (topic.fhDisabled) {
-					// F/H disabled (checked): gold border only (most restrictive)
-					cell.classList.add('kb-matrix-myown-enabled');
-				} else {
-					// F/H enabled (unchecked): gold border
-					cell.classList.add('kb-matrix-myown-fh-disabled');
-				}
-			}
 
 			// Display topic icon
 			const displayText = topic.icon || '🔗';
@@ -692,11 +662,48 @@ Examples:
 		if (!this.widgetFilterContext) return;
 
 		const { subject, secondaryTopic, primaryTopic, includesSubjectTag } = this.widgetFilterContext;
-		const tags = this.getTags(subject, secondaryTopic, primaryTopic, includesSubjectTag);
-		const matchingFiles = parsedFiles.filter(file => {
-			const fileTags = this.getRecordTags(file);
-			return tags.every(tag => fileTags.includes(tag));
-		});
+
+		// Special handling for subject cell (1x1) and secondary topic cells (1x2, 1x3, etc.)
+		let matchingFiles: ParsedFile[];
+		if (!secondaryTopic && !primaryTopic) {
+			// Subject cell (1x1): has subject tag BUT NOT any primary or secondary topic tags
+			const primaryTopics = this.currentSubject?.primaryTopics || [];
+			const secondaryTopics = this.currentSubject?.secondaryTopics || [];
+			const primaryTopicTags = primaryTopics.map(t => t.topicTag).filter(Boolean);
+			const secondaryTopicTags = secondaryTopics.map(t => t.topicTag).filter(Boolean);
+
+			matchingFiles = parsedFiles.filter(file => {
+				const fileTags = this.getRecordTags(file);
+				// Must have subject tag
+				const hasSubjectTag = subject.mainTag ? fileTags.includes(subject.mainTag) : false;
+				// Must NOT have any primary topic tags
+				const hasPrimaryTag = primaryTopicTags.some(tag => fileTags.includes(tag));
+				// Must NOT have any secondary topic tags
+				const hasSecondaryTag = secondaryTopicTags.some(tag => fileTags.includes(tag));
+				return hasSubjectTag && !hasPrimaryTag && !hasSecondaryTag;
+			});
+		} else if (secondaryTopic && !primaryTopic) {
+			// Secondary topic cell (1x2, 1x3, etc.): has secondary tag BUT NOT any primary topic tags
+			const primaryTopics = this.currentSubject?.primaryTopics || [];
+			const primaryTopicTags = primaryTopics.map(t => t.topicTag).filter(Boolean);
+			const tags = this.getTags(subject, secondaryTopic, primaryTopic, includesSubjectTag);
+
+			matchingFiles = parsedFiles.filter(file => {
+				const fileTags = this.getRecordTags(file);
+				// Must have the secondary topic's tag
+				const hasSecondaryTag = tags.every(tag => fileTags.includes(tag));
+				// Must NOT have any primary topic tags
+				const hasPrimaryTag = primaryTopicTags.some(tag => fileTags.includes(tag));
+				return hasSecondaryTag && !hasPrimaryTag;
+			});
+		} else {
+			// Regular cells (primary topic or intersection): use getTags() for AND filtering
+			const tags = this.getTags(subject, secondaryTopic, primaryTopic, includesSubjectTag);
+			matchingFiles = parsedFiles.filter(file => {
+				const fileTags = this.getRecordTags(file);
+				return tags.every(tag => fileTags.includes(tag));
+			});
+		}
 
 		if (matchingFiles.length === 0) {
 			container.createEl('div', {
@@ -847,6 +854,51 @@ Examples:
 										});
 									}
 									headerGroups.get(groupKey)!.entries.push(entry);
+								}
+							}
+						}
+					}
+				}
+			} else {
+				// Subject cell: use subject's keyword OR tag
+				if (subject.keyword || subject.mainTag) {
+					for (const file of parsedFiles) {
+						for (const entry of file.entries) {
+							const headerLevels = [
+								entry.h1 ? { level: 1, info: entry.h1 } : null,
+								entry.h2 ? { level: 2, info: entry.h2 } : null,
+								entry.h3 ? { level: 3, info: entry.h3 } : null
+							].filter(h => h !== null);
+
+							for (const headerLevel of headerLevels) {
+								const header = headerLevel!.info;
+								if (header.text) {
+									// Check if subject keyword is in header.keywords array
+									let keywordMatch = false;
+									if (subject.keyword && header.keywords) {
+										keywordMatch = header.keywords?.some(kw =>
+											kw.toLowerCase() === subject.keyword!.toLowerCase()
+										);
+									}
+
+									// Check if header tags include the subject tag
+									const tagMatch = subject.mainTag && header.tags?.some(tag => {
+										const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
+										return normalizedTag === subject.mainTag;
+									});
+
+									if (keywordMatch || tagMatch) {
+										const groupKey = `${file.filePath}::${header.text}`;
+										if (!headerGroups.has(groupKey)) {
+											headerGroups.set(groupKey, {
+												file,
+												headerText: header.text,
+												headerLevel: headerLevel!.level,
+												entries: []
+											});
+										}
+										headerGroups.get(groupKey)!.entries.push(entry);
+									}
 								}
 							}
 						}
@@ -1631,12 +1683,18 @@ for (const file of parsedFiles) {
 
 					this.widgetFilterExpression = expr1 && expr2 ? `${expr1} AND ${expr2}` : (expr1 || expr2);
 				} else {
-					// Single topic cell
+					// Single topic cell OR subject cell
 					const topic = secondaryTopic || primaryTopic;
 					if (topic) {
 						const parts = [];
 						if (topic.topicKeyword) parts.push(`.${topic.topicKeyword}`);
 						if (topic.topicTag) parts.push(topic.topicTag);
+						this.widgetFilterExpression = parts.join(' OR ');
+					} else {
+						// Subject cell: use subject's keyword OR tag
+						const parts = [];
+						if (subject.keyword) parts.push(`.${subject.keyword}`);
+						if (subject.mainTag) parts.push(subject.mainTag);
 						this.widgetFilterExpression = parts.join(' OR ');
 					}
 				}
@@ -1686,6 +1744,16 @@ for (const file of parsedFiles) {
 					topic = primaryTopic;
 					expansionContext = primaryTopic;
 					console.log(`[Matrix] Primary own cell - using matrixOnlyFilterExpSide: "${expr}"`);
+				} else {
+					// Subject cell (1x1): use matrixOnlyFilterExp (primary), keyword (fallback), or expression (legacy)
+					expr = subject.matrixOnlyFilterExp || subject.expression;
+					if (!expr && subject.keyword) {
+						// Fallback to keyword if no filter expression
+						expr = `.${subject.keyword}`;
+					}
+					topic = null;
+					expansionContext = null;
+					console.log(`[Matrix] Subject cell - using matrixOnlyFilterExp/keyword/expression: "${expr}"`);
 				}
 
 				if (expr) {
@@ -2453,13 +2521,58 @@ for (const file of parsedFiles) {
 		// Scan subject cell (1x1) - store counts in memory only
 		if (this.currentSubject.mainTag) {
 			const cellKey1x1 = '1x1';
-			const tags = [this.currentSubject.mainTag].filter(t => t);
-			const fileCount = this.countFilesWithTags(parsedFiles, tags);
 
-			// Count R using subject's expression
+			// Files: Has subject tag BUT NOT any primary or secondary topic tags
+			const primaryTopicTags = primaryTopics.map(t => t.topicTag).filter(Boolean);
+			const secondaryTopicTags = secondaryTopics.map(t => t.topicTag).filter(Boolean);
+			const fileCount = parsedFiles.filter(record => {
+				const fileTags = this.getRecordTags(record);
+				// Must have subject tag
+				const hasSubjectTag = fileTags.includes(this.currentSubject.mainTag!);
+				// Must NOT have any primary topic tags
+				const hasPrimaryTag = primaryTopicTags.some(tag => fileTags.includes(tag));
+				// Must NOT have any secondary topic tags
+				const hasSecondaryTag = secondaryTopicTags.some(tag => fileTags.includes(tag));
+				return hasSubjectTag && !hasPrimaryTag && !hasSecondaryTag;
+			}).length;
+
+			// Headers: Count headers with subject keyword OR tag
+			let headerCount = 0;
+			if (this.currentSubject.keyword) {
+				// Create a temporary topic object for subject
+				const subjectTopic: Topic = {
+					id: 'subject',
+					name: this.currentSubject.name,
+					topicKeyword: this.currentSubject.keyword,
+					topicTag: this.currentSubject.mainTag
+				};
+				headerCount = this.countHeadersForSingleTopic(parsedFiles, [], subjectTopic);
+			}
+
+			// Records: Use matrixOnlyFilterExp (primary), keyword (fallback), or expression (legacy)
 			let recordCount = 0;
-			if (this.currentSubject.expression) {
-				recordCount = this.countRecordsWithExpression(parsedFiles, this.currentSubject.expression, null, this.currentSubject, false);
+			const matrixExpr = this.currentSubject.matrixOnlyFilterExp || this.currentSubject.expression;
+			if (matrixExpr) {
+				// Use matrixOnlyFilterExp or legacy expression
+				recordCount = this.countRecordsWithExpression(parsedFiles, matrixExpr, null, this.currentSubject, false);
+			} else if (this.currentSubject.keyword) {
+				// Fallback to keyword if no filter expression
+				for (const record of parsedFiles) {
+					for (const entry of record.entries) {
+						// Check main entry keywords
+						if (entry.keywords?.includes(this.currentSubject.keyword)) {
+							recordCount++;
+						} else if (entry.subItems) {
+							// Check subitem keywords
+							for (const subItem of entry.subItems) {
+								if (subItem.keywords?.includes(this.currentSubject.keyword)) {
+									recordCount++;
+									break; // Count entry only once even if multiple subitems match
+								}
+							}
+						}
+					}
+				}
 			}
 
 			// Store counts in cell (in-memory only, not persisted)
@@ -2467,7 +2580,7 @@ for (const file of parsedFiles) {
 				this.currentSubject.matrix.cells[cellKey1x1] = {};
 			}
 			this.currentSubject.matrix.cells[cellKey1x1].fileCount = fileCount;
-			this.currentSubject.matrix.cells[cellKey1x1].headerCount = 0;
+			this.currentSubject.matrix.cells[cellKey1x1].headerCount = headerCount;
 			this.currentSubject.matrix.cells[cellKey1x1].recordCount = recordCount;
 		}
 
@@ -2478,7 +2591,18 @@ for (const file of parsedFiles) {
 			const andMode = topic.andMode || false;
 			const tags = this.getTagsForTopicCell(topic, andMode);
 
-			const fileCount = this.countFilesWithTags(parsedFiles, tags);
+			// Files: Count files that have secondary topic's tag BUT NONE of the primary topic tags
+			const primaryTopicTags = primaryTopics.map(t => t.topicTag).filter(Boolean);
+			const fileCount = parsedFiles.filter(record => {
+				const fileTags = this.getRecordTags(record);
+				// Must have the secondary topic's tag
+				const hasSecondaryTag = tags.every(tag => fileTags.includes(tag));
+				// Must NOT have any primary topic tags
+				const hasPrimaryTag = primaryTopicTags.some(tag => fileTags.includes(tag));
+				return hasSecondaryTag && !hasPrimaryTag;
+			}).length;
+
+			// Headers: Count headers if header has tag OR keyword (checked across ALL files)
 			const headerCount = this.countHeadersForSingleTopic(parsedFiles, tags, topic);
 
 		// For secondary topic's OWN cell (HEADER cells 1x2, 1x3):
@@ -3555,16 +3679,6 @@ for (const file of parsedFiles) {
 			redDesc.createEl('br');
 			redDesc.appendText('Only Record entries shown, no File/Header records');
 
-			// My Own mode explanation
-			const myOwnItem = legendContainer.createDiv({ cls: 'kh-legend-item' });
-			const myOwnSample = myOwnItem.createDiv({ cls: 'kh-legend-sample kb-matrix-myown-mode' });
-			myOwnSample.textContent = '🟨';
-			const myOwnDesc = myOwnItem.createDiv({ cls: 'kh-legend-description' });
-			myOwnDesc.createEl('strong', { text: 'Gold border (My Own mode):' });
-			myOwnDesc.createEl('br');
-			myOwnDesc.appendText('Files: Must have topic tag, NOT subject/primary tags');
-			myOwnDesc.createEl('br');
-			myOwnDesc.appendText('Headers: Topic TAG must be IN the header (keyword alone NOT enough)');
 		}
 
 		if (this.activeChips.size === 0) {

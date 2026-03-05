@@ -7,7 +7,22 @@ export interface Subject {
 	/** Display name */
 	name: string;
 
-	/** Filter expression for subject-level filtering */
+	/**
+	 * DashFilter (Dark Blue) - Dashboard chips and SubjectDashboard evaluations
+	 * Used when subject (orphans) is selected in Dashboard View
+	 * Example: "S: .keyword :category `language W: #tag"
+	 */
+	dashOnlyFilterExp?: string;
+
+	/**
+	 * MatrixFilter (RED) - Matrix record counting for 1x1 cell
+	 * Used for counting records in subject cell (1x1)
+	 * Fallback if no keyword defined
+	 * Example: "S: .def .ima .pos W: #kafka OR .kaf OR `java"
+	 */
+	matrixOnlyFilterExp?: string;
+
+	/** @deprecated Legacy - use dashOnlyFilterExp/matrixOnlyFilterExp instead */
 	expression?: string;
 
 	/** Description (optional) */

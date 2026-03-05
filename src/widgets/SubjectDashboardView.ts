@@ -572,11 +572,12 @@ export class SubjectDashboardView extends ItemView {
 	private applySubjectExpressionToChips(
 		filters: { keywords: string[], categories: string[], codeBlocks: string[] }
 	): { keywords: string[], categoryIds: string[], codeBlocks: string[] } {
-		if (!this.currentSubject?.expression) {
+		const subjectExpr = this.currentSubject?.dashOnlyFilterExp || this.currentSubject?.expression;
+		if (!subjectExpr) {
 			return { keywords: filters.keywords, categoryIds: [], codeBlocks: filters.codeBlocks };
 		}
 
-		const parsedFilter = this.parseFilterExpression(this.currentSubject.expression);
+		const parsedFilter = this.parseFilterExpression(subjectExpr);
 		if (!parsedFilter) {
 			return { keywords: filters.keywords, categoryIds: [], codeBlocks: filters.codeBlocks };
 		}
@@ -653,9 +654,9 @@ export class SubjectDashboardView extends ItemView {
 		if (selectedPrimaryTopic?.dashOnlyFilterExpSide) {
 			this.activeFilterExpression = selectedPrimaryTopic.dashOnlyFilterExpSide;
 		}
-		// If on subject/orphans view, use subject's expression
-		else if (this.selectedPrimaryTopicId === 'orphans' && this.currentSubject?.expression) {
-			this.activeFilterExpression = this.currentSubject.expression;
+		// If on subject/orphans view, use subject's dashOnlyFilterExp (fallback to legacy expression)
+		else if (this.selectedPrimaryTopicId === 'orphans') {
+			this.activeFilterExpression = this.currentSubject?.dashOnlyFilterExp || this.currentSubject?.expression || null;
 		}
 		// Otherwise clear
 		else {
@@ -1159,11 +1160,18 @@ export class SubjectDashboardView extends ItemView {
 		// Filter files based on selected primary topic
 		let filteredRecords: ParsedFile[] = [];
 		if (this.selectedPrimaryTopicId === 'orphans') {
-			// Get orphans - files that don't have any primary topic tags
+			// Get subject files: Has subject tag BUT NOT any primary or secondary topic tags
 			const primaryTopicTags = primaryTopics.map(t => t.topicTag).filter(Boolean);
+			const secondaryTopicTags = secondaryTopics.map(t => t.topicTag).filter(Boolean);
 			filteredRecords = parsedRecords.filter(record => {
 				const tags = this.getRecordTags(record);
-				return !primaryTopicTags.some(tag => tags.includes(tag!));
+				// Must have subject tag
+				const hasSubjectTag = this.currentSubject?.mainTag ? tags.includes(this.currentSubject.mainTag) : false;
+				// Must NOT have any primary topic tags
+				const hasPrimaryTag = primaryTopicTags.some(tag => tags.includes(tag!));
+				// Must NOT have any secondary topic tags
+				const hasSecondaryTag = secondaryTopicTags.some(tag => tags.includes(tag!));
+				return hasSubjectTag && !hasPrimaryTag && !hasSecondaryTag;
 			});
 		} else {
 			// Get files for selected primary topic
@@ -1173,10 +1181,16 @@ export class SubjectDashboardView extends ItemView {
 			}
 		}
 
-		// Render TOTALS column for selected primary topic (like matrix row header)
-		const selectedPrimaryTopic = primaryTopics.find(t => t.id === this.selectedPrimaryTopicId);
-		if (selectedPrimaryTopic && this.selectedPrimaryTopicId !== 'orphans') {
-			this.renderTotalsColumn(columnsContainer, selectedPrimaryTopic, filteredRecords, parsedRecords);
+		// Render TOTALS column (for subject OR selected primary topic)
+		if (this.selectedPrimaryTopicId === 'orphans') {
+			// Render subject totals column
+			await this.renderSubjectTotalsColumn(columnsContainer, filteredRecords, parsedRecords);
+		} else {
+			// Render primary topic totals column
+			const selectedPrimaryTopic = primaryTopics.find(t => t.id === this.selectedPrimaryTopicId);
+			if (selectedPrimaryTopic) {
+				this.renderTotalsColumn(columnsContainer, selectedPrimaryTopic, filteredRecords, parsedRecords);
+			}
 		}
 
 		// Render each secondary topic as a column (skip fhDisabled topics)
@@ -1185,69 +1199,6 @@ export class SubjectDashboardView extends ItemView {
 			if (topic.fhDisabled) return;
 			this.renderColumnFiles(columnsContainer, topic, topicIndex, filteredRecords, parsedRecords);
 		});
-
-		// Add "Other" column - files that don't have any secondary topic tags
-		const secondaryTopicTags = secondaryTopics.map(t => t.topicTag).filter(Boolean);
-		const otherFiles = filteredRecords.filter(record => {
-			const tags = this.getRecordTags(record);
-			return !secondaryTopicTags.some(tag => tags.includes(tag!));
-		}).slice(0, 10);
-
-		if (otherFiles.length > 0) {
-			const column = columnsContainer.createDiv({ cls: 'kh-dashboard-column' });
-
-			// Column header
-			const header = column.createDiv({ cls: 'kh-dashboard-column-header' });
-			header.style.cursor = 'pointer';
-			header.createEl('span', {
-				text: '📋 Other',
-				cls: 'kh-dashboard-column-title'
-			});
-
-			header.createEl('span', {
-				text: `(${otherFiles.length})`,
-				cls: 'kh-dashboard-column-count'
-			});
-
-			// Click handler for column header - show all records from this column
-			header.addEventListener('click', async () => {
-				this.selectedKeywordFilter = null;
-				this.applyChipFiltering = false;
-			this.selectedRecords = otherFiles;
-				this.selectedContext = `Other (${otherFiles.length} files)`;
-				await this.updateRecordsSection();
-			});
-
-			// Render files
-			const filesList = column.createDiv({ cls: 'kh-dashboard-files-list' });
-			otherFiles.forEach(record => {
-				const fileItem = filesList.createDiv({ cls: 'kh-dashboard-file-item' });
-				fileItem.createEl('span', {
-					text: getFileNameFromPath(record.filePath).replace('.md', ''),
-					cls: 'kh-dashboard-file-name'
-				});
-				fileItem.style.cursor = 'pointer';
-				fileItem.addEventListener('click', async (e: MouseEvent) => {
-					// Command/Ctrl + click: Open file
-					if (e.metaKey || e.ctrlKey) {
-						const file = this.plugin.app.vault.getAbstractFileByPath(record.filePath);
-						if (file instanceof TFile) {
-							await this.plugin.app.workspace.getLeaf(false).openFile(file);
-						}
-					}
-					// Normal click: Show records from this file
-					else {
-						this.applyChipFiltering = false;
-			this.selectedRecords = [record];
-						this.selectedContext = `${getFileNameFromPath(record.filePath).replace('.md', '')} (1 file)`;
-						this.selectedKeywordFilter = null;
-						this.selectedTopicTag = null;
-						this.selectedHeaderMode = false;
-						await this.updateRecordsSection();
-					}
-				});
-			});
-		}
 	}
 
 	/**
@@ -1512,14 +1463,258 @@ export class SubjectDashboardView extends ItemView {
 	/**
 	 * Render column in FILES mode - show files matching topic tag
 	 */
+	/**
+	 * Render TOTALS column for SUBJECT (1x1 cell in matrix)
+	 */
+	private async renderSubjectTotalsColumn(
+		columnsContainer: HTMLElement,
+		filteredRecords: ParsedFile[],
+		allRecords: ParsedFile[]
+	): Promise<void> {
+		if (!this.currentSubject) return;
+
+		// Count files (already filtered - has subject tag, no primary/secondary tags)
+		const fileCount = filteredRecords.length;
+
+		// Count headers matching subject keyword OR tag (check ALL files!)
+		let headerCount = 0;
+		const recordsWithMatchingHeaders: ParsedFile[] = [];
+
+		if (this.currentSubject.keyword || this.currentSubject.mainTag) {
+			for (const record of allRecords) {
+				let hasMatchingHeader = false;
+
+				for (const entry of record.entries) {
+					const headerLevels = [
+						entry.h1 ? { level: 1, info: entry.h1 } : null,
+						entry.h2 ? { level: 2, info: entry.h2 } : null,
+						entry.h3 ? { level: 3, info: entry.h3 } : null
+					].filter(h => h !== null);
+
+					for (const headerLevel of headerLevels) {
+						const header = headerLevel!.info;
+						if (header.text) {
+							// Check if subject keyword is in header.keywords array
+							let keywordMatch = false;
+							if (this.currentSubject.keyword && header.keywords) {
+								keywordMatch = header.keywords?.some(kw =>
+									kw.toLowerCase() === this.currentSubject.keyword!.toLowerCase()
+								);
+							}
+
+							// Check if header tags include the subject tag
+							const tagMatch = this.currentSubject.mainTag && header.tags?.some(tag => {
+								const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
+								return normalizedTag === this.currentSubject.mainTag;
+							});
+
+							if (keywordMatch || tagMatch) {
+								headerCount++;
+								hasMatchingHeader = true;
+							}
+						}
+					}
+				}
+
+				if (hasMatchingHeader && !recordsWithMatchingHeaders.includes(record)) {
+					recordsWithMatchingHeaders.push(record);
+				}
+			}
+		}
+
+		// Count entries matching subject's matrixOnlyFilterExp (primary), keyword (fallback), or expression (legacy)
+		let recordCount = 0;
+		const recordsWithMatchingEntries: ParsedFile[] = [];
+
+		const matrixExpr = this.currentSubject.matrixOnlyFilterExp || this.currentSubject.expression;
+		if (matrixExpr) {
+			// Use matrixOnlyFilterExp or legacy expression with FilterExpressionService
+			const { FilterExpressionService } = await import('../services/FilterExpressionService');
+			recordCount = FilterExpressionService.countRecordsWithExpression(
+				allRecords,
+				matrixExpr,
+				null,
+				this.currentSubject,
+				false
+			);
+
+			// Get files with matching entries for click handler
+			const allMatchingEntries = await this.getMatchingEntriesWithExpression(allRecords, matrixExpr);
+			const uniqueFiles = new Set(allMatchingEntries.map(e => e.file));
+			recordsWithMatchingEntries.push(...Array.from(uniqueFiles));
+		} else if (this.currentSubject.keyword) {
+			// Fallback to keyword if no filter expression
+			for (const record of allRecords) {
+				let fileHasMatchingEntry = false;
+
+				for (const entry of record.entries) {
+					let hasKeyword = false;
+
+					// Check main entry keywords
+					if (entry.keywords && entry.keywords.includes(this.currentSubject.keyword!)) {
+						hasKeyword = true;
+					}
+
+					// Check subitem keywords
+					if (!hasKeyword && entry.subItems && entry.subItems.length > 0) {
+						for (const subItem of entry.subItems) {
+							if (subItem.keywords && subItem.keywords.includes(this.currentSubject.keyword!)) {
+								hasKeyword = true;
+								break;
+							}
+						}
+					}
+
+					if (hasKeyword) {
+						recordCount++;
+						fileHasMatchingEntry = true;
+					}
+				}
+
+				if (fileHasMatchingEntry) {
+					recordsWithMatchingEntries.push(record);
+				}
+			}
+		}
+
+		// Create totals column
+		const column = columnsContainer.createDiv({ cls: 'kh-dashboard-column kh-dashboard-totals-column' });
+
+		// Column header
+		const header = column.createDiv({ cls: 'kh-dashboard-column-header' });
+		header.style.cursor = 'pointer';
+		header.createEl('span', {
+			text: `${this.currentSubject.icon || '📁'} ${this.currentSubject.name}`,
+			cls: 'kh-dashboard-column-title'
+		});
+
+		// Add counts in matrix style: /files +headers -entries
+		const countsContainer = header.createEl('span', { cls: 'kh-dashboard-column-count' });
+
+		// Files count
+		const filesCount = countsContainer.createEl('span', {
+			text: `/${fileCount}`,
+			cls: 'kh-count-files'
+		});
+		filesCount.style.cursor = 'pointer';
+		filesCount.addEventListener('click', async (e) => {
+			e.stopPropagation();
+			this.applyChipFiltering = false;
+			this.selectedRecords = filteredRecords;
+			this.selectedContext = `${this.currentSubject!.name}: ${filteredRecords.length} files`;
+			this.selectedKeywordFilter = null;
+			this.selectedTopicTag = null;
+			this.selectedHeaderMode = false;
+			this.selectedFilterExpression = null;
+			await this.updateRecordsSection();
+		});
+
+		countsContainer.createEl('span', { text: ' ' });
+
+		// Headers count
+		const headersCount = countsContainer.createEl('span', {
+			text: `+${headerCount}`,
+			cls: 'kh-count-headers'
+		});
+		headersCount.style.cursor = 'pointer';
+		headersCount.addEventListener('click', async (e) => {
+			e.stopPropagation();
+			this.applyChipFiltering = false;
+			this.selectedRecords = recordsWithMatchingHeaders;
+			this.selectedContext = `${this.currentSubject!.name}: ${recordsWithMatchingHeaders.length} headers`;
+			this.selectedKeywordFilter = this.currentSubject!.keyword || null;
+			this.selectedTopicTag = this.currentSubject!.mainTag || null;
+			this.selectedPrimaryTopic = null;
+			this.selectedSecondaryTopic = null;
+			this.selectedHeaderMode = true;
+			await this.updateRecordsSection();
+		});
+
+		countsContainer.createEl('span', { text: ' ' });
+
+		// Entries count
+		const entriesCount = countsContainer.createEl('span', {
+			text: `-${recordCount}`,
+			cls: 'kh-count-entries'
+		});
+		entriesCount.style.cursor = 'pointer';
+		entriesCount.addEventListener('click', async (e) => {
+			e.stopPropagation();
+			this.applyChipFiltering = false;
+			this.selectedRecords = recordsWithMatchingEntries;
+			this.selectedContext = `${this.currentSubject!.name}: ${recordsWithMatchingEntries.length} entries`;
+
+			// Use matrixOnlyFilterExp if available, otherwise fallback to keyword
+			const matrixExpr = this.currentSubject!.matrixOnlyFilterExp || this.currentSubject!.expression;
+			if (matrixExpr) {
+				this.selectedFilterExpression = matrixExpr;
+				this.selectedKeywordFilter = null;
+			} else {
+				this.selectedKeywordFilter = this.currentSubject!.keyword || null;
+				this.selectedFilterExpression = null;
+			}
+
+			this.selectedTopicTag = null;
+			this.selectedHeaderMode = false;
+			await this.updateRecordsSection();
+		});
+
+		// Content area - show files matching subject tag (excluding primary/secondary tags)
+		const content = column.createDiv({ cls: 'kh-dashboard-files-list' });
+		const limitedFiles = filteredRecords.slice(0, 10);
+		limitedFiles.forEach(record => {
+			const fileItem = content.createDiv({ cls: 'kh-dashboard-file-item' });
+			fileItem.createEl('span', {
+				text: getFileNameFromPath(record.filePath).replace('.md', ''),
+				cls: 'kh-dashboard-file-name'
+			});
+			fileItem.style.cursor = 'pointer';
+			fileItem.addEventListener('click', async (e: MouseEvent) => {
+				// Command/Ctrl + click: Open file
+				if (e.metaKey || e.ctrlKey) {
+					const file = this.plugin.app.vault.getAbstractFileByPath(record.filePath);
+					if (file instanceof TFile) {
+						await this.plugin.app.workspace.getLeaf(false).openFile(file);
+					}
+				}
+				// Normal click: Show records from this file
+				else {
+					this.applyChipFiltering = false;
+					this.selectedRecords = [record];
+					this.selectedContext = `${getFileNameFromPath(record.filePath).replace('.md', '')} (1 file)`;
+					this.selectedKeywordFilter = null;
+					this.selectedTopicTag = null;
+					this.selectedHeaderMode = false;
+					await this.updateRecordsSection();
+				}
+			});
+		});
+	}
+
 	private renderColumnFiles(columnsContainer: HTMLElement, topic: Topic, topicIndex: number, filteredRecords: ParsedFile[], allRecords: ParsedFile[]): void {
-		// Count files with topic tag (from filtered records for current primary topic)
+		// Count files with topic tag
 		let topicFiles: ParsedFile[] = [];
 		if (topic.topicTag) {
-			topicFiles = filteredRecords.filter(record => {
-				const tags = this.getRecordTags(record);
-				return tags.includes(topic.topicTag!);
-			});
+			// When selectedPrimaryTopicId is 'orphans' (subject cell), secondary topics should exclude primary tags
+			if (this.selectedPrimaryTopicId === 'orphans') {
+				const primaryTopics = this.currentSubject?.primaryTopics || [];
+				const primaryTopicTags = primaryTopics.map(t => t.topicTag).filter(Boolean);
+
+				topicFiles = allRecords.filter(record => {
+					const tags = this.getRecordTags(record);
+					// Must have the secondary topic's tag
+					const hasSecondaryTag = tags.includes(topic.topicTag!);
+					// Must NOT have any primary topic tags
+					const hasPrimaryTag = primaryTopicTags.some(tag => tags.includes(tag!));
+					return hasSecondaryTag && !hasPrimaryTag;
+				});
+			} else {
+				// When a primary topic is selected, use intersection (from filteredRecords)
+				topicFiles = filteredRecords.filter(record => {
+					const tags = this.getRecordTags(record);
+					return tags.includes(topic.topicTag!);
+				});
+			}
 		}
 		let fileCount = topicFiles.length;
 
@@ -1590,14 +1785,23 @@ export class SubjectDashboardView extends ItemView {
 		// Override counts with pre-calculated matrix data
 		if (this.currentSubject?.matrix?.cells) {
 			const col = topicIndex + 2; // Secondary topics start at column 2
-			const primaryTopics = this.currentSubject.primaryTopics || [];
-			const primaryTopicIndex = primaryTopics.findIndex(t => t.id === this.selectedPrimaryTopicId);
+			let cellKey: string;
 
-			if (primaryTopicIndex >= 0) {
-				const rowNum = primaryTopicIndex + 2; // Primary topics start at row 2
-				const cellKey = `${rowNum}x${col}`;
+			if (this.selectedPrimaryTopicId === 'orphans') {
+				// When in orphans mode, use row 1 (secondary topic header cells: 1x2, 1x3, etc.)
+				cellKey = `1x${col}`;
+			} else {
+				// When a primary topic is selected, use intersection cell
+				const primaryTopics = this.currentSubject.primaryTopics || [];
+				const primaryTopicIndex = primaryTopics.findIndex(t => t.id === this.selectedPrimaryTopicId);
+				if (primaryTopicIndex >= 0) {
+					const rowNum = primaryTopicIndex + 2; // Primary topics start at row 2
+					cellKey = `${rowNum}x${col}`;
+				}
+			}
+
+			if (cellKey) {
 				const cell = this.currentSubject.matrix.cells[cellKey];
-
 				if (cell) {
 					fileCount = cell.fileCount || 0;
 					headerCount = cell.headerCount || 0;
@@ -1661,63 +1865,102 @@ export class SubjectDashboardView extends ItemView {
 
 				console.log(`[Dashboard] selectedPrimaryTopic:`, selectedPrimaryTopic ? { name: selectedPrimaryTopic.name, keyword: selectedPrimaryTopic.topicKeyword, tag: selectedPrimaryTopic.topicTag } : 'null');
 
-				// Use INTERSECTION logic like matrix: (primary in header AND secondary on file) OR (secondary in header AND primary on file)
-				let records = allRecords.filter(record => {
-					const fileTags = this.getRecordTags(record);
+				let records: ParsedFile[];
 
-					// Check if both topics are on file level
-					const primaryInFile = !!(selectedPrimaryTopic?.topicTag && fileTags.includes(selectedPrimaryTopic.topicTag));
-					const secondaryInFile = !!(topic.topicTag && fileTags.includes(topic.topicTag));
+				// When no primary topic selected (orphans), check ALL files for headers with secondary topic keyword/tag
+				if (!selectedPrimaryTopic) {
+					records = allRecords.filter(record => {
+						// Check if this record has headers with secondary topic keyword or tag
+						// NOTE: We check ALL files, not just files with specific tags
+						for (const entry of record.entries) {
+							const headerLevels = [
+								entry.h1 ? { level: 1, info: entry.h1 } : null,
+								entry.h2 ? { level: 2, info: entry.h2 } : null,
+								entry.h3 ? { level: 3, info: entry.h3 } : null
+							].filter(h => h !== null);
 
-					// Check if this record has any headers matching the intersection
-					for (const entry of record.entries) {
-						const headerLevels = [
-							entry.h1 ? { level: 1, info: entry.h1 } : null,
-							entry.h2 ? { level: 2, info: entry.h2 } : null,
-							entry.h3 ? { level: 3, info: entry.h3 } : null
-						].filter(h => h !== null);
+							for (const headerLevel of headerLevels) {
+								const header = headerLevel!.info;
+								if (header.text) {
+									// Check if SECONDARY topic is in header
+									let secondaryKeywordMatch = false;
+									if (topic.topicKeyword && header.keywords) {
+										secondaryKeywordMatch = header.keywords?.some(kw =>
+											kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
+										);
+									}
+									const secondaryTagMatch = !!(topic.topicTag && header.tags?.some(tag => {
+										const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
+										return normalizedTag === topic.topicTag;
+									}));
 
-						for (const headerLevel of headerLevels) {
-							const header = headerLevel!.info;
-							if (header.text) {
-								// Check if PRIMARY topic is in header
-								let primaryKeywordMatch = false;
-								if (selectedPrimaryTopic?.topicKeyword && header.keywords) {
-									primaryKeywordMatch = header.keywords?.some(kw =>
-										kw.toLowerCase() === selectedPrimaryTopic.topicKeyword!.toLowerCase()
-									);
-								}
-								const primaryTagMatch = !!(selectedPrimaryTopic?.topicTag && header.tags?.some(tag => {
-									const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
-									return normalizedTag === selectedPrimaryTopic.topicTag;
-								}));
-								const primaryInHeader = primaryKeywordMatch || primaryTagMatch;
-
-								// Check if SECONDARY topic is in header
-								let secondaryKeywordMatch = false;
-								if (topic.topicKeyword && header.keywords) {
-									secondaryKeywordMatch = header.keywords?.some(kw =>
-										kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
-									);
-								}
-								const secondaryTagMatch = !!(topic.topicTag && header.tags?.some(tag => {
-									const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
-									return normalizedTag === topic.topicTag;
-								}));
-								const secondaryInHeader = secondaryKeywordMatch || secondaryTagMatch;
-
-								// Intersection: (primary in header AND secondary on file) OR (secondary in header AND primary on file)
-								const validCase1 = primaryInHeader && secondaryInFile;
-								const validCase2 = secondaryInHeader && primaryInFile;
-
-								if (validCase1 || validCase2) {
-									return true; // This record has a matching header
+									if (secondaryKeywordMatch || secondaryTagMatch) {
+										return true; // This record has a matching header
+									}
 								}
 							}
 						}
-					}
-					return false;
-				});
+						return false;
+					});
+				} else {
+					// Use INTERSECTION logic like matrix: (primary in header AND secondary on file) OR (secondary in header AND primary on file)
+					records = allRecords.filter(record => {
+						const fileTags = this.getRecordTags(record);
+
+						// Check if both topics are on file level
+						const primaryInFile = !!(selectedPrimaryTopic?.topicTag && fileTags.includes(selectedPrimaryTopic.topicTag));
+						const secondaryInFile = !!(topic.topicTag && fileTags.includes(topic.topicTag));
+
+						// Check if this record has any headers matching the intersection
+						for (const entry of record.entries) {
+							const headerLevels = [
+								entry.h1 ? { level: 1, info: entry.h1 } : null,
+								entry.h2 ? { level: 2, info: entry.h2 } : null,
+								entry.h3 ? { level: 3, info: entry.h3 } : null
+							].filter(h => h !== null);
+
+							for (const headerLevel of headerLevels) {
+								const header = headerLevel!.info;
+								if (header.text) {
+									// Check if PRIMARY topic is in header
+									let primaryKeywordMatch = false;
+									if (selectedPrimaryTopic?.topicKeyword && header.keywords) {
+										primaryKeywordMatch = header.keywords?.some(kw =>
+											kw.toLowerCase() === selectedPrimaryTopic.topicKeyword!.toLowerCase()
+										);
+									}
+									const primaryTagMatch = !!(selectedPrimaryTopic?.topicTag && header.tags?.some(tag => {
+										const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
+										return normalizedTag === selectedPrimaryTopic.topicTag;
+									}));
+									const primaryInHeader = primaryKeywordMatch || primaryTagMatch;
+
+									// Check if SECONDARY topic is in header
+									let secondaryKeywordMatch = false;
+									if (topic.topicKeyword && header.keywords) {
+										secondaryKeywordMatch = header.keywords?.some(kw =>
+											kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
+										);
+									}
+									const secondaryTagMatch = !!(topic.topicTag && header.tags?.some(tag => {
+										const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
+										return normalizedTag === topic.topicTag;
+									}));
+									const secondaryInHeader = secondaryKeywordMatch || secondaryTagMatch;
+
+									// Intersection: (primary in header AND secondary on file) OR (secondary in header AND primary on file)
+									const validCase1 = primaryInHeader && secondaryInFile;
+									const validCase2 = secondaryInHeader && primaryInFile;
+
+									if (validCase1 || validCase2) {
+										return true; // This record has a matching header
+									}
+								}
+							}
+						}
+						return false;
+					});
+				}
 
 				console.log(`[Dashboard] After intersection filter: records.length=${records.length}`);
 
@@ -1949,63 +2192,102 @@ export class SubjectDashboardView extends ItemView {
 
 				console.log(`[Dashboard] selectedPrimaryTopic:`, selectedPrimaryTopic ? { name: selectedPrimaryTopic.name, keyword: selectedPrimaryTopic.topicKeyword, tag: selectedPrimaryTopic.topicTag } : 'null');
 
-				// Use INTERSECTION logic like matrix: (primary in header AND secondary on file) OR (secondary in header AND primary on file)
-				let records = allRecords.filter(record => {
-					const fileTags = this.getRecordTags(record);
+				let records: ParsedFile[];
 
-					// Check if both topics are on file level
-					const primaryInFile = !!(selectedPrimaryTopic?.topicTag && fileTags.includes(selectedPrimaryTopic.topicTag));
-					const secondaryInFile = !!(topic.topicTag && fileTags.includes(topic.topicTag));
+				// When no primary topic selected (orphans), check ALL files for headers with secondary topic keyword/tag
+				if (!selectedPrimaryTopic) {
+					records = allRecords.filter(record => {
+						// Check if this record has headers with secondary topic keyword or tag
+						// NOTE: We check ALL files, not just files with specific tags
+						for (const entry of record.entries) {
+							const headerLevels = [
+								entry.h1 ? { level: 1, info: entry.h1 } : null,
+								entry.h2 ? { level: 2, info: entry.h2 } : null,
+								entry.h3 ? { level: 3, info: entry.h3 } : null
+							].filter(h => h !== null);
 
-					// Check if this record has any headers matching the intersection
-					for (const entry of record.entries) {
-						const headerLevels = [
-							entry.h1 ? { level: 1, info: entry.h1 } : null,
-							entry.h2 ? { level: 2, info: entry.h2 } : null,
-							entry.h3 ? { level: 3, info: entry.h3 } : null
-						].filter(h => h !== null);
+							for (const headerLevel of headerLevels) {
+								const header = headerLevel!.info;
+								if (header.text) {
+									// Check if SECONDARY topic is in header
+									let secondaryKeywordMatch = false;
+									if (topic.topicKeyword && header.keywords) {
+										secondaryKeywordMatch = header.keywords?.some(kw =>
+											kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
+										);
+									}
+									const secondaryTagMatch = !!(topic.topicTag && header.tags?.some(tag => {
+										const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
+										return normalizedTag === topic.topicTag;
+									}));
 
-						for (const headerLevel of headerLevels) {
-							const header = headerLevel!.info;
-							if (header.text) {
-								// Check if PRIMARY topic is in header
-								let primaryKeywordMatch = false;
-								if (selectedPrimaryTopic?.topicKeyword && header.keywords) {
-									primaryKeywordMatch = header.keywords?.some(kw =>
-										kw.toLowerCase() === selectedPrimaryTopic.topicKeyword!.toLowerCase()
-									);
-								}
-								const primaryTagMatch = !!(selectedPrimaryTopic?.topicTag && header.tags?.some(tag => {
-									const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
-									return normalizedTag === selectedPrimaryTopic.topicTag;
-								}));
-								const primaryInHeader = primaryKeywordMatch || primaryTagMatch;
-
-								// Check if SECONDARY topic is in header
-								let secondaryKeywordMatch = false;
-								if (topic.topicKeyword && header.keywords) {
-									secondaryKeywordMatch = header.keywords?.some(kw =>
-										kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
-									);
-								}
-								const secondaryTagMatch = !!(topic.topicTag && header.tags?.some(tag => {
-									const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
-									return normalizedTag === topic.topicTag;
-								}));
-								const secondaryInHeader = secondaryKeywordMatch || secondaryTagMatch;
-
-								// Intersection: (primary in header AND secondary on file) OR (secondary in header AND primary on file)
-								const validCase1 = primaryInHeader && secondaryInFile;
-								const validCase2 = secondaryInHeader && primaryInFile;
-
-								if (validCase1 || validCase2) {
-									return true; // This record has a matching header
+									if (secondaryKeywordMatch || secondaryTagMatch) {
+										return true; // This record has a matching header
+									}
 								}
 							}
 						}
-					}
-					return false;
-				});
+						return false;
+					});
+				} else {
+					// Use INTERSECTION logic like matrix: (primary in header AND secondary on file) OR (secondary in header AND primary on file)
+					records = allRecords.filter(record => {
+						const fileTags = this.getRecordTags(record);
+
+						// Check if both topics are on file level
+						const primaryInFile = !!(selectedPrimaryTopic?.topicTag && fileTags.includes(selectedPrimaryTopic.topicTag));
+						const secondaryInFile = !!(topic.topicTag && fileTags.includes(topic.topicTag));
+
+						// Check if this record has any headers matching the intersection
+						for (const entry of record.entries) {
+							const headerLevels = [
+								entry.h1 ? { level: 1, info: entry.h1 } : null,
+								entry.h2 ? { level: 2, info: entry.h2 } : null,
+								entry.h3 ? { level: 3, info: entry.h3 } : null
+							].filter(h => h !== null);
+
+							for (const headerLevel of headerLevels) {
+								const header = headerLevel!.info;
+								if (header.text) {
+									// Check if PRIMARY topic is in header
+									let primaryKeywordMatch = false;
+									if (selectedPrimaryTopic?.topicKeyword && header.keywords) {
+										primaryKeywordMatch = header.keywords?.some(kw =>
+											kw.toLowerCase() === selectedPrimaryTopic.topicKeyword!.toLowerCase()
+										);
+									}
+									const primaryTagMatch = !!(selectedPrimaryTopic?.topicTag && header.tags?.some(tag => {
+										const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
+										return normalizedTag === selectedPrimaryTopic.topicTag;
+									}));
+									const primaryInHeader = primaryKeywordMatch || primaryTagMatch;
+
+									// Check if SECONDARY topic is in header
+									let secondaryKeywordMatch = false;
+									if (topic.topicKeyword && header.keywords) {
+										secondaryKeywordMatch = header.keywords?.some(kw =>
+											kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
+										);
+									}
+									const secondaryTagMatch = !!(topic.topicTag && header.tags?.some(tag => {
+										const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
+										return normalizedTag === topic.topicTag;
+									}));
+									const secondaryInHeader = secondaryKeywordMatch || secondaryTagMatch;
+
+									// Intersection: (primary in header AND secondary on file) OR (secondary in header AND primary on file)
+									const validCase1 = primaryInHeader && secondaryInFile;
+									const validCase2 = secondaryInHeader && primaryInFile;
+
+									if (validCase1 || validCase2) {
+										return true; // This record has a matching header
+									}
+								}
+							}
+						}
+						return false;
+					});
+				}
 
 				console.log(`[Dashboard] After intersection filter: records.length=${records.length}`);
 
@@ -2225,63 +2507,102 @@ export class SubjectDashboardView extends ItemView {
 
 				console.log(`[Dashboard] selectedPrimaryTopic:`, selectedPrimaryTopic ? { name: selectedPrimaryTopic.name, keyword: selectedPrimaryTopic.topicKeyword, tag: selectedPrimaryTopic.topicTag } : 'null');
 
-				// Use INTERSECTION logic like matrix: (primary in header AND secondary on file) OR (secondary in header AND primary on file)
-				let records = allRecords.filter(record => {
-					const fileTags = this.getRecordTags(record);
+				let records: ParsedFile[];
 
-					// Check if both topics are on file level
-					const primaryInFile = !!(selectedPrimaryTopic?.topicTag && fileTags.includes(selectedPrimaryTopic.topicTag));
-					const secondaryInFile = !!(topic.topicTag && fileTags.includes(topic.topicTag));
+				// When no primary topic selected (orphans), check ALL files for headers with secondary topic keyword/tag
+				if (!selectedPrimaryTopic) {
+					records = allRecords.filter(record => {
+						// Check if this record has headers with secondary topic keyword or tag
+						// NOTE: We check ALL files, not just files with specific tags
+						for (const entry of record.entries) {
+							const headerLevels = [
+								entry.h1 ? { level: 1, info: entry.h1 } : null,
+								entry.h2 ? { level: 2, info: entry.h2 } : null,
+								entry.h3 ? { level: 3, info: entry.h3 } : null
+							].filter(h => h !== null);
 
-					// Check if this record has any headers matching the intersection
-					for (const entry of record.entries) {
-						const headerLevels = [
-							entry.h1 ? { level: 1, info: entry.h1 } : null,
-							entry.h2 ? { level: 2, info: entry.h2 } : null,
-							entry.h3 ? { level: 3, info: entry.h3 } : null
-						].filter(h => h !== null);
+							for (const headerLevel of headerLevels) {
+								const header = headerLevel!.info;
+								if (header.text) {
+									// Check if SECONDARY topic is in header
+									let secondaryKeywordMatch = false;
+									if (topic.topicKeyword && header.keywords) {
+										secondaryKeywordMatch = header.keywords?.some(kw =>
+											kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
+										);
+									}
+									const secondaryTagMatch = !!(topic.topicTag && header.tags?.some(tag => {
+										const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
+										return normalizedTag === topic.topicTag;
+									}));
 
-						for (const headerLevel of headerLevels) {
-							const header = headerLevel!.info;
-							if (header.text) {
-								// Check if PRIMARY topic is in header
-								let primaryKeywordMatch = false;
-								if (selectedPrimaryTopic?.topicKeyword && header.keywords) {
-									primaryKeywordMatch = header.keywords?.some(kw =>
-										kw.toLowerCase() === selectedPrimaryTopic.topicKeyword!.toLowerCase()
-									);
-								}
-								const primaryTagMatch = !!(selectedPrimaryTopic?.topicTag && header.tags?.some(tag => {
-									const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
-									return normalizedTag === selectedPrimaryTopic.topicTag;
-								}));
-								const primaryInHeader = primaryKeywordMatch || primaryTagMatch;
-
-								// Check if SECONDARY topic is in header
-								let secondaryKeywordMatch = false;
-								if (topic.topicKeyword && header.keywords) {
-									secondaryKeywordMatch = header.keywords?.some(kw =>
-										kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
-									);
-								}
-								const secondaryTagMatch = !!(topic.topicTag && header.tags?.some(tag => {
-									const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
-									return normalizedTag === topic.topicTag;
-								}));
-								const secondaryInHeader = secondaryKeywordMatch || secondaryTagMatch;
-
-								// Intersection: (primary in header AND secondary on file) OR (secondary in header AND primary on file)
-								const validCase1 = primaryInHeader && secondaryInFile;
-								const validCase2 = secondaryInHeader && primaryInFile;
-
-								if (validCase1 || validCase2) {
-									return true; // This record has a matching header
+									if (secondaryKeywordMatch || secondaryTagMatch) {
+										return true; // This record has a matching header
+									}
 								}
 							}
 						}
-					}
-					return false;
-				});
+						return false;
+					});
+				} else {
+					// Use INTERSECTION logic like matrix: (primary in header AND secondary on file) OR (secondary in header AND primary on file)
+					records = allRecords.filter(record => {
+						const fileTags = this.getRecordTags(record);
+
+						// Check if both topics are on file level
+						const primaryInFile = !!(selectedPrimaryTopic?.topicTag && fileTags.includes(selectedPrimaryTopic.topicTag));
+						const secondaryInFile = !!(topic.topicTag && fileTags.includes(topic.topicTag));
+
+						// Check if this record has any headers matching the intersection
+						for (const entry of record.entries) {
+							const headerLevels = [
+								entry.h1 ? { level: 1, info: entry.h1 } : null,
+								entry.h2 ? { level: 2, info: entry.h2 } : null,
+								entry.h3 ? { level: 3, info: entry.h3 } : null
+							].filter(h => h !== null);
+
+							for (const headerLevel of headerLevels) {
+								const header = headerLevel!.info;
+								if (header.text) {
+									// Check if PRIMARY topic is in header
+									let primaryKeywordMatch = false;
+									if (selectedPrimaryTopic?.topicKeyword && header.keywords) {
+										primaryKeywordMatch = header.keywords?.some(kw =>
+											kw.toLowerCase() === selectedPrimaryTopic.topicKeyword!.toLowerCase()
+										);
+									}
+									const primaryTagMatch = !!(selectedPrimaryTopic?.topicTag && header.tags?.some(tag => {
+										const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
+										return normalizedTag === selectedPrimaryTopic.topicTag;
+									}));
+									const primaryInHeader = primaryKeywordMatch || primaryTagMatch;
+
+									// Check if SECONDARY topic is in header
+									let secondaryKeywordMatch = false;
+									if (topic.topicKeyword && header.keywords) {
+										secondaryKeywordMatch = header.keywords?.some(kw =>
+											kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
+										);
+									}
+									const secondaryTagMatch = !!(topic.topicTag && header.tags?.some(tag => {
+										const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
+										return normalizedTag === topic.topicTag;
+									}));
+									const secondaryInHeader = secondaryKeywordMatch || secondaryTagMatch;
+
+									// Intersection: (primary in header AND secondary on file) OR (secondary in header AND primary on file)
+									const validCase1 = primaryInHeader && secondaryInFile;
+									const validCase2 = secondaryInHeader && primaryInFile;
+
+									if (validCase1 || validCase2) {
+										return true; // This record has a matching header
+									}
+								}
+							}
+						}
+						return false;
+					});
+				}
 
 				console.log(`[Dashboard] After intersection filter: records.length=${records.length}`);
 
@@ -2894,11 +3215,41 @@ export class SubjectDashboardView extends ItemView {
 				await this.renderMatchingEntries(matchingEntries, recordsSection);
 			} else {
 				// No filter expression - show all entries from selected records
-				// Count total entries from selected records
-				entriesCount = this.selectedRecords.reduce((sum, record) => sum + record.entries.length, 0);
-				filesCount = this.selectedRecords.length;
+				// Count total entries from selected records (filtered by selectedKeywordFilter if set)
+				if (this.selectedKeywordFilter) {
+					// Count only entries matching the keyword filter
+					for (const record of this.selectedRecords) {
+						for (const entry of record.entries) {
+							let hasKeyword = false;
 
-				headerText = `Records: ${entriesCount} ${entriesCount === 1 ? 'entry' : 'entries'} in ${filesCount} ${filesCount === 1 ? 'file' : 'files'}`;
+							// Check main entry keywords
+							if (entry.keywords && entry.keywords.includes(this.selectedKeywordFilter)) {
+								hasKeyword = true;
+							}
+
+							// Check subitem keywords
+							if (!hasKeyword && entry.subItems && entry.subItems.length > 0) {
+								for (const subItem of entry.subItems) {
+									if (subItem.keywords && subItem.keywords.includes(this.selectedKeywordFilter)) {
+										hasKeyword = true;
+										break;
+									}
+								}
+							}
+
+							if (hasKeyword) {
+								entriesCount++;
+							}
+						}
+					}
+					filesCount = this.selectedRecords.length;
+					headerText = `Records: ${entriesCount} ${entriesCount === 1 ? 'entry' : 'entries'} with .${this.selectedKeywordFilter} in ${filesCount} ${filesCount === 1 ? 'file' : 'files'}`;
+				} else {
+					// No keyword filter - count all entries
+					entriesCount = this.selectedRecords.reduce((sum, record) => sum + record.entries.length, 0);
+					filesCount = this.selectedRecords.length;
+					headerText = `Records: ${entriesCount} ${entriesCount === 1 ? 'entry' : 'entries'} in ${filesCount} ${filesCount === 1 ? 'file' : 'files'}`;
+				}
 
 				// Section header
 				const sectionHeader = recordsSection.createDiv({ cls: 'kh-dashboard-records-header' });
@@ -2997,9 +3348,12 @@ export class SubjectDashboardView extends ItemView {
 							const validCase1 = primaryInHeader && secondaryInFile;
 							const validCase2 = secondaryInHeader && primaryInFile;
 							matches = validCase1 || validCase2;
-						} else {
-							// Simple matching: just check if primary topic is in header
+						} else if (this.selectedPrimaryTopic) {
+							// Simple matching with primary topic: check if primary topic is in header
 							matches = primaryInHeader;
+						} else if (this.selectedSecondaryTopic) {
+							// Simple matching with secondary topic (orphans mode): check if secondary topic is in header
+							matches = secondaryInHeader;
 						}
 
 						if (matches) {

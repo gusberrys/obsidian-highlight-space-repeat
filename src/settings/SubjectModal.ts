@@ -95,7 +95,6 @@ export class SubjectModal extends Modal {
 		{ key: 'topicKeyword', type: 'input', width: '40px', header: 'Key', field: 'topicKeyword', placeholder: 'key', cls: 'kb-col-key' },
 		{ key: 'andMode', type: 'checkbox', width: '20px', header: '⬜', cls: 'kb-col-and' },
 		{ key: 'fh', type: 'checkbox', width: '35px', header: '🔴', cls: 'kb-col-fh' },
-		{ key: 'own', type: 'checkbox', width: '35px', header: '🟨', cls: 'kb-col-own' },
 		{
 			key: 'FilterExpHeader',
 			type: 'input',
@@ -170,9 +169,10 @@ export class SubjectModal extends Modal {
 		// Collect all available options
 		this.collectAvailableOptions();
 
-		// Parse expression to populate selections
-		if (this.subject.expression) {
-			this.parseExpression(this.subject.expression);
+		// Parse expression to populate selections (use dashOnlyFilterExp, fallback to legacy expression)
+		const exprToParse = this.subject.dashOnlyFilterExp || this.subject.expression;
+		if (exprToParse) {
+			this.parseExpression(exprToParse);
 		} else if ((this.subject as any).chips) {
 			// Fallback: Load from chips if no expression
 			const chips = (this.subject as any).chips;
@@ -297,10 +297,10 @@ export class SubjectModal extends Modal {
 	 * Update expression input field from current selections
 	 */
 	private updateExpression(): void {
-		const exprInput = document.getElementById('subject-expression') as HTMLInputElement;
-		if (exprInput) {
-			exprInput.value = this.generateExpression();
-			this.subject.expression = exprInput.value;
+		const dashFilterInput = document.getElementById('subject-dash-filter') as HTMLInputElement;
+		if (dashFilterInput) {
+			dashFilterInput.value = this.generateExpression();
+			this.subject.dashOnlyFilterExp = dashFilterInput.value;
 		}
 	}
 
@@ -627,24 +627,46 @@ export class SubjectModal extends Modal {
 			this.subject.keyword = (e.target as HTMLInputElement).value;
 		});
 
-		// Subject Filter field
-		const subjFilterDiv = nameIconTagRow.createDiv({ cls: 'kb-modal-field-subj-filter' });
-		subjFilterDiv.createEl('span', { text: 'SubjFilter:', cls: 'kb-field-label' });
-		const subjFilterInput = subjFilterDiv.createEl('input', {
+		// DashFilter field (Dark Blue - like primary topics)
+		const dashFilterDiv = nameIconTagRow.createDiv({ cls: 'kb-modal-field-dash-filter' });
+		dashFilterDiv.createEl('span', { text: 'DashFilter:', cls: 'kb-field-label' });
+		const dashFilterInput = dashFilterDiv.createEl('input', {
 			type: 'text',
-			attr: { id: 'subject-expression' },
-			value: this.subject.expression || '',
-			placeholder: 'S: .keyword W: #tag'
+			attr: { id: 'subject-dash-filter' },
+			value: this.subject.dashOnlyFilterExp || this.subject.expression || '',
+			placeholder: 'Dashboard filter (e.g., .keyword W: #tag)'
 		});
-		subjFilterInput.addEventListener('input', (e) => {
+		dashFilterInput.style.backgroundColor = 'rgba(0, 0, 139, 0.7)';
+		dashFilterInput.style.border = '1px solid rgba(0, 0, 255, 0.3)';
+		dashFilterInput.style.color = 'white';
+		dashFilterInput.style.padding = '4px 8px';
+		dashFilterInput.addEventListener('input', (e) => {
 			const value = (e.target as HTMLInputElement).value;
-			this.subject.expression = value;
+			this.subject.dashOnlyFilterExp = value;
 			this.parseExpression(value);
 			// Refresh unified chips display if it exists
 			const chipsDisplay = document.getElementById('kb-chips-unified');
 			if (chipsDisplay) {
 				this.refreshUnifiedChips(chipsDisplay);
 			}
+		});
+
+		// MatrixFilter field (RED - like primary topics)
+		const matrixFilterDiv = nameIconTagRow.createDiv({ cls: 'kb-modal-field-matrix-filter' });
+		matrixFilterDiv.createEl('span', { text: 'MatrixFilter:', cls: 'kb-field-label' });
+		const matrixFilterInput = matrixFilterDiv.createEl('input', {
+			type: 'text',
+			attr: { id: 'subject-matrix-filter' },
+			value: this.subject.matrixOnlyFilterExp || '',
+			placeholder: 'Matrix filter (e.g., .keyword W: #tag)'
+		});
+		matrixFilterInput.style.backgroundColor = 'rgba(255, 0, 0, 0.6)';
+		matrixFilterInput.style.border = '1px solid rgba(255, 0, 0, 0.4)';
+		matrixFilterInput.style.color = 'white';
+		matrixFilterInput.style.padding = '4px 8px';
+		matrixFilterInput.addEventListener('input', (e) => {
+			const value = (e.target as HTMLInputElement).value;
+			this.subject.matrixOnlyFilterExp = value;
 		});
 
 		// Add action buttons on the right side of the row
@@ -1200,25 +1222,6 @@ export class SubjectModal extends Modal {
 			}
 		});
 
-		// Apply initial My Own mode gold border styling AFTER all cells are rendered
-		if (topicType === 'secondary' && nameCell && ownCell) {
-			// ALWAYS remove all classes first to ensure clean state
-			(nameCell as HTMLElement).classList.remove('kb-cell-myown-enabled', 'kb-cell-myown-fh-disabled');
-			(ownCell as HTMLElement).classList.remove('kb-cell-myown-enabled', 'kb-cell-myown-fh-disabled');
-
-			// ONLY apply gold border if My Own mode is actually enabled
-			if (topic.myOwn === true) {
-				if (topic.fhDisabled) {
-					// F/H disabled (checked): gold border
-					(nameCell as HTMLElement).classList.add('kb-cell-myown-enabled');
-					(ownCell as HTMLElement).classList.add('kb-cell-myown-enabled');
-				} else {
-					// F/H enabled (unchecked): gold border
-					(nameCell as HTMLElement).classList.add('kb-cell-myown-fh-disabled');
-					(ownCell as HTMLElement).classList.add('kb-cell-myown-fh-disabled');
-				}
-			}
-		}
 
 	}
 
@@ -1236,21 +1239,13 @@ export class SubjectModal extends Modal {
 		ownCell: HTMLElement | null
 	): void {
 		if (col.key === 'andMode') {
-			// AND mode radio button (for secondary: part of radio group with My Own)
+			// AND mode checkbox
 			const input = cell.createEl('input', {
-				type: topicType === 'secondary' ? 'radio' : 'checkbox',
+				type: 'checkbox',
 				cls: 'kb-topic-and-mode-checkbox'
 			});
 
-			if (topicType === 'secondary') {
-				// Radio button: part of exclusive group with My Own
-				input.name = `mode-${topic.id}`;
-				input.value = 'and';
-				input.checked = (topic.andMode || false) && !topic.myOwn;
-			} else {
-				// Checkbox for primary topics
-				input.checked = topic.andMode || false;
-			}
+			input.checked = topic.andMode || false;
 
 			input.disabled = !this.subject.mainTag;
 			input.title = this.subject.mainTag
@@ -1259,7 +1254,7 @@ export class SubjectModal extends Modal {
 					: 'AND mode: Require subject tag for F/H entries')
 				: 'Subject must have a tag to enable this option';
 
-			if (topic.andMode && !topic.myOwn) {
+			if (topic.andMode) {
 				input.style.border = '2px solid white';
 				if (topicType === 'primary') {
 					row.style.border = '2px solid white';
@@ -1271,15 +1266,7 @@ export class SubjectModal extends Modal {
 
 			input.addEventListener('change', async (e) => {
 				const isChecked = (e.target as HTMLInputElement).checked;
-
-				if (topicType === 'secondary') {
-					// Radio button: enable AND, disable My Own
-					topic.andMode = isChecked;
-					topic.myOwn = false;
-				} else {
-					// Checkbox for primary
-					topic.andMode = isChecked;
-				}
+				topic.andMode = isChecked;
 
 				if (isChecked) {
 					input.style.border = '2px solid white';
@@ -1289,10 +1276,6 @@ export class SubjectModal extends Modal {
 						if (nameCell) nameCell.style.border = '2px solid white';
 						cell.style.border = '2px solid white';
 					}
-					// Remove My Own styling if present
-					if (nameCell) nameCell.classList.remove('kb-cell-myown-enabled', 'kb-cell-myown-fh-disabled');
-					const ownCell = row.querySelector('.kb-col-own');
-					if (ownCell) ownCell.classList.remove('kb-cell-myown-enabled', 'kb-cell-myown-fh-disabled');
 				} else {
 					input.style.border = '';
 					if (topicType === 'primary') {
@@ -1323,37 +1306,12 @@ export class SubjectModal extends Modal {
 				const isChecked = (e.target as HTMLInputElement).checked;
 				// INVERTED: checked = disabled, so fhDisabled = isChecked
 				topic.fhDisabled = isChecked;
-				
 
 				// Update row styling
 				if (isChecked) { // CHECKED = DISABLED = RED
 					row.classList.add('kb-topic-card-fh-enabled');
-					// If My Own is also enabled, update gold border class
-					// Apply to name cell and own cell only, NOT whole row
-					if (topic.myOwn) {
-						if (nameCell) {
-							nameCell.classList.remove('kb-cell-myown-fh-disabled');
-							nameCell.classList.add('kb-cell-myown-enabled');
-						}
-						if (ownCell) {
-							ownCell.classList.remove('kb-cell-myown-fh-disabled');
-							ownCell.classList.add('kb-cell-myown-enabled');
-						}
-					}
 				} else { // UNCHECKED = ENABLED = NO RED
 					row.classList.remove('kb-topic-card-fh-enabled');
-					// If My Own is also enabled, update gold border class
-					// Apply to name cell and own cell only, NOT whole row
-					if (topic.myOwn) {
-						if (nameCell) {
-							nameCell.classList.remove('kb-cell-myown-enabled');
-							nameCell.classList.add('kb-cell-myown-fh-disabled');
-						}
-						if (ownCell) {
-							ownCell.classList.remove('kb-cell-myown-enabled');
-							ownCell.classList.add('kb-cell-myown-fh-disabled');
-						}
-					}
 				}
 
 				// Save and refresh matrix
@@ -1361,66 +1319,6 @@ export class SubjectModal extends Modal {
 				this.renderMatrixPreview();
 			});
 
-		} else if (col.key === 'own') {
-			// My Own radio button (part of radio group with AND mode for secondary topics)
-			const input = cell.createEl('input', {
-				type: 'radio',
-				cls: 'kb-own-checkbox'
-			});
-
-			// Radio button: part of exclusive group with AND mode
-			input.name = `mode-${topic.id}`;
-			input.value = 'own';
-
-			// Check if AND mode is enabled (from topic, not cell)
-			const isAndMode = topic.andMode ?? false;
-
-			const isMyOwn = topic.myOwn ?? false;
-			input.checked = isMyOwn && !isAndMode;
-			if (isMyOwn) {
-				input.setAttribute('checked', 'checked');
-			}
-
-			input.title = 'My Own mode (own cell only, NOT intersections)\n\nFILES: Must have topic tag, must NOT have subject tag or any primary topic tags\nHEADERS: Topic tag must be IN the header itself (only in qualifying files)\n\nVisual: GOLD/BRONZE BORDER on name + flag cells';
-
-			input.addEventListener('change', async (e) => {
-				const isChecked = (e.target as HTMLInputElement).checked;
-				topic.myOwn = isChecked;
-
-				// Radio button: disable AND mode when My Own is selected
-				if (isChecked) {
-					topic.andMode = false;
-					// Remove AND mode white border
-					if (nameCell) nameCell.style.border = '';
-					const andCell = row.querySelector('.kb-col-and');
-					if (andCell) (andCell as HTMLElement).style.border = '';
-				}
-
-				// Update cell styling - apply to name cell and own cell only, NOT whole row
-				if (isChecked) {
-					if (topic.fhDisabled) {
-						// F/H disabled: gold border
-						if (nameCell) nameCell.classList.add('kb-cell-myown-enabled');
-						cell.classList.add('kb-cell-myown-enabled');
-					} else {
-						// F/H enabled: gold border
-						if (nameCell) nameCell.classList.add('kb-cell-myown-fh-disabled');
-						cell.classList.add('kb-cell-myown-fh-disabled');
-					}
-				} else {
-					// Remove all My Own gold border classes
-					if (nameCell) {
-						nameCell.classList.remove('kb-cell-myown-enabled');
-						nameCell.classList.remove('kb-cell-myown-fh-disabled');
-					}
-					cell.classList.remove('kb-cell-myown-enabled');
-					cell.classList.remove('kb-cell-myown-fh-disabled');
-				}
-
-				// Save and refresh matrix
-				updateTopic(topic.id, topic);
-				this.renderMatrixPreview();
-			});
 		}
 	}
 
@@ -1726,17 +1624,9 @@ export class SubjectModal extends Modal {
 			let fileCount: number;
 			let headerCount: number;
 
-			if (topic.myOwn) {
-				// My Own mode: Only count files/headers with this topic's own tag
-				// but NOT files with subject tag or primary topic tags
-				fileCount = this.countFilesMyOwn(files, topic);
-				headerCount = this.countHeadersMyOwn(files, topic);
-			} else {
-				// Normal mode: Use regular tag combination
-				const { tags } = this.getTagsForCell(cellKey, topic, null);
-				fileCount = this.countFilesWithTags(files, tags);
-				headerCount = this.countHeadersForSingleTopic(files, tags, topic);
-			}
+			const { tags } = this.getTagsForCell(cellKey, topic, null);
+			fileCount = this.countFilesWithTags(files, tags);
+			headerCount = this.countHeadersForSingleTopic(files, tags, topic);
 
 			if (!this.subject.matrix!.cells[cellKey]) {
 				this.subject.matrix!.cells[cellKey] = {};
@@ -1855,103 +1745,6 @@ export class SubjectModal extends Modal {
 				const tagMatch = topic.topicTag && heading.heading.includes(topic.topicTag);
 
 				if (keywordMatch || tagMatch) {
-					count++;
-				}
-			}
-		}
-
-		return count;
-	}
-
-	/**
-	 * Count files for My Own mode
-	 * Only count files that have the topic's own tag
-	 * but do NOT have subject tag or any primary topic tags
-	 */
-	private countFilesMyOwn(files: any[], topic: Topic): number {
-		if (!topic.topicTag) return 0;
-
-		// Get all primary topic tags to exclude
-		const primaryTopics = (this.topics as any[]).filter((t: any) => t.type === 'primary');
-		const excludeTags: string[] = [];
-
-		// Add subject tag to exclude list
-		if (this.subject.mainTag) {
-			excludeTags.push(this.subject.mainTag);
-		}
-
-		// Add all primary topic tags to exclude list
-		primaryTopics.forEach(pt => {
-			if (pt.topicTag) {
-				excludeTags.push(pt.topicTag);
-			}
-		});
-
-		return files.filter(file => {
-			const fileTags = this.getFileTags(file);
-
-			// Must have the topic's own tag
-			const hasOwnTag = topic.topicTag && fileTags.includes(topic.topicTag);
-			if (!hasOwnTag) return false;
-
-			// Must NOT have any of the excluded tags (subject or primary topics)
-			const hasExcludedTag = excludeTags.some(tag => fileTags.includes(tag));
-			if (hasExcludedTag) return false;
-
-			return true;
-		}).length;
-	}
-
-	/**
-	 * Count headers for My Own mode
-	 * Only count headers where the header itself contains the topic's tag
-	 * AND only in files that have topic's tag but NOT subject or primary topic tags
-	 */
-	private countHeadersMyOwn(files: any[], topic: Topic): number {
-		if (!topic.topicTag) return 0;
-
-		// Get all primary topic tags to exclude
-		const primaryTopics = (this.topics as any[]).filter((t: any) => t.type === 'primary');
-		const excludeTags: string[] = [];
-
-		// Add subject tag to exclude list
-		if (this.subject.mainTag) {
-			excludeTags.push(this.subject.mainTag);
-		}
-
-		// Add all primary topic tags to exclude list
-		primaryTopics.forEach(pt => {
-			if (pt.topicTag) {
-				excludeTags.push(pt.topicTag);
-			}
-		});
-
-		// For My Own mode, we only look at files with the topic's own tag
-		// but NOT files with subject or primary topic tags
-		const matchingFiles = files.filter(file => {
-			const fileTags = this.getFileTags(file);
-
-			// Must have the topic's own tag
-			const hasOwnTag = topic.topicTag && fileTags.includes(topic.topicTag);
-			if (!hasOwnTag) return false;
-
-			// Must NOT have any of the excluded tags
-			const hasExcludedTag = excludeTags.some(tag => fileTags.includes(tag));
-			if (hasExcludedTag) return false;
-
-			return true;
-		});
-
-		let count = 0;
-		for (const file of matchingFiles) {
-			const cache = this.app.metadataCache.getFileCache(file);
-			if (!cache || !cache.headings) continue;
-
-			for (const heading of cache.headings) {
-				// Only count if the header itself contains the topic's tag
-				const tagInHeader = topic.topicTag && heading.heading.includes(topic.topicTag);
-
-				if (tagInHeader) {
 					count++;
 				}
 			}
@@ -2344,11 +2137,16 @@ export class SubjectModal extends Modal {
 		}
 
 		try {
-			// Get expression (source of truth)
-			const expression = (document.getElementById('subject-expression') as HTMLInputElement)?.value || '';
+			// Get filter expressions from inputs
+			const dashFilter = (document.getElementById('subject-dash-filter') as HTMLInputElement)?.value || '';
+			const matrixFilter = (document.getElementById('subject-matrix-filter') as HTMLInputElement)?.value || '';
 
-			// Update subject with expression
-			this.subject.expression = expression || undefined;
+			// Update subject with both filters
+			this.subject.dashOnlyFilterExp = dashFilter || undefined;
+			this.subject.matrixOnlyFilterExp = matrixFilter || undefined;
+
+			// Clear legacy expression field
+			delete this.subject.expression;
 
 			// Clear matrix counts and remove empty cells before saving
 			if (this.subject.matrix?.cells) {

@@ -1418,9 +1418,19 @@
                   </span>
                 {/if}
 
-                {#if subject.expression}
-                  <span class="kb-filter-expression-inline">
-                    <code>{subject.expression}</code>
+                {#if subject.dashOnlyFilterExp}
+                  <span class="kb-filter-expression-inline" style="background-color: rgba(0, 0, 139, 0.7); color: white; padding: 2px 6px; border-radius: 3px; margin-right: 4px;">
+                    <code style="color: white;">Dash: {subject.dashOnlyFilterExp}</code>
+                  </span>
+                {/if}
+                {#if subject.matrixOnlyFilterExp}
+                  <span class="kb-filter-expression-inline" style="background-color: rgba(255, 0, 0, 0.6); color: white; padding: 2px 6px; border-radius: 3px;">
+                    <code style="color: white;">Matrix: {subject.matrixOnlyFilterExp}</code>
+                  </span>
+                {/if}
+                {#if !subject.dashOnlyFilterExp && !subject.matrixOnlyFilterExp && subject.expression}
+                  <span class="kb-filter-expression-inline" style="opacity: 0.6;">
+                    <code>Legacy: {subject.expression}</code>
                   </span>
                 {/if}
 
