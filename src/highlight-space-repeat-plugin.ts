@@ -9,7 +9,6 @@ import type { HighlightSpaceRepeatAPI } from './public-api';
 import { AuxiliaryKeywordSuggest } from './auxiliary-keyword-suggest';
 import { SubKeywordSuggest } from './subkeyword-suggest';
 import { KHMatrixWidget, KH_MATRIX_VIEW_TYPE } from './widgets/KHMatrixWidget';
-import { DashboardView, DASHBOARD_VIEW_TYPE } from './widgets/DashboardView';
 import { PinnedView, PINNED_VIEW_TYPE } from './widgets/PinnedView';
 import { SRSReviewView, SRS_REVIEW_VIEW_TYPE } from './widgets/SRSReviewView';
 import { SubjectDashboardView, SUBJECT_DASHBOARD_VIEW_TYPE } from './widgets/SubjectDashboardView';
@@ -197,12 +196,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       (leaf) => new KHMatrixWidget(leaf, this)
     );
 
-    // Register Dashboard View
-    this.registerView(
-      DASHBOARD_VIEW_TYPE,
-      (leaf) => new DashboardView(leaf, this)
-    );
-
     // Register Pinned View
     this.registerView(
       PINNED_VIEW_TYPE,
@@ -249,14 +242,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     });
 
     // Add command to open Dashboard
-    this.addCommand({
-      id: 'open-kh-dashboard',
-      name: 'Open Dashboard',
-      callback: () => {
-        this.activateDashboardView();
-      }
-    });
-
     // Add command to open Pinned View
     this.addCommand({
       id: 'open-kh-pinned',
@@ -353,32 +338,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       if (leaf) {
         await leaf.setViewState({
           type: KH_MATRIX_VIEW_TYPE,
-          active: true,
-        });
-      }
-    }
-
-    // Reveal the leaf
-    if (leaf) {
-      workspace.revealLeaf(leaf);
-    }
-  }
-
-  async activateDashboardView() {
-    const { workspace } = this.app;
-
-    let leaf: WorkspaceLeaf | null = null;
-    const leaves = workspace.getLeavesOfType(DASHBOARD_VIEW_TYPE);
-
-    if (leaves.length > 0) {
-      // View already exists, reveal it
-      leaf = leaves[0];
-    } else {
-      // Create new view in main area (active leaf)
-      leaf = workspace.getLeaf(false);
-      if (leaf) {
-        await leaf.setViewState({
-          type: DASHBOARD_VIEW_TYPE,
           active: true,
         });
       }
