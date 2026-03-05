@@ -12,9 +12,7 @@
     subjectsStore,
     addSubject, removeSubject, updateSubject,
     addTopic, removeTopic, updateTopic, addPrimaryTopic, addSecondaryTopic,
-    addGlobalTopic, removeGlobalTopic, updateGlobalTopic, importGlobalTopic,
   } from 'src/stores/settings-store';
-  import type { GlobalTopic } from 'src/shared/subjects-data';
   import { setIcon, Notice, TFile } from 'obsidian';
   import type { HighlightSpaceRepeatPlugin } from 'src/highlight-space-repeat-plugin';
   import { RecordParser } from 'src/services/RecordParser';
@@ -1442,150 +1440,6 @@
             </div>
           {/each}
         {/if}
-      </div>
-
-      <!-- Global Topics Section -->
-      <div class="kb-global-topics-section">
-        <h2>🌐 Global Topics</h2>
-
-        <p class="kb-description">
-          Global topics are secondary topic templates that can be imported into multiple subjects. Define them once, reuse everywhere.
-        </p>
-
-        <!-- List of global topics -->
-        <div class="kb-global-topics-list">
-          {#if !$subjectsStore.globalTopics || $subjectsStore.globalTopics.length === 0}
-            <p class="kb-empty-message">No global topics yet. Click "+ Add Global Topic" to create one.</p>
-          {:else}
-            {#each $subjectsStore.globalTopics as globalTopic}
-              <div class="kb-global-topic-card">
-                <div class="kb-modal-row">
-                  <!-- Name -->
-                  <div class="kb-topic-field-name">
-                    <input
-                      type="text"
-                      value={globalTopic.name}
-                      placeholder="Topic Name"
-                      on:input={(e) => {
-                        updateGlobalTopic(globalTopic.id, { name: e.currentTarget.value });
-                      }}
-                    />
-                  </div>
-
-                  <!-- Icon -->
-                  <div class="kb-topic-field-icon">
-                    <input
-                      type="text"
-                      value={globalTopic.icon || ''}
-                      placeholder="🔗"
-                      maxlength="10"
-                      on:input={(e) => {
-                        updateGlobalTopic(globalTopic.id, { icon: e.currentTarget.value });
-                      }}
-                    />
-                  </div>
-
-                  <!-- TAG -->
-                  <div class="kb-topic-field-compact">
-                    <label>TAG</label>
-                    <input
-                      type="text"
-                      value={globalTopic.topicTag || ''}
-                      placeholder="#grammar"
-                      on:input={(e) => {
-                        updateGlobalTopic(globalTopic.id, { topicTag: e.currentTarget.value });
-                      }}
-                    />
-                  </div>
-
-                  <!-- KEY -->
-                  <div class="kb-topic-field-compact">
-                    <label>KEY</label>
-                    <input
-                      type="text"
-                      value={globalTopic.topicKeyword || ''}
-                      placeholder="doc"
-                      on:input={(e) => {
-                        updateGlobalTopic(globalTopic.id, { topicKeyword: e.currentTarget.value });
-                      }}
-                    />
-                  </div>
-
-                  <!-- Filter Expression -->
-                  <div class="kb-topic-field-expr">
-                    <input
-                      type="text"
-                      value={globalTopic.filterExpression || ''}
-                      placeholder="Filter (can use #?, .?, `?)"
-                      on:input={(e) => {
-                        updateGlobalTopic(globalTopic.id, { filterExpression: e.currentTarget.value });
-                      }}
-                    />
-                  </div>
-
-                  <!-- Delete button -->
-                  <button
-                    class="kb-topic-delete-btn"
-                    on:click={() => removeGlobalTopic(globalTopic.id)}
-                  >
-                    🗑️
-                  </button>
-                </div>
-
-                <!-- Matrix visibility checkboxes row -->
-                <div class="kb-modal-row" style="margin-top: 8px; margin-bottom: 8px;">
-                  <label style="font-weight: 600;">Show in matrix:</label>
-
-                  <!-- F checkbox -->
-                  <label class="kb-mode-label">
-                    <input
-                      type="checkbox"
-                      checked={globalTopic.showFileRecords ?? true}
-                      on:change={(e) => {
-                        updateGlobalTopic(globalTopic.id, { showFileRecords: e.currentTarget.checked });
-                      }}
-                    />
-                    <span> F:</span>
-                  </label>
-
-                  <!-- H checkbox -->
-                  <label class="kb-mode-label">
-                    <input
-                      type="checkbox"
-                      checked={globalTopic.showHeaderRecords ?? true}
-                      on:change={(e) => {
-                        updateGlobalTopic(globalTopic.id, { showHeaderRecords: e.currentTarget.checked });
-                      }}
-                    />
-                    <span> H:</span>
-                  </label>
-
-                  <!-- R checkbox -->
-                  <label class="kb-mode-label">
-                    <input
-                      type="checkbox"
-                      checked={globalTopic.showRecordRecords ?? true}
-                      on:change={(e) => {
-                        updateGlobalTopic(globalTopic.id, { showRecordRecords: e.currentTarget.checked });
-                      }}
-                    />
-                    <span> R:</span>
-                  </label>
-                </div>
-              </div>
-            {/each}
-          {/if}
-        </div>
-
-        <!-- Add Global Topic button -->
-        <div class="kb-add-global-topic-section">
-          <button
-            class="kb-add-topic-inline-btn"
-            on:click={() => addGlobalTopic()}
-          >
-            + Add Global Topic
-          </button>
-        </div>
       </div>
 
       <!-- Add Subject button -->
@@ -4768,9 +4622,10 @@
   /* Global Topics Import (in SubjectModal) */
   .kb-global-topics-import-container {
     display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    padding: 1rem;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.5rem;
     background: var(--background-secondary);
     border-radius: 6px;
   }
@@ -4778,8 +4633,8 @@
   .kb-global-topic-checkbox-row {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.5rem;
+    gap: 0.4rem;
+    padding: 0.3rem 0.6rem;
     background: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
     border-radius: 4px;
@@ -4793,8 +4648,8 @@
 
   .kb-global-topic-checkbox-row input[type="checkbox"] {
     cursor: pointer;
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     flex-shrink: 0;
   }
 
@@ -4804,16 +4659,16 @@
   }
 
   .kb-global-topic-checkbox-row label {
-    flex: 1;
     display: flex;
     align-items: center;
-    font-size: 0.95em;
+    font-size: 0.9em;
     color: var(--text-normal);
+    white-space: nowrap;
   }
 
   .kb-global-topic-icon {
-    font-size: 1.2em;
-    margin-right: 0.25rem;
+    font-size: 1.1em;
+    margin-right: 0.2rem;
   }
 
   .kb-global-topic-name {
@@ -4822,16 +4677,11 @@
   }
 
   .kb-global-topic-details {
-    font-size: 0.85em;
-    color: var(--text-muted);
-    margin-left: 0.5rem;
+    display: none;
   }
 
   .kb-imported-badge {
-    font-size: 0.85em;
-    color: var(--color-green);
-    font-weight: 600;
-    margin-left: 0.5rem;
+    display: none;
   }
 
   .global-topics-section h2 {

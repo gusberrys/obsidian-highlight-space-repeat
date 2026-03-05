@@ -1,3 +1,5 @@
+import type { Topic } from './Topic';
+
 export interface Subject {
 	/** Unique identifier */
 	id: string;
@@ -31,6 +33,12 @@ export interface Subject {
 
 	/** Favorite filters for quick access */
 	favoriteFilters?: FavoriteFilter[];
+
+	/** Primary topics for this subject (array order = display order) */
+	primaryTopics?: Topic[];
+
+	/** Secondary topics for this subject (array order = display order) */
+	secondaryTopics?: Topic[];
 }
 
 /**
@@ -69,9 +77,6 @@ export interface MatrixCell {
 
 	/** Optional label/name */
 	label?: string;
-
-	/** Whether this cell uses AND mode (subject tag AND topic tag) */
-	andMode?: boolean;
 
 	/** File count for this tag combination */
 	fileCount?: number;

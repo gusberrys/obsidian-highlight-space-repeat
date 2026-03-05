@@ -11,7 +11,7 @@ import type { ParserSettings } from 'src/interfaces/ParserSettings';
 import { DEFAULT_PARSER_SETTINGS } from 'src/interfaces/ParserSettings';
 import type { Subject } from 'src/interfaces/Subject';
 import type { Topic } from 'src/interfaces/Topic';
-import type { SubjectsData, GlobalTopic } from 'src/shared/subjects-data';
+import type { SubjectsData } from 'src/shared/subjects-data';
 
 export interface PluginSettings {
   categories: Category[];
@@ -160,7 +160,7 @@ export const settingsStore = writable<PluginSettings>(DEFAULT_SETTINGS);
 export const settingsDataStore = writable<Settings>(DEFAULT_SETTINGS_DATA);
 export const auxiliaryKeywordsStore = writable<AuxiliaryCategory[]>(DEFAULT_AUXILIARY_KEYWORDS);
 export const codeBlocksStore = writable<CodeBlockLanguage[]>(DEFAULT_CODEBLOCKS);
-export const subjectsStore = writable<SubjectsData>({ subjects: [], topics: [], globalTopics: [] });
+export const subjectsStore = writable<SubjectsData>({ subjects: [] });
 
 let plugin: HighlightSpaceRepeatPlugin | null = null;
 let appInstance: App | null = null;
@@ -499,7 +499,8 @@ export async function loadSubjects(): Promise<void> {
   if (!plugin) return;
 
   const loadedData = await plugin.loadSubjects();
-  const subjectsData = loadedData || { subjects: [], topics: [] };
+  const subjectsData = loadedData || { subjects: [] };
+
   subjectsStore.set(subjectsData);
 }
 
@@ -510,9 +511,16 @@ export async function saveSubjects(): Promise<void> {
   }
 
   const currentSubjects = get(subjectsStore);
+
+  // Count topics across all subjects
+  let totalTopics = 0;
+  currentSubjects.subjects.forEach(s => {
+    totalTopics += (s.primaryTopics?.length || 0) + (s.secondaryTopics?.length || 0);
+  });
+
   console.log('[saveSubjects] Saving subjects data:', {
     subjectsCount: currentSubjects.subjects.length,
-    topicsCount: currentSubjects.topics.length
+    topicsCount: totalTopics
   });
   await plugin.saveSubjects(currentSubjects);
   console.log('[saveSubjects] Save completed');
@@ -540,8 +548,7 @@ export function addSubject(name: string): string {
 export function removeSubject(subjectId: string): void {
   subjectsStore.update((data) => {
     data.subjects = data.subjects.filter((s: Subject) => s.id !== subjectId);
-    // Also remove topics for this subject
-    data.topics = data.topics.filter((t: Topic) => t.subjectId !== subjectId);
+    // Topics are nested under subjects, so they're automatically removed
     return data;
   });
   saveSubjects();
@@ -558,10 +565,19 @@ export function updateSubject(subjectId: string, updates: Partial<Subject>): voi
   saveSubjects();
 }
 
-// Topics functions
-export function addTopic(topic: Topic): void {
+// Topics functions - work with nested arrays
+export function addTopic(subjectId: string, topic: Topic, isPrimary: boolean): void {
   subjectsStore.update((data) => {
-    data.topics.push(topic);
+    const subject = data.subjects.find((s: Subject) => s.id === subjectId);
+    if (subject) {
+      if (isPrimary) {
+        if (!subject.primaryTopics) subject.primaryTopics = [];
+        subject.primaryTopics.push(topic);
+      } else {
+        if (!subject.secondaryTopics) subject.secondaryTopics = [];
+        subject.secondaryTopics.push(topic);
+      }
+    }
     return data;
   });
   saveSubjects();
@@ -569,7 +585,25 @@ export function addTopic(topic: Topic): void {
 
 export function removeTopic(topicId: string): void {
   subjectsStore.update((data) => {
-    data.topics = data.topics.filter((t: Topic) => t.id !== topicId);
+    // Find and remove topic from whichever subject contains it
+    for (const subject of data.subjects) {
+      if (subject.primaryTopics) {
+        const index = subject.primaryTopics.findIndex(t => t.id === topicId);
+        if (index >= 0) {
+          subject.primaryTopics.splice(index, 1);
+          if (subject.primaryTopics.length === 0) delete subject.primaryTopics;
+          return data;
+        }
+      }
+      if (subject.secondaryTopics) {
+        const index = subject.secondaryTopics.findIndex(t => t.id === topicId);
+        if (index >= 0) {
+          subject.secondaryTopics.splice(index, 1);
+          if (subject.secondaryTopics.length === 0) delete subject.secondaryTopics;
+          return data;
+        }
+      }
+    }
     return data;
   });
   saveSubjects();
@@ -577,9 +611,22 @@ export function removeTopic(topicId: string): void {
 
 export function updateTopic(topicId: string, updates: Partial<Topic>): void {
   subjectsStore.update((data) => {
-    const topic = data.topics.find((t: Topic) => t.id === topicId);
-    if (topic) {
-      Object.assign(topic, updates);
+    // Find topic in any subject and update it
+    for (const subject of data.subjects) {
+      if (subject.primaryTopics) {
+        const topic = subject.primaryTopics.find(t => t.id === topicId);
+        if (topic) {
+          Object.assign(topic, updates);
+          return data;
+        }
+      }
+      if (subject.secondaryTopics) {
+        const topic = subject.secondaryTopics.find(t => t.id === topicId);
+        if (topic) {
+          Object.assign(topic, updates);
+          return data;
+        }
+      }
     }
     return data;
   });
@@ -590,121 +637,23 @@ export function addPrimaryTopic(subjectId: string): void {
   const newTopic: Topic = {
     id: `topic-${Date.now()}`,
     name: '',
-    type: 'primary',
-    subjectId: subjectId,
     icon: '📌',
     topicTag: '',
     topicKeyword: '',
-    topicText: '',
-    filterExpression: '',
-    keywords: [],
-    order: Date.now(),
-    showFileRecords: true,
-    showHeaderRecords: true,
-    showRecordRecords: true
+    topicText: ''
   };
-  addTopic(newTopic);
+  addTopic(subjectId, newTopic, true);
 }
 
 export function addSecondaryTopic(subjectId: string): void {
   const newTopic: Topic = {
     id: `topic-${Date.now()}`,
     name: '',
-    type: 'secondary',
-    subjectId: subjectId,
     icon: '🔗',
     topicTag: '',
-    topicKeyword: '',
-    filterExpression: '',
-    keywords: [],
-    order: Date.now(),
-    showFileRecords: true,
-    showHeaderRecords: true,
-    showRecordRecords: true
+    topicKeyword: ''
   };
-  addTopic(newTopic);
+  addTopic(subjectId, newTopic, false);
 }
 
-// Global Topics functions
-export function addGlobalTopic(): string {
-  const newId = `global-topic-${Date.now()}`;
-  subjectsStore.update((data) => {
-    if (!data.globalTopics) {
-      data.globalTopics = [];
-    }
-    data.globalTopics.push({
-      id: newId,
-      name: '',
-      icon: '🔗',
-      topicTag: '',
-      topicKeyword: '',
-      topicText: '',
-      filterExpression: '',
-      showFileRecords: true,
-      showHeaderRecords: true,
-      showRecordRecords: true
-    });
-    return data;
-  });
-  saveSubjects();
-  return newId;
-}
-
-export function removeGlobalTopic(topicId: string): void {
-  subjectsStore.update((data) => {
-    if (data.globalTopics) {
-      data.globalTopics = data.globalTopics.filter((t: GlobalTopic) => t.id !== topicId);
-    }
-    return data;
-  });
-  saveSubjects();
-}
-
-export function updateGlobalTopic(topicId: string, updates: Partial<GlobalTopic>): void {
-  subjectsStore.update((data) => {
-    if (data.globalTopics) {
-      const topic = data.globalTopics.find((t: GlobalTopic) => t.id === topicId);
-      if (topic) {
-        Object.assign(topic, updates);
-      }
-    }
-    return data;
-  });
-  saveSubjects();
-}
-
-/**
- * Import a global topic into a subject as a secondary topic
- * Creates a copy of the global topic with the subject's ID
- */
-export function importGlobalTopic(globalTopicId: string, subjectId: string): string {
-  const globalTopicsData = get(subjectsStore).globalTopics || [];
-  const globalTopic = globalTopicsData.find((t: GlobalTopic) => t.id === globalTopicId);
-
-  if (!globalTopic) {
-    console.warn(`Global topic ${globalTopicId} not found`);
-    return '';
-  }
-
-  // Create a new topic based on the global topic
-  const newTopic: Topic = {
-    id: `topic-${Date.now()}`,
-    name: globalTopic.name,
-    type: 'secondary',
-    subjectId: subjectId,
-    icon: globalTopic.icon || '🔗',
-    topicTag: globalTopic.topicTag || '',
-    topicKeyword: globalTopic.topicKeyword || '',
-    topicText: globalTopic.topicText,
-    filterExpression: globalTopic.filterExpression || '',
-    keywords: [],
-    order: Date.now(),
-    showFileRecords: globalTopic.showFileRecords ?? true,
-    showHeaderRecords: globalTopic.showHeaderRecords ?? true,
-    showRecordRecords: globalTopic.showRecordRecords ?? true
-  };
-
-  addTopic(newTopic);
-  return newTopic.id;
-}
 

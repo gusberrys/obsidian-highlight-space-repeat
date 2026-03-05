@@ -697,9 +697,15 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
 
   // Save subjects and topics to subjects.json
   async saveSubjects(data: SubjectsData): Promise<void> {
+    // Count topics from nested structure
+    let topicsCount = 0;
+    data.subjects.forEach(s => {
+      topicsCount += (s.primaryTopics?.length || 0) + (s.secondaryTopics?.length || 0);
+    });
+
     console.log('[Plugin.saveSubjects] Writing to file:', DATA_PATHS.SUBJECTS, {
       subjectsCount: data.subjects.length,
-      topicsCount: data.topics.length
+      topicsCount
     });
     await this.app.vault.adapter.write(DATA_PATHS.SUBJECTS, JSON.stringify(data, null, 2));
     console.log('[Plugin.saveSubjects] Write completed successfully');

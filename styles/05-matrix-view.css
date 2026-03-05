@@ -1,0 +1,475 @@
+/* KH Matrix Widget */
+.kh-matrix-widget {
+  padding: 16px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.kh-matrix-widget-header {
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.kh-matrix-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.kh-matrix-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.kh-matrix-icon-btn {
+  padding: 4px 8px;
+  font-size: 1em;
+  background-color: var(--background-modifier-form-field);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.kh-matrix-icon-btn:hover {
+  background-color: var(--background-modifier-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.kh-matrix-title {
+  margin: 0;
+  font-size: 1.1em;
+  font-weight: 600;
+}
+
+.kh-subject-selector {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+
+.kh-subject-selector label {
+  font-size: 0.9em;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* Subject icon button */
+.kh-subject-icon-btn {
+  padding: 4px 12px;
+  border-radius: 4px 0 0 4px;
+  border: 1px solid var(--background-modifier-border);
+  border-right: none;
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 1.2em;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kh-subject-icon-btn:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+/* Dropdown with only arrow visible */
+.kh-subject-dropdown {
+  padding: 4px 8px 4px 4px;
+  border-radius: 0 4px 4px 0;
+  border: 1px solid var(--background-modifier-border);
+  background-color: var(--background-primary);
+  color: transparent;
+  font-size: 0.9em;
+  cursor: pointer;
+  width: 30px;
+  text-indent: -9999px;
+  -webkit-appearance: menulist;
+  -moz-appearance: menulist;
+  appearance: menulist;
+}
+
+.kh-subject-dropdown option {
+  color: var(--text-normal);
+}
+
+.kh-empty-message {
+  color: var(--text-muted);
+  font-style: italic;
+  text-align: center;
+  padding: 20px;
+}
+
+.kh-matrix-section {
+  margin-top: 12px;
+}
+
+.kh-matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  background-color: var(--background-primary);
+  font-size: 0.9em;
+}
+
+.kh-matrix-cell {
+  padding: 0px !important;
+  text-align: center;
+  /* border: 1px solid var(--background-modifier-border); */ /* Removed - white borders invisible on some backgrounds */
+  position: relative;
+}
+
+.kh-matrix-header-cell {
+  background-color: var(--background-secondary);
+  font-weight: bold;
+  font-size: 1.1em;
+}
+
+.kh-matrix-row-header-cell {
+  background-color: var(--background-secondary);
+  font-weight: bold;
+  font-size: 1.1em;
+}
+
+.kh-matrix-data-cell {
+  background-color: var(--background-primary);
+  font-size: 1.1em;
+}
+
+.kh-matrix-counts {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  margin-top: 4px;
+  font-size: 0.85em;
+}
+
+.kh-count-file,
+.kh-count-header,
+.kh-count-record {
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: background-color 0.2s;
+  font-weight: 600;
+}
+
+.kh-count-file {
+  color: var(--text-accent);
+}
+
+.kh-count-file:hover {
+  background-color: var(--background-modifier-hover);
+  color: var(--text-accent-hover);
+}
+
+.kh-count-header {
+  color: var(--text-success);
+}
+
+.kh-count-header:hover {
+  background-color: var(--background-modifier-hover);
+  color: var(--text-success);
+}
+
+.kh-count-record {
+  color: var(--text-warning);
+}
+
+.kh-count-record:hover {
+  background-color: var(--background-modifier-hover);
+  color: var(--text-warning);
+}
+
+.kh-matrix-and-mode {
+  border: 2px solid white !important;
+}
+
+.kh-matrix-and-mode-row {
+  border: 2px solid white !important;
+}
+
+.kh-matrix-and-mode .kh-count-file,
+.kh-matrix-and-mode .kh-count-header,
+.kh-matrix-and-mode .kh-count-record,
+.kh-matrix-and-mode-row .kh-count-file,
+.kh-matrix-and-mode-row .kh-count-header,
+.kh-matrix-and-mode-row .kh-count-record {
+  color: #e0f2e0;
+}
+
+.kh-matrix-and-mode .kh-count-file:hover,
+.kh-matrix-and-mode .kh-count-header:hover,
+.kh-matrix-and-mode .kh-count-record:hover,
+.kh-matrix-and-mode-row .kh-count-file:hover,
+.kh-matrix-and-mode-row .kh-count-header:hover,
+.kh-matrix-and-mode-row .kh-count-record:hover {
+  background-color: rgba(255, 255, 255, 0.15);
+  color: white;
+}
+
+/* My Own mode - GOLD/BRONZE border (replaces stripes) */
+.kb-matrix-myown-enabled,
+.kb-matrix-myown-fh-disabled {
+  border: 3px solid #CD7F32 !important; /* Bronze/gold border */
+}
+
+/* Widget Filter Styles */
+.kh-widget-filter {
+  display: flex;
+  flex-direction: column;
+  margin-top: 20px;
+  padding: 15px;
+  background: var(--background-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  max-height: 60vh;
+  overflow: hidden;
+}
+
+.kh-widget-filter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.kh-widget-filter-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.kh-widget-filter-close {
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0 5px;
+}
+
+.kh-widget-filter-close:hover {
+  color: var(--text-normal);
+}
+
+.kh-widget-filter-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.kh-widget-filter-prefix {
+  font-weight: 600;
+  font-family: monospace;
+  color: var(--text-accent);
+  font-size: 14px;
+}
+
+.kh-widget-filter-expression {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.kh-widget-filter-expression:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.kh-widget-filter-search-btn {
+  padding: 6px 12px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: background-color 0.2s;
+}
+
+.kh-widget-filter-search-btn:hover {
+  background: var(--interactive-accent-hover);
+}
+
+.kh-widget-filter-results {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.kh-widget-filter-item {
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  background: var(--background-primary);
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.kh-widget-filter-item:hover {
+  background: var(--background-primary-alt);
+  border-color: var(--interactive-accent);
+}
+
+.kh-widget-filter-item-name {
+  color: var(--text-normal);
+  font-size: 13px;
+}
+
+.kh-widget-filter-empty,
+.kh-widget-filter-error {
+  padding: 10px;
+  text-align: center;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.kh-widget-filter-error {
+  color: var(--text-error);
+}
+
+/* Widget Filter - File Grouping */
+.kh-widget-filter-file-group {
+  margin-bottom: 12px;
+}
+
+.kh-widget-filter-file-header {
+  padding: 6px 10px;
+  background: var(--background-primary-alt);
+  border-radius: 4px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-left: 3px solid var(--interactive-accent);
+}
+
+.kh-header-toggle {
+  cursor: pointer;
+  font-size: 12px;
+  user-select: none;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+}
+
+.kh-header-toggle:hover {
+  transform: scale(1.2);
+  color: var(--interactive-accent);
+}
+
+.kh-widget-filter-file-name {
+  font-weight: 600;
+  color: var(--text-normal);
+  font-size: 13px;
+}
+
+.kh-widget-filter-file-count {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.kh-widget-filter-entries {
+  padding-left: 10px;
+}
+
+.kh-widget-filter-entry {
+  padding: 6px 10px;
+  margin-bottom: 2px;
+  /* No background here - let keyword classes apply their backgrounds */
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.kh-widget-filter-entry:hover {
+  /* Just add border on hover, don't override background */
+  border-color: var(--interactive-accent);
+  opacity: 0.9;
+}
+
+.kh-widget-filter-entry .kh-separator {
+  opacity: 0.6;
+  /* Inherit color from parent (keyword class) */
+}
+
+.kh-widget-filter-entry .kh-entry-text {
+  /* Inherit color from parent (keyword class) */
+  display: inline;
+}
+
+/* Make paragraphs inside entry text inline so they don't break to new line */
+.kh-widget-filter-entry .kh-entry-text p,
+.kh-widget-filter-entry .kh-entry-text .el-p {
+  display: inline;
+  margin: 0;
+}
+
+/* Code block styling - compact one-liner */
+.kh-widget-filter-codeblock {
+  display: block;
+  padding: 6px 10px;
+  margin-bottom: 2px;
+  background: var(--background-primary);
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s ease;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kh-widget-filter-codeblock:hover {
+  border-color: var(--interactive-accent);
+  opacity: 0.9;
+}
+
+.kh-widget-filter-entry .kh-code-label {
+  font-family: var(--font-monospace);
+  color: var(--text-normal);
+  font-size: 0.9em;
+  display: inline;
+}
+
+/* Keyword styling - entire entry gets keyword colors */
+/* The dynamic CSS will apply .keywordname { color: X; background: Y } */
+/* This makes .kh-widget-filter-entry.keywordname inherit those styles */
+
+.kh-widget-filter-entry mark.kh-icon {
+  /* Icons only - no background, just show the icon from ::before */
+  background: transparent !important;
+  padding: 0;
+  display: inline;
+  line-height: inherit;
+  vertical-align: baseline;
+}
+
+.kh-widget-filter-entry mark.kh-icon::before {
+  /* Icons from keyword settings will appear here via dynamic CSS */
+  /* The mark.keywordname::before rules will apply */
+}
+

@@ -95,15 +95,9 @@ export class SubjectDashboardView extends ItemView {
 			return;
 		}
 
-		// Get topics for header
-		const subjectsData = get(subjectsStore);
-		const allTopics: Topic[] = subjectsData.topics;
-		const primaryTopics: Topic[] = allTopics.filter(
-			(t: Topic) => t.subjectId && t.subjectId === this.currentSubject!.id && t.type === 'primary'
-		);
-		const secondaryTopics: Topic[] = allTopics.filter(
-			(t: Topic) => t.subjectId && t.subjectId === this.currentSubject!.id && t.type === 'secondary'
-		);
+		// Get topics from nested structure
+		const primaryTopics: Topic[] = this.currentSubject.primaryTopics || [];
+		const secondaryTopics: Topic[] = this.currentSubject.secondaryTopics || [];
 
 		// Secondary topics reminder (shown at top)
 		this.renderSecondaryTopicsReminder(container, secondaryTopics);
@@ -333,7 +327,7 @@ export class SubjectDashboardView extends ItemView {
 
 		// Render chip filters if primary topic has mainDashboardFilter configured
 		const selectedPrimaryTopic = this.getSelectedPrimaryTopic();
-		const shouldRenderChips = selectedPrimaryTopic?.mainDashboardFilter || selectedPrimaryTopic?.filterExpression || selectedPrimaryTopic?.topicKeyword;
+		const shouldRenderChips = selectedPrimaryTopic?.dashOnlyFilterExpSide || selectedPrimaryTopic?.dashOnlyFilterExpSide || selectedPrimaryTopic?.topicKeyword;
 
 		if (shouldRenderChips) {
 			const parsedRecords = await this.loadParsedRecords();
@@ -481,16 +475,9 @@ export class SubjectDashboardView extends ItemView {
 	private async renderDashboard(container: HTMLElement): Promise<void> {
 		if (!this.currentSubject) return;
 
-		const subjectsData = get(subjectsStore);
-		const allTopics: Topic[] = subjectsData.topics;
-
-		// Filter topics for this subject
-		const primaryTopics: Topic[] = allTopics.filter(
-			(t: Topic) => t.subjectId && t.subjectId === this.currentSubject!.id && t.type === 'primary'
-		);
-		const secondaryTopics: Topic[] = allTopics.filter(
-			(t: Topic) => t.subjectId && t.subjectId === this.currentSubject!.id && t.type === 'secondary'
-		);
+		// Get topics from nested structure
+		const primaryTopics: Topic[] = this.currentSubject.primaryTopics || [];
+		const secondaryTopics: Topic[] = this.currentSubject.secondaryTopics || [];
 
 		// Render columns
 		await this.renderColumns(container, primaryTopics, secondaryTopics);
@@ -501,11 +488,8 @@ export class SubjectDashboardView extends ItemView {
 	 */
 	private getSelectedPrimaryTopic(): Topic | null {
 		if (this.selectedPrimaryTopicId === 'orphans') return null;
-		const subjectsData = get(subjectsStore);
-		const allTopics: Topic[] = subjectsData.topics;
-		const primaryTopics = allTopics.filter(
-			(t: Topic) => t.subjectId && t.subjectId === this.currentSubject!.id && t.type === 'primary'
-		);
+		if (!this.currentSubject) return null;
+		const primaryTopics = this.currentSubject.primaryTopics || [];
 		return primaryTopics.find(t => t.id === this.selectedPrimaryTopicId) || null;
 	}
 
@@ -516,10 +500,10 @@ export class SubjectDashboardView extends ItemView {
 		const selectedPrimaryTopic = this.getSelectedPrimaryTopic();
 
 		// Priority: Primary topic's mainDashboardFilter > filterExpression > empty
-		if (selectedPrimaryTopic?.mainDashboardFilter) {
-			this.activeFilterExpression = selectedPrimaryTopic.mainDashboardFilter;
-		} else if (selectedPrimaryTopic?.filterExpression) {
-			this.activeFilterExpression = selectedPrimaryTopic.filterExpression;
+		if (selectedPrimaryTopic?.dashOnlyFilterExpSide) {
+			this.activeFilterExpression = selectedPrimaryTopic.dashOnlyFilterExpSide;
+		} else if (selectedPrimaryTopic?.dashOnlyFilterExpSide) {
+			this.activeFilterExpression = selectedPrimaryTopic.dashOnlyFilterExpSide;
 		} else {
 			this.activeFilterExpression = null;
 		}
@@ -764,9 +748,9 @@ export class SubjectDashboardView extends ItemView {
 		if (primaryTopicChips.length > 0) {
 			// Use FilterParser with the topic's filterExpression
 			const selectedPrimaryTopic = this.getSelectedPrimaryTopic();
-			if (selectedPrimaryTopic?.filterExpression) {
+			if (selectedPrimaryTopic?.dashOnlyFilterExpSide) {
 				try {
-					const compiled = FilterParser.compile(selectedPrimaryTopic.filterExpression);
+					const compiled = FilterParser.compile(selectedPrimaryTopic.dashOnlyFilterExpSide);
 					const matchingRecords: ParsedFile[] = [];
 
 					for (const record of parsedRecords) {
@@ -910,8 +894,8 @@ export class SubjectDashboardView extends ItemView {
 		}
 
 		// Render each secondary topic as a column
-		secondaryTopics.forEach(topic => {
-			this.renderColumnFiles(columnsContainer, topic, filteredRecords, parsedRecords);
+		secondaryTopics.forEach((topic, topicIndex) => {
+			this.renderColumnFiles(columnsContainer, topic, topicIndex, filteredRecords, parsedRecords);
 		});
 
 		// Add "Other" column - files that don't have any secondary topic tags
@@ -1100,7 +1084,7 @@ export class SubjectDashboardView extends ItemView {
 		}
 
 		console.log(`[DASHBOARD DEBUG] Entry count for "${primaryTopic.name}":`, {
-			filterExpression: primaryTopic.filterExpression,
+			filterExpression: primaryTopic.dashOnlyFilterExpSide,
 			topicKeyword: primaryTopic.topicKeyword,
 			topicTag: primaryTopic.topicTag,
 			recordCount
@@ -1225,7 +1209,7 @@ export class SubjectDashboardView extends ItemView {
 	/**
 	 * Render column in FILES mode - show files matching topic tag
 	 */
-	private renderColumnFiles(columnsContainer: HTMLElement, topic: Topic, filteredRecords: ParsedFile[], allRecords: ParsedFile[]): void {
+	private renderColumnFiles(columnsContainer: HTMLElement, topic: Topic, topicIndex: number, filteredRecords: ParsedFile[], allRecords: ParsedFile[]): void {
 		// Count files with topic tag (from filtered records for current primary topic)
 		let topicFiles: ParsedFile[] = [];
 		if (topic.topicTag) {
@@ -1234,7 +1218,7 @@ export class SubjectDashboardView extends ItemView {
 				return tags.includes(topic.topicTag!);
 			});
 		}
-		const fileCount = topicFiles.length;
+		let fileCount = topicFiles.length;
 
 		// Count headers matching topic keyword/tag (check ALL files!)
 		let headerCount = 0;
@@ -1296,6 +1280,25 @@ export class SubjectDashboardView extends ItemView {
 				if (hasMatchingEntry) {
 					recordCount++;
 					recordsWithMatchingEntries.push(record);
+				}
+			}
+		}
+
+		// Override counts with pre-calculated matrix data
+		if (this.currentSubject?.matrix?.cells) {
+			const col = topicIndex + 2; // Secondary topics start at column 2
+			const primaryTopics = this.currentSubject.primaryTopics || [];
+			const primaryTopicIndex = primaryTopics.findIndex(t => t.id === this.selectedPrimaryTopicId);
+
+			if (primaryTopicIndex >= 0) {
+				const rowNum = primaryTopicIndex + 2; // Primary topics start at row 2
+				const cellKey = `${rowNum}x${col}`;
+				const cell = this.currentSubject.matrix.cells[cellKey];
+
+				if (cell) {
+					fileCount = cell.fileCount || 0;
+					headerCount = cell.headerCount || 0;
+					recordCount = cell.recordCount || 0;
 				}
 			}
 		}

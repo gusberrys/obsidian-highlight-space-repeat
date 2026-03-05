@@ -1,0 +1,74 @@
+/* Matrix Section */
+.kb-matrix-section {
+  margin-top: 8px;
+  padding: 3px;
+  background-color: var(--background-secondary);
+  border-radius: 4px;
+}
+
+.kb-matrix-header {
+  margin-bottom: 3px;
+}
+
+.kb-matrix-scan-btn {
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.75em;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.kb-matrix-scan-btn:hover {
+  background-color: var(--interactive-accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.kb-matrix-table {
+  width: auto;
+  border-collapse: collapse;
+  background-color: var(--background-primary);
+}
+
+.kb-matrix-cell {
+  padding: 0 !important;
+  margin: 0 !important;
+  text-align: center;
+  border: 1px solid var(--background-modifier-border);
+  font-size: 0.8em;
+  transition: all 0.2s;
+  line-height: 1.2;
+}
+
+.kb-matrix-header-cell {
+  background-color: var(--background-secondary);
+  font-weight: bold;
+  font-size: 0.8em;
+}
+
+.kb-matrix-row-header-cell {
+  background-color: var(--background-secondary);
+  font-weight: bold;
+  font-size: 0.8em;
+}
+
+.kb-matrix-data-cell {
+  background-color: var(--background-primary);
+}
+
+.kb-matrix-cell:hover {
+  background-color: var(--background-modifier-hover);
+  transition: background-color 0.2s;
+}
+
+/* AND mode styling - white border */
+.kb-matrix-and-mode {
+  border: 2px solid white !important;
+}
+
+.kb-matrix-and-mode:hover {
+  border: 2px solid white !important;
+}

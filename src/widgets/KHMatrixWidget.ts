@@ -50,6 +50,7 @@ export class KHMatrixWidget extends ItemView {
 	private topRecordOnly: boolean = false; // Only show records where keyword is top-level
 	private showAll: boolean = false; // Show all records (ignore SELECT clause, apply only WHERE)
 	private showExpressions: boolean = true; // Show F/H/R filter expressions on cells
+	private showLegend: boolean = false; // Show/hide legend explaining color meanings
 
 	constructor(leaf: WorkspaceLeaf, plugin: HighlightSpaceRepeatPlugin) {
 		super(leaf);
@@ -132,7 +133,6 @@ export class KHMatrixWidget extends ItemView {
 		// Subscribe to subjects store
 		subjectsStore.subscribe((data: SubjectsData) => {
 			this.subjects = data.subjects || [];
-			this.topics = data.topics || [];
 
 			// Preserve currently selected subject or default to first
 			if (this.currentSubject) {
@@ -394,8 +394,8 @@ Examples:
 	private async renderMatrix(container: HTMLElement): Promise<void> {
 		if (!this.currentSubject) return;
 
-		const primaryTopics = this.topics.filter(t => t.subjectId === this.currentSubject!.id && t.type === 'primary');
-		const secondaryTopics = this.topics.filter(t => t.subjectId === this.currentSubject!.id && t.type === 'secondary');
+		const primaryTopics = this.currentSubject!.primaryTopics || [];
+		const secondaryTopics = this.currentSubject!.secondaryTopics || [];
 
 		if (primaryTopics.length === 0 && secondaryTopics.length === 0) {
 			container.createEl('p', {
@@ -430,6 +430,12 @@ Examples:
 				cellData1x1.recordCount || 0, this.currentSubject, null, null, false, tooltipText1x1);
 		}
 
+		// Set background color based on exclusions
+		const bgColor1x1 = this.getCellBackgroundColor(null, null);
+		if (bgColor1x1) {
+			cell1x1.style.backgroundColor = bgColor1x1;
+		}
+
 		// Add orphan files count in white text (files with ONLY subject tag, no topic tags)
 		const orphanCount = await this.countOrphanFiles();
 		if (orphanCount > 0) {
@@ -457,9 +463,11 @@ Examples:
 			const cell = headerRow.createEl('th', { cls: 'kh-matrix-cell kh-matrix-header-cell' });
 
 			const cellData = this.currentSubject!.matrix?.cells[cellKey];
-			const andMode = cellData?.andMode || false;
+			const andMode = topic.andMode || false;
 
+			// Apply white border to column header if AND mode is enabled
 			if (andMode) {
+				cell.classList.add('kh-matrix-and-mode-col');
 				cell.classList.add('kh-matrix-and-mode');
 			}
 
@@ -468,7 +476,24 @@ Examples:
 				cell.classList.add('kh-matrix-limited-collection');
 			}
 
-			let displayText = topic.icon || '🔗';
+			// Apply F/H disabled styling (red background)
+			if (topic.fhDisabled) {
+				cell.classList.add('kb-matrix-fh-disabled');
+			}
+
+			// Apply My Own mode styling (gold/bronze border, secondary cell only)
+			if (topic.myOwn) {
+				if (topic.fhDisabled) {
+					// F/H disabled (checked): gold border only (most restrictive)
+					cell.classList.add('kb-matrix-myown-enabled');
+				} else {
+					// F/H enabled (unchecked): gold border
+					cell.classList.add('kb-matrix-myown-fh-disabled');
+				}
+			}
+
+			// Display topic icon
+			const displayText = topic.icon || '🔗';
 			cell.textContent = displayText;
 
 			// Set tooltip with F/H/R expressions (only show enabled expressions)
@@ -486,6 +511,12 @@ Examples:
 				this.addCountDisplay(cell, cellData.fileCount, cellData.headerCount || 0,
 					cellData.recordCount || 0, this.currentSubject!, topic, null, andMode, tooltipText);
 			}
+
+			// Set background color based on exclusions
+			const bgColor = this.getCellBackgroundColor(topic, null);
+			if (bgColor) {
+				cell.style.backgroundColor = bgColor;
+			}
 		});
 
 		// Data rows
@@ -500,9 +531,11 @@ Examples:
 			const rowHeaderCell = row.createEl('th', { cls: 'kh-matrix-cell kh-matrix-row-header-cell' });
 
 			const cellData = this.currentSubject!.matrix?.cells[cellKey];
-			const andMode = cellData?.andMode || false;
+			const andMode = primaryTopic.andMode || false;
 
+			// Apply white border to all cells in row if AND mode is enabled
 			if (andMode) {
+				rowHeaderCell.classList.add('kh-matrix-and-mode-row');
 				rowHeaderCell.classList.add('kh-matrix-and-mode');
 			}
 
@@ -530,24 +563,53 @@ Examples:
 					cellData.recordCount || 0, this.currentSubject!, null, primaryTopic, andMode, tooltipText);
 			}
 
+			// Set background color based on exclusions
+			const bgColor = this.getCellBackgroundColor(null, primaryTopic);
+			if (bgColor) {
+				rowHeaderCell.style.backgroundColor = bgColor;
+			}
+
 			// Intersection cells: 2x2, 2x3, 3x2, 3x3, ...
 			secondaryTopics.forEach((secondaryTopic, colIndex) => {
 				const col = colIndex + 2;
 				const intersectionKey = `${rowNum}x${col}`;
 				const cell = row.createEl('td', { cls: 'kh-matrix-cell kh-matrix-data-cell' });
 
+				// Check if this secondary topic should intersect with this primary topic
+				// If primaryTopicIds is undefined/empty, it applies to ALL primaries (global)
+				// If primaryTopicIds is set, only show intersection if this primary is in the list
+				const shouldShowIntersection = !secondaryTopic.primaryTopicIds ||
+					secondaryTopic.primaryTopicIds.length === 0 ||
+					secondaryTopic.primaryTopicIds.includes(primaryTopic.id);
+
+				if (!shouldShowIntersection) {
+					// This secondary is assigned to specific primaries, but not this one
+					cell.classList.add('kh-matrix-cell-disabled');
+					cell.textContent = '';
+					cell.style.cursor = 'default';
+					cell.setAttribute('title', 'Not applicable - this secondary topic is not assigned to this primary topic');
+					return;
+				}
+
+				// Apply white border to all cells in row if primary topic has AND mode
+				if (andMode) {
+					cell.classList.add('kh-matrix-and-mode-row');
+				}
+
 				const cellData = this.currentSubject!.matrix?.cells[intersectionKey];
 
-				// Use the cell's OWN andMode property for per-cell control
-				const includesSubjectTag = cellData?.andMode || false;
-
-				if (includesSubjectTag) {
-					cell.classList.add('kh-matrix-and-mode');
-				}
+				// For intersections: ONLY use primary topic's AND mode (inherited from row)
+				// Secondary topic's AND mode does NOT apply to intersections
+				const includesSubjectTag = andMode;
 
 				// Check for limited collection (blue)
 				if (this.hasLimitedCollection(secondaryTopic, primaryTopic)) {
 					cell.classList.add('kh-matrix-limited-collection');
+				}
+
+				// Apply F/H disabled styling (red background) if secondary topic has F/H disabled
+				if (secondaryTopic.fhDisabled) {
+					cell.classList.add('kb-matrix-fh-disabled');
 				}
 
 				const displayIcon = cellData?.icon || '·';
@@ -560,24 +622,20 @@ Examples:
 				if (expressions.H !== null) expressionLines.push(`H: ${expressions.H}`);
 				if (expressions.R !== null) expressionLines.push(`R: ${expressions.R}`);
 				const expressionsText = expressionLines.length > 0 ? '\n\n' + expressionLines.join('\n') : '';
-				const tooltipText = `${primaryTopic.name} × ${secondaryTopic.name}\nOption+Click to toggle AND mode${expressionsText}`;
+				const tooltipText = `${primaryTopic.name} × ${secondaryTopic.name}${expressionsText}`;
 				cell.setAttribute('title', tooltipText);
 				cell.style.cursor = 'pointer';
-
-				// Click handler: Option+Click toggles AND mode for this specific cell
-				cell.addEventListener('click', (e) => {
-					if (e.altKey) {
-						// Option key pressed - toggle AND mode
-						e.stopPropagation();
-						this.toggleCellAndMode(intersectionKey);
-					}
-					// Regular click does nothing (counts handle their own clicks)
-				});
 
 				// Add counts if available
 				if (cellData?.fileCount !== undefined) {
 					this.addCountDisplay(cell, cellData.fileCount, cellData.headerCount || 0,
 						cellData.recordCount || 0, this.currentSubject!, secondaryTopic, primaryTopic, includesSubjectTag, tooltipText);
+				}
+
+				// Set background color based on exclusions
+				const bgColor = this.getCellBackgroundColor(secondaryTopic, primaryTopic);
+				if (bgColor) {
+					cell.style.backgroundColor = bgColor;
 				}
 			});
 		});
@@ -678,7 +736,7 @@ Examples:
 
 		// Collect matching headers using EXACT same logic as counting
 		if (secondaryTopic && primaryTopic) {
-			// Intersection logic: secondary in header, primary in file
+			// Intersection logic: (topic1 in header + topic2 in file) OR (topic2 in header + topic1 in file)
 			const tags = this.getTags(subject, secondaryTopic, primaryTopic, includesSubjectTag);
 			const matchingFiles = parsedFiles.filter(file => {
 				const fileTags = this.getRecordTags(file);
@@ -688,9 +746,9 @@ Examples:
 			for (const file of matchingFiles) {
 				const fileTags = this.getRecordTags(file);
 
-				// Primary topic must be in FILE
-				const primaryInFile = primaryTopic.topicTag && fileTags.includes(primaryTopic.topicTag);
-				if (!primaryInFile) continue;
+				// Check both topics on file level
+				const topic1InFile = !!(primaryTopic.topicTag && fileTags.includes(primaryTopic.topicTag));
+				const topic2InFile = !!(secondaryTopic.topicTag && fileTags.includes(secondaryTopic.topicTag));
 
 				// Check each entry's headers (h1/h2/h3)
 				for (const entry of file.entries) {
@@ -703,20 +761,37 @@ Examples:
 					for (const headerLevel of headerLevels) {
 						const header = headerLevel!.info;
 						if (header.text) {
-							// Secondary topic must be in HEADER (keyword OR tag)
-							let secondaryKeywordMatch = false;
+							// Check topic1 (primary) in header
+							let topic1KeywordMatch = false;
+							if (primaryTopic.topicKeyword && header.keywords) {
+								topic1KeywordMatch = header.keywords.some(kw =>
+									kw.toLowerCase() === primaryTopic.topicKeyword!.toLowerCase()
+								);
+							}
+							const topic1TagMatch = !!(primaryTopic.topicTag && header.tags?.some(tag => {
+								const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
+								return normalizedTag === primaryTopic.topicTag;
+							}));
+							const topic1InHeader = topic1KeywordMatch || topic1TagMatch;
+
+							// Check topic2 (secondary) in header
+							let topic2KeywordMatch = false;
 							if (secondaryTopic.topicKeyword && header.keywords) {
-								secondaryKeywordMatch = header.keywords?.some(kw =>
+								topic2KeywordMatch = header.keywords.some(kw =>
 									kw.toLowerCase() === secondaryTopic.topicKeyword!.toLowerCase()
 								);
 							}
-
-							const secondaryTagMatch = secondaryTopic.topicTag && header.tags?.some(tag => {
+							const topic2TagMatch = !!(secondaryTopic.topicTag && header.tags?.some(tag => {
 								const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
 								return normalizedTag === secondaryTopic.topicTag;
-							});
+							}));
+							const topic2InHeader = topic2KeywordMatch || topic2TagMatch;
 
-							if (secondaryKeywordMatch || secondaryTagMatch) {
+							// Check intersection: (topic1 in header + topic2 on file) OR (topic2 in header + topic1 on file)
+							const validCase1 = topic1InHeader && topic2InFile;
+							const validCase2 = topic2InHeader && topic1InFile;
+
+							if (validCase1 || validCase2) {
 								const groupKey = `${file.filePath}::${header.text}`;
 								if (!headerGroups.has(groupKey)) {
 									headerGroups.set(groupKey, {
@@ -876,27 +951,46 @@ Examples:
 				});
 			}
 
-			headerContent.addEventListener('click', () => {
-				const obsidianFile = this.app.vault.getAbstractFileByPath(file.filePath);
-				if (file) {
-					// Try to find line number from cache
-					const cache = this.app.metadataCache.getFileCache(obsidianFile as any);
-					let lineNumber: number | undefined;
-					if (cache && cache.headings) {
-						const cacheHeading = cache.headings.find(h => {
-							return h.level === headerLevel && h.heading.toLowerCase().includes(headerInfo.text!.toLowerCase());
-						});
-						if (cacheHeading) {
-							lineNumber = cacheHeading.position.start.line;
-						}
-					}
+			headerContent.addEventListener('click', async (e: MouseEvent) => {
+				// Only open file on Command/Ctrl + click
+				if (e.metaKey || e.ctrlKey) {
+					const obsidianFile = this.app.vault.getAbstractFileByPath(file.filePath);
+					if (obsidianFile instanceof TFile) {
+						// Open the file
+						const leaf = this.app.workspace.getLeaf(false);
+						await leaf.openFile(obsidianFile);
 
-					if (lineNumber !== undefined) {
-						this.app.workspace.openLinkText('', file.filePath, false, {
-							eState: { line: lineNumber }
-						});
-					} else {
-						this.app.workspace.getLeaf().openFile(obsidianFile as any);
+						// Search for the header line in the file
+						const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+						if (view && view.editor) {
+							const content = view.editor.getValue();
+							const lines = content.split('\n');
+
+							// Build header pattern based on level (e.g., "## Run on" for h2)
+							const headerPrefix = '#'.repeat(headerLevel);
+							const headerPattern = `${headerPrefix} ${headerText}`;
+
+							// Find the line containing this exact header
+							let headerLine = -1;
+							for (let i = 0; i < lines.length; i++) {
+								const line = lines[i].trim();
+								// Match "## headerText" or "## headerText #tag" etc
+								if (line.startsWith(headerPattern)) {
+									headerLine = i;
+									break;
+								}
+							}
+
+							// Navigate to the header line
+							if (headerLine >= 0) {
+								view.editor.setCursor({ line: headerLine, ch: 0 });
+								const scrollToLine = Math.max(0, headerLine - 3);
+								view.editor.scrollIntoView({
+									from: { line: scrollToLine, ch: 0 },
+									to: { line: scrollToLine, ch: 0 }
+								}, true);
+							}
+						}
 					}
 				}
 			});
@@ -939,7 +1033,7 @@ Examples:
 							if (obsidianFile && entry.lineNumber !== undefined) {
 								// Open the file (or focus if already open)
 								const leaf = this.app.workspace.getLeaf(false);
-								await leaf.openFile(file as any, {
+								await leaf.openFile(obsidianFile as any, {
 									eState: { line: entry.lineNumber }
 								});
 
@@ -978,7 +1072,7 @@ Examples:
 							if (obsidianFile && entry.lineNumber !== undefined) {
 								// Open the file (or focus if already open)
 								const leaf = this.app.workspace.getLeaf(false);
-								await leaf.openFile(file as any, {
+								await leaf.openFile(obsidianFile as any, {
 									eState: { line: entry.lineNumber }
 								});
 
@@ -1140,9 +1234,10 @@ for (const file of parsedFiles) {
 
 			// Render grouped by file
 			for (const [filePath, entries] of recordsByFile) {
-				// File header
+				// File header (clickable to open file)
 				const fileGroup = container.createDiv({ cls: 'kh-widget-filter-file-group' });
 				const fileHeader = fileGroup.createDiv({ cls: 'kh-widget-filter-file-header' });
+				fileHeader.style.cursor = 'pointer';
 				fileHeader.createEl('span', {
 					text: getFileNameFromPath(filePath),
 					cls: 'kh-widget-filter-file-name'
@@ -1150,6 +1245,17 @@ for (const file of parsedFiles) {
 				fileHeader.createEl('span', {
 					text: ` (${entries.length})`,
 					cls: 'kh-widget-filter-file-count'
+				});
+
+				// Add click handler to open file
+				fileHeader.addEventListener('click', async (e: MouseEvent) => {
+					// Only open file on Command/Ctrl + click
+					if (e.metaKey || e.ctrlKey) {
+						const file = this.app.vault.getAbstractFileByPath(filePath);
+						if (file instanceof TFile) {
+							await this.app.workspace.getLeaf(false).openFile(file);
+						}
+					}
 				});
 
 				// Entries under this file - render in PARALLEL for performance
@@ -1181,7 +1287,7 @@ for (const file of parsedFiles) {
 							if (obsidianFile && entry.lineNumber !== undefined) {
 								// Open the file (or focus if already open)
 								const leaf = this.app.workspace.getLeaf(false);
-								await leaf.openFile(file as any, {
+								await leaf.openFile(obsidianFile as any, {
 									eState: { line: entry.lineNumber }
 								});
 
@@ -1231,7 +1337,7 @@ for (const file of parsedFiles) {
 							if (obsidianFile && entry.lineNumber !== undefined) {
 								// Open the file (or focus if already open)
 								const leaf = this.app.workspace.getLeaf(false);
-								await leaf.openFile(file as any, {
+								await leaf.openFile(obsidianFile as any, {
 									eState: { line: entry.lineNumber }
 								});
 
@@ -1330,6 +1436,46 @@ for (const file of parsedFiles) {
 	}
 
 	/**
+	 * Get background color for cell based on exclusions
+	 * Purple = files NOT counted
+	 * Red = headers NOT counted
+	 * Both = darker purple/magenta
+	 */
+	private getCellBackgroundColor(
+		secondaryTopic: Topic | null,
+		primaryTopic: Topic | null
+	): string | null {
+		// Determine which topic's visibility flags to check
+		const showFileRecords = (() => {
+			if (secondaryTopic && primaryTopic) {
+				return !secondaryTopic.fhDisabled && !primaryTopic.fhDisabled;
+			} else if (secondaryTopic) {
+				return !secondaryTopic.fhDisabled;
+			} else if (primaryTopic) {
+				return !primaryTopic.fhDisabled;
+			}
+			return true; // Subject cell (1x1) always shows
+		})();
+
+		const showHeaderRecords = (() => {
+			if (secondaryTopic && primaryTopic) {
+				return !secondaryTopic.fhDisabled && !primaryTopic.fhDisabled;
+			} else if (secondaryTopic) {
+				return !secondaryTopic.fhDisabled;
+			} else if (primaryTopic) {
+				return !primaryTopic.fhDisabled;
+			}
+			return true; // Subject cell (1x1) always shows
+		})();
+
+		const filesNotCounted = !showFileRecords;
+		const headersNotCounted = !showHeaderRecords;
+
+		// DISABLED: No background color overrides - let CSS classes handle styling
+		return null;
+	}
+
+	/**
 	 * Add clickable count display to a cell
 	 */
 	private addCountDisplay(
@@ -1355,33 +1501,33 @@ for (const file of parsedFiles) {
 		// For single topic cells: check that topic's flags
 		const showFileRecords = (() => {
 			if (secondaryTopic && primaryTopic) {
-				return (secondaryTopic.showFileRecords ?? true) && (primaryTopic.showFileRecords ?? true);
+				return !secondaryTopic.fhDisabled && !primaryTopic.fhDisabled;
 			} else if (secondaryTopic) {
-				return secondaryTopic.showFileRecords ?? true;
+				return !secondaryTopic.fhDisabled;
 			} else if (primaryTopic) {
-				return primaryTopic.showFileRecords ?? true;
+				return !primaryTopic.fhDisabled;
 			}
 			return true; // Subject cell (1x1) always shows
 		})();
 
 		const showHeaderRecords = (() => {
 			if (secondaryTopic && primaryTopic) {
-				return (secondaryTopic.showHeaderRecords ?? true) && (primaryTopic.showHeaderRecords ?? true);
+				return !secondaryTopic.fhDisabled && !primaryTopic.fhDisabled;
 			} else if (secondaryTopic) {
-				return secondaryTopic.showHeaderRecords ?? true;
+				return !secondaryTopic.fhDisabled;
 			} else if (primaryTopic) {
-				return primaryTopic.showHeaderRecords ?? true;
+				return !primaryTopic.fhDisabled;
 			}
 			return true; // Subject cell (1x1) always shows
 		})();
 
 		const showRecordRecords = (() => {
 			if (secondaryTopic && primaryTopic) {
-				return (secondaryTopic.showRecordRecords ?? true) && (primaryTopic.showRecordRecords ?? true);
+				return true && true;
 			} else if (secondaryTopic) {
-				return secondaryTopic.showRecordRecords ?? true;
+				return true;
 			} else if (primaryTopic) {
-				return primaryTopic.showRecordRecords ?? true;
+				return true;
 			}
 			return true; // Subject cell (1x1) always shows
 		})();
@@ -1455,23 +1601,28 @@ for (const file of parsedFiles) {
 				let topic: Topic | null = null;
 				let expansionContext: Topic | null = null;
 
+				// Get the appropriate filter expression based on cell type
+				let expr: string | undefined;
+
 				if (secondaryTopic && primaryTopic) {
-					// Intersection: use secondary's expression with primary's context
+					// Intersection: use secondary's intersection expression (BLUE)
+					expr = secondaryTopic.appliedFilterExpIntersection;
 					topic = secondaryTopic;
 					expansionContext = primaryTopic;
 				} else if (secondaryTopic) {
-					// Secondary topic only: use subject for expansion
+					// Secondary own cell: use header expression (GREEN)
+					expr = secondaryTopic.FilterExpHeader;
 					topic = secondaryTopic;
 					expansionContext = null;
 				} else if (primaryTopic) {
-					// Primary topic only
+					// Primary own cell: use side expression (RED)
+					expr = primaryTopic.matrixOnlyFilterExpSide;
 					topic = primaryTopic;
 					expansionContext = primaryTopic;
 				}
 
-				if (topic && topic.filterExpression) {
+				if (expr) {
 					this.widgetFilterType = 'R';
-					let expr = topic.filterExpression;
 
 					// For single secondary: expand with subject
 					// For single primary: remove placeholders (they reference non-existent secondary)
@@ -1746,25 +1897,25 @@ for (const file of parsedFiles) {
 		primaryTopic: Topic | null,
 		event: MouseEvent
 	): Promise<void> {
-		// Determine which topic's filter expression to use
-		let topic: Topic | null = null;
+		// Get the appropriate filter expression based on cell type
+		let expr: string | undefined;
 		let expansionContext: Topic | null = null;
 
 		if (secondaryTopic && primaryTopic) {
-			// Intersection: use secondary's expression with primary's context
-			topic = secondaryTopic;
+			// Intersection: use secondary's intersection expression (BLUE)
+			expr = secondaryTopic.appliedFilterExpIntersection;
 			expansionContext = primaryTopic;
 		} else if (secondaryTopic) {
-			// Secondary topic only: use subject for placeholder expansion
-			topic = secondaryTopic;
+			// Secondary own cell: use header expression (GREEN)
+			expr = secondaryTopic.FilterExpHeader;
 			expansionContext = null;
 		} else if (primaryTopic) {
-			// Primary topic only: use its own expression and context
-			topic = primaryTopic;
+			// Primary own cell: use side expression (RED)
+			expr = primaryTopic.matrixOnlyFilterExpSide;
 			expansionContext = primaryTopic;
 		}
 
-		if (!topic || !topic.filterExpression) {
+		if (!expr) {
 			const menu = new Menu();
 			menu.addItem((item) => {
 				item.setTitle('No filter expression defined');
@@ -1778,7 +1929,7 @@ for (const file of parsedFiles) {
 		const parsedFiles = await this.loadParsedRecords();
 
 		// Use countRecordsWithExpression helper to get matching records
-		const expandedExpr = this.expandPlaceholders(topic.filterExpression, expansionContext, subject);
+		const expandedExpr = this.expandPlaceholders(expr, expansionContext, subject);
 
 		let compiled;
 		try {
@@ -1859,33 +2010,33 @@ for (const file of parsedFiles) {
 		// For single topic: check that topic's flags
 		const showF = (() => {
 			if (secondaryTopic && primaryTopic) {
-				return (secondaryTopic.showFileRecords ?? true) && (primaryTopic.showFileRecords ?? true);
+				return !secondaryTopic.fhDisabled && !primaryTopic.fhDisabled;
 			} else if (secondaryTopic) {
-				return secondaryTopic.showFileRecords ?? true;
+				return !secondaryTopic.fhDisabled;
 			} else if (primaryTopic) {
-				return primaryTopic.showFileRecords ?? true;
+				return !primaryTopic.fhDisabled;
 			}
 			return true; // Subject cell always shows
 		})();
 
 		const showH = (() => {
 			if (secondaryTopic && primaryTopic) {
-				return (secondaryTopic.showHeaderRecords ?? true) && (primaryTopic.showHeaderRecords ?? true);
+				return !secondaryTopic.fhDisabled && !primaryTopic.fhDisabled;
 			} else if (secondaryTopic) {
-				return secondaryTopic.showHeaderRecords ?? true;
+				return !secondaryTopic.fhDisabled;
 			} else if (primaryTopic) {
-				return primaryTopic.showHeaderRecords ?? true;
+				return !primaryTopic.fhDisabled;
 			}
 			return true; // Subject cell always shows
 		})();
 
 		const showR = (() => {
 			if (secondaryTopic && primaryTopic) {
-				return (secondaryTopic.showRecordRecords ?? true) && (primaryTopic.showRecordRecords ?? true);
+				return true && true;
 			} else if (secondaryTopic) {
-				return secondaryTopic.showRecordRecords ?? true;
+				return true;
 			} else if (primaryTopic) {
-				return primaryTopic.showRecordRecords ?? true;
+				return true;
 			}
 			return true; // Subject cell always shows
 		})();
@@ -1940,27 +2091,27 @@ for (const file of parsedFiles) {
 			}
 		}
 
-		// R: Record filter (filterExpression with placeholders)
+		// R: Record filter (filter expressions)
 		let R: string | null = null;
 		if (showR) {
-			let topic: Topic | null = null;
+			let expr: string | undefined;
 			let expansionContext: Topic | null = null;
 
 			if (secondaryTopic && primaryTopic) {
-				// Intersection: use secondary's expression with primary's context
-				topic = secondaryTopic;
+				// Intersection: use secondary's intersection expression (BLUE) with primary's context
+				expr = secondaryTopic.appliedFilterExpIntersection;
 				expansionContext = primaryTopic;
 			} else if (secondaryTopic) {
-				// Single secondary topic: use subject for placeholder expansion
-				topic = secondaryTopic;
+				// Single secondary topic: use header expression (GREEN)
+				expr = secondaryTopic.FilterExpHeader;
 				expansionContext = null; // Will use subject instead
 			} else if (primaryTopic) {
-				topic = primaryTopic;
+				// Single primary topic: use side expression (RED)
+				expr = primaryTopic.matrixOnlyFilterExpSide;
 				expansionContext = primaryTopic;
 			}
 
-			if (topic && topic.filterExpression) {
-				let expr = topic.filterExpression;
+			if (expr) {
 
 				// For intersections: expand with primary topic
 				// For single secondary: expand with subject
@@ -2159,8 +2310,8 @@ for (const file of parsedFiles) {
 		if (!this.currentSubject || !this.currentSubject.mainTag) return [];
 
 		const parsedFiles = await this.loadParsedRecords();
-		const primaryTopics = this.topics.filter(t => t.subjectId === this.currentSubject!.id && t.type === 'primary');
-		const secondaryTopics = this.topics.filter(t => t.subjectId === this.currentSubject!.id && t.type === 'secondary');
+		const primaryTopics = this.currentSubject!.primaryTopics || [];
+		const secondaryTopics = this.currentSubject!.secondaryTopics || [];
 
 		// Collect all topic tags
 		const topicTags = new Set<string>();
@@ -2214,8 +2365,8 @@ for (const file of parsedFiles) {
 	private async scanMatrix(): Promise<void> {
 		if (!this.currentSubject) return;
 
-		const primaryTopics = this.topics.filter(t => t.subjectId === this.currentSubject!.id && t.type === 'primary');
-		const secondaryTopics = this.topics.filter(t => t.subjectId === this.currentSubject!.id && t.type === 'secondary');
+		const primaryTopics = this.currentSubject!.primaryTopics || [];
+		const secondaryTopics = this.currentSubject!.secondaryTopics || [];
 
 		// Trigger existing scan functionality from settings
 		await this.plugin.triggerScan();
@@ -2228,35 +2379,44 @@ for (const file of parsedFiles) {
 			this.currentSubject.matrix = { cells: {} };
 		}
 
-		// Scan subject cell (1x1)
+		// Scan subject cell (1x1) - store counts in memory only
 		if (this.currentSubject.mainTag) {
 			const cellKey1x1 = '1x1';
 			const tags = [this.currentSubject.mainTag].filter(t => t);
 			const fileCount = this.countFilesWithTags(parsedFiles, tags);
 
+			// Count R using subject's expression
+			let recordCount = 0;
+			if (this.currentSubject.expression) {
+				recordCount = this.countRecordsWithExpression(parsedFiles, this.currentSubject.expression, null, this.currentSubject, false);
+			}
+
+			// Store counts in cell (in-memory only, not persisted)
 			if (!this.currentSubject.matrix.cells[cellKey1x1]) {
 				this.currentSubject.matrix.cells[cellKey1x1] = {};
 			}
 			this.currentSubject.matrix.cells[cellKey1x1].fileCount = fileCount;
 			this.currentSubject.matrix.cells[cellKey1x1].headerCount = 0;
+			this.currentSubject.matrix.cells[cellKey1x1].recordCount = recordCount;
 		}
 
 		// Scan secondary topic cells (1x2, 1x3, etc.)
 		secondaryTopics.forEach((topic, index) => {
 			const col = index + 2;
 			const cellKey = `1x${col}`;
-			const andMode = this.currentSubject!.matrix?.cells[cellKey]?.andMode || false;
+			const andMode = topic.andMode || false;
 			const tags = this.getTagsForTopicCell(topic, andMode);
 
 			const fileCount = this.countFilesWithTags(parsedFiles, tags);
 			const headerCount = this.countHeadersForSingleTopic(parsedFiles, tags, topic);
 
-			// For secondary topic cells, expand placeholders with subject's values
-			let recordCount = 0;
-			if (topic.filterExpression) {
-				// Don't remove placeholders - pass subject to expand them
-				recordCount = this.countRecordsWithExpression(parsedFiles, topic.filterExpression, null, this.currentSubject ?? undefined, andMode);
-			}
+		// For secondary topic's OWN cell (HEADER cells 1x2, 1x3):
+		// - Uses FilterExpHeader (GREEN) - standalone expression, no variables
+		// - If no FilterExpHeader, no record count
+		let recordCount = 0;
+		if (topic.FilterExpHeader) {
+			recordCount = this.countRecordsWithExpression(parsedFiles, topic.FilterExpHeader, null, this.currentSubject ?? undefined, andMode);
+		}
 
 			if (!this.currentSubject!.matrix!.cells[cellKey]) {
 				this.currentSubject!.matrix!.cells[cellKey] = {};
@@ -2270,29 +2430,17 @@ for (const file of parsedFiles) {
 		primaryTopics.forEach((topic, index) => {
 			const rowNum = index + 2;
 			const cellKey = `${rowNum}x1`;
-			const andMode = this.currentSubject!.matrix?.cells[cellKey]?.andMode || false;
+			const andMode = topic.andMode || false;
 			const tags = this.getTagsForTopicCell(topic, andMode);
 
 			const fileCount = this.countFilesWithTags(parsedFiles, tags);
 			const headerCount = this.countHeadersForSingleTopic(parsedFiles, tags, topic);
 
-			// For single topic, remove ALL placeholders (#?, .?, `?) before counting
+			// For primary topic's OWN cell (SIDE cells 2x1, 3x1):
+			// - Uses matrixOnlyFilterExpSide (RED) - standalone expression, no placeholders
 			let recordCount = 0;
-			if (topic.filterExpression) {
-				let expr = topic.filterExpression;
-				// Remove #? and surrounding AND/OR operators
-				expr = expr.replace(/\s*(AND|OR)\s*#\?/gi, '');
-				expr = expr.replace(/#\?\s*(AND|OR)\s*/gi, '');
-				expr = expr.replace(/#\?/g, '');
-				// Remove .? and surrounding AND/OR operators
-				expr = expr.replace(/\s*(AND|OR)\s*\.\?/gi, '');
-				expr = expr.replace(/\.\?\s*(AND|OR)\s*/gi, '');
-				expr = expr.replace(/\.\?/g, '');
-				// Remove `? and surrounding AND/OR operators
-				expr = expr.replace(/\s*(AND|OR)\s*`\?/gi, '');
-				expr = expr.replace(/`\?\s*(AND|OR)\s*/gi, '');
-				expr = expr.replace(/`\?/g, '');
-				recordCount = this.countRecordsWithExpression(parsedFiles, expr, topic, this.currentSubject ?? undefined, andMode);
+			if (topic.matrixOnlyFilterExpSide) {
+				recordCount = this.countRecordsWithExpression(parsedFiles, topic.matrixOnlyFilterExpSide, topic, this.currentSubject ?? undefined, andMode);
 			}
 
 			if (!this.currentSubject!.matrix!.cells[cellKey]) {
@@ -2311,16 +2459,19 @@ for (const file of parsedFiles) {
 				const col = colIndex + 2;
 				const intersectionKey = `${rowNum}x${col}`;
 
-				// Use the cell's OWN andMode property for per-cell control
-				const includesSubjectTag = this.currentSubject!.matrix!.cells[intersectionKey]?.andMode || false;
+				// For intersections: ONLY use primary topic's AND mode (inherited from row)
+				// Secondary topic's AND mode does NOT apply to intersections
+				const includesSubjectTag = primaryTopic.andMode || false;
 
 				// Get tags for this intersection
 				const tags = this.getTags(this.currentSubject!, secondaryTopic, primaryTopic, includesSubjectTag);
 				const fileCount = this.countFilesWithTags(parsedFiles, tags);
 				const headerCount = this.countHeadersForIntersection(parsedFiles, tags, primaryTopic, secondaryTopic);
-				// For intersections: use PRIMARY topic's values to expand SECONDARY topic's expression
-				const recordCount = secondaryTopic.filterExpression
-					? this.countRecordsWithExpression(parsedFiles, secondaryTopic.filterExpression, primaryTopic, this.currentSubject ?? undefined, includesSubjectTag)
+				// For INTERSECTION cells (2x2, 2x3, 3x2, 3x3):
+				// - Uses appliedFilterExpIntersection (BLUE) - with variables/placeholders
+				// - Variables get replaced by PRIMARY topic's values
+				const recordCount = secondaryTopic.appliedFilterExpIntersection
+					? this.countRecordsWithExpression(parsedFiles, secondaryTopic.appliedFilterExpIntersection, primaryTopic, this.currentSubject ?? undefined, includesSubjectTag)
 					: 0;
 
 				if (!this.currentSubject!.matrix!.cells[intersectionKey]) {
@@ -2332,14 +2483,9 @@ for (const file of parsedFiles) {
 			});
 		});
 
-		// Update the store
-		subjectsStore.update((data: SubjectsData) => {
-			const index = data.subjects.findIndex(s => s.id === this.currentSubject!.id);
-			if (index >= 0) {
-				data.subjects[index] = this.currentSubject!;
-			}
-			return data;
-		});
+		// DON'T update the store - counts are in-memory only for display
+		// The matrix with counts exists only in this.currentSubject (local state)
+		// and will be cleared by migration on next load
 
 		// Re-render to show counts
 		this.render();
@@ -2682,7 +2828,7 @@ for (const file of parsedFiles) {
 	/**
 	 * Count parsed records that have ALL specified tags
 	 */
-	private countFilesWithTags(parsedFiles: ParsedFile[], tags: string[]): number {
+	public countFilesWithTags(parsedFiles: ParsedFile[], tags: string[]): number {
 		if (tags.length === 0) return 0;
 
 		return parsedFiles.filter(record => {
@@ -2700,7 +2846,8 @@ for (const file of parsedFiles) {
 	private countHeadersForSingleTopic(parsedFiles: ParsedFile[], requiredTags: string[], topic: Topic): number {
 		// FIXED: Don't filter by file tags - headers have their own tags!
 		// We check ALL files and only filter at the header level
-		let count = 0;
+		// Track distinct headers (file path + header text + level) to count each header only once
+		const countedHeaders = new Set<string>();
 
 		// Check ALL files - don't pre-filter by file tags
 		for (const file of parsedFiles) {
@@ -2729,37 +2876,46 @@ for (const file of parsedFiles) {
 						});
 
 						if (keywordMatch || tagMatch) {
-							count++;
+							// Only count this header once (use file path + level + text as unique key)
+							const headerKey = `${file.filePath}::${headerLevel!.level}::${header.text}`;
+							countedHeaders.add(headerKey);
 						}
 					}
 				}
 			}
 		}
 
-		return count;
+		return countedHeaders.size;
 	}
 
 	/**
-	 * Count headers for intersection
-	 * NEW LOGIC: Secondary topic at header level (keyword OR tag), primary topic at file level
+	 * Count headers for intersection (e.g., java × oop)
+	 * RULE: Count a header if and only if:
+	 * 1. At least ONE topic is in the header (by keyword OR by tag)
+	 * 2. AND the OTHER topic is on file level (by file tag)
+	 *
+	 * Valid: (topic1 in header AND topic2 on file) OR (topic2 in header AND topic1 on file)
+	 * Invalid: Both only on file, or one in header without other on file
+	 *
 	 * topic1 = primaryTopic (row), topic2 = secondaryTopic (column)
 	 */
-	private countHeadersForIntersection(parsedFiles: ParsedFile[], requiredTags: string[], topic1: Topic, topic2: Topic): number {
+	public countHeadersForIntersection(parsedFiles: ParsedFile[], requiredTags: string[], topic1: Topic, topic2: Topic): number {
 		const matchingFiles = parsedFiles.filter(record => {
 			const fileTags = this.getRecordTags(record);
 			return requiredTags.every(tag => fileTags.includes(tag));
 		});
 
-		let count = 0;
+		// Track distinct headers (file path + header text + level) to count each header only once
+		const countedHeaders = new Set<string>();
 
 		for (const record of matchingFiles) {
 			const fileTags = this.getRecordTags(record);
 
-			// Primary topic (topic1) must be in FILE
-			const primaryInFile = topic1.topicTag && fileTags.includes(topic1.topicTag);
-			if (!primaryInFile) continue;
+			// Check if topics are on file level
+			const topic1InFile = topic1.topicTag && fileTags.includes(topic1.topicTag);
+			const topic2InFile = topic2.topicTag && fileTags.includes(topic2.topicTag);
 
-			// Count matching headers where secondary topic is in header
+			// Count matching headers
 			for (const entry of record.entries) {
 				const headerLevels = [
 					entry.h1 ? { level: 1, info: entry.h1 } : null,
@@ -2770,30 +2926,47 @@ for (const file of parsedFiles) {
 				for (const headerLevel of headerLevels) {
 					const header = headerLevel!.info;
 					if (header.text) {
-						// Secondary topic (topic2) must be in HEADER (keyword OR tag)
-						let secondaryKeywordMatch = false;
+						// Check if topic1 is in header (keyword OR tag)
+						let topic1KeywordMatch = false;
+						if (topic1.topicKeyword && header.keywords) {
+							topic1KeywordMatch = header.keywords?.some(kw =>
+								kw.toLowerCase() === topic1.topicKeyword!.toLowerCase()
+							);
+						}
+						const topic1TagMatch = topic1.topicTag && header.tags?.some(tag => {
+							const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
+							return normalizedTag === topic1.topicTag;
+						});
+						const topic1InHeader = topic1KeywordMatch || topic1TagMatch;
+
+						// Check if topic2 is in header (keyword OR tag)
+						let topic2KeywordMatch = false;
 						if (topic2.topicKeyword && header.keywords) {
-							secondaryKeywordMatch = header.keywords?.some(kw =>
+							topic2KeywordMatch = header.keywords?.some(kw =>
 								kw.toLowerCase() === topic2.topicKeyword!.toLowerCase()
 							);
 						}
-
-						const secondaryTagMatch = topic2.topicTag && header.tags?.some(tag => {
+						const topic2TagMatch = topic2.topicTag && header.tags?.some(tag => {
 							const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
 							return normalizedTag === topic2.topicTag;
 						});
+						const topic2InHeader = topic2KeywordMatch || topic2TagMatch;
 
-						const secondaryInHeader = secondaryKeywordMatch || secondaryTagMatch;
+						// Apply the intersection rule: one in header + other on file
+						const validCase1 = topic1InHeader && topic2InFile;
+						const validCase2 = topic2InHeader && topic1InFile;
 
-						if (secondaryInHeader) {
-							count++;
+						if (validCase1 || validCase2) {
+							// Only count this header once (use file path + level + text as unique key)
+							const headerKey = `${record.filePath}::${headerLevel!.level}::${header.text}`;
+							countedHeaders.add(headerKey);
 						}
 					}
 				}
 			}
 		}
 
-		return count;
+		return countedHeaders.size;
 	}
 
 	/**
@@ -3092,6 +3265,12 @@ for (const file of parsedFiles) {
 	 * Expand placeholders in filter expression
 	 * For secondary topics: use topic's own values (or subject's if no topic)
 	 * For intersections: use primary topic's values
+	 *
+	 * New placeholder syntax:
+	 * - $TAG → topicTag (e.g., #java)
+	 * - $KEY → topicKeyword (e.g., .jav)
+	 * - $BLOCK or $CODE → code block language (e.g., `java)
+	 * - $TEXT → topicText (e.g., "java")
 	 */
 	private expandPlaceholders(expression: string, primaryTopic: Topic | null, subject?: Subject): string {
 		if (!primaryTopic && !subject) {
@@ -3100,23 +3279,29 @@ for (const file of parsedFiles) {
 
 		let result = expression;
 
-		// Expand #? with topicTag (or subject mainTag)
+		// Expand $TAG with topicTag (or subject mainTag)
 		const tagSource = primaryTopic?.topicTag || subject?.mainTag;
 		if (tagSource) {
 			// NORMALIZE: Strip leading # from tag if present (works regardless of storage format)
 			const tagValue = tagSource.replace(/^#/, '');
-			result = result.replace(/#\?/g, `#${tagValue}`);
+			result = result.replace(/\$TAG/g, `#${tagValue}`);
 		}
 
-		// Expand .? with topicKeyword (or subject keyword)
+		// Expand $KEY with topicKeyword (or subject keyword)
 		const keywordSource = primaryTopic?.topicKeyword || subject?.keyword;
 		if (keywordSource) {
-			result = result.replace(/\.\?/g, `.${keywordSource}`);
+			result = result.replace(/\$KEY/g, `.${keywordSource}`);
 		}
 
-		// Expand `? with topicText (only from topic, not subject)
+		// Expand $BLOCK and $CODE with topicText (language/code block)
 		if (primaryTopic?.topicText) {
-			result = result.replace(/`\?/g, `"${primaryTopic.topicText}"`);
+			result = result.replace(/\$BLOCK/g, `\`${primaryTopic.topicText}`);
+			result = result.replace(/\$CODE/g, `\`${primaryTopic.topicText}`);
+		}
+
+		// Expand $TEXT with topicText
+		if (primaryTopic?.topicText) {
+			result = result.replace(/\$TEXT/g, `"${primaryTopic.topicText}"`);
 		}
 
 		return result;
@@ -3167,35 +3352,6 @@ for (const file of parsedFiles) {
 			this.widgetFilterExpression = this.widgetFilterExpression.replace(new RegExp('\\s*' + modifier.replace(/\\/g, '\\\\') + '\\s*', 'g'), ' ');
 			this.widgetFilterExpression = this.widgetFilterExpression.trim();
 		}
-	}
-
-	/**
-	 * Toggle AND mode for a matrix cell and re-render
-	 */
-	private async toggleCellAndMode(cellKey: string): Promise<void> {
-		if (!this.currentSubject || !this.currentSubject.matrix) return;
-
-		if (!this.currentSubject.matrix.cells[cellKey]) {
-			this.currentSubject.matrix.cells[cellKey] = {};
-		}
-
-		const cellData = this.currentSubject.matrix.cells[cellKey];
-		cellData.andMode = !cellData.andMode;
-
-		// Update the store
-		subjectsStore.update((data: SubjectsData) => {
-			const index = data.subjects.findIndex(s => s.id === this.currentSubject!.id);
-			if (index >= 0) {
-				data.subjects[index] = this.currentSubject!;
-			}
-			return data;
-		});
-
-		// Persist changes to disk
-		await saveSubjects();
-
-		// Re-render to show updated state
-		this.render();
 	}
 
 	/**
@@ -3257,6 +3413,17 @@ for (const file of parsedFiles) {
 			this.render();
 		};
 
+		// ℹ️ Legend toggle
+		const legendToggle = flagsGroup.createEl('button', {
+			cls: 'kh-filter-toggle' + (this.showLegend ? ' kh-filter-toggle-active' : ''),
+			text: 'ℹ️'
+		});
+		legendToggle.title = 'Toggle Legend: Show explanation of border and background colors';
+		legendToggle.onclick = () => {
+			this.showLegend = !this.showLegend;
+			this.renderChipsAndFlags();
+		};
+
 		// Favorite filters (from current subject)
 		if (this.currentSubject && this.currentSubject.favoriteFilters && this.currentSubject.favoriteFilters.length > 0) {
 			this.currentSubject.favoriteFilters.forEach(filter => {
@@ -3289,6 +3456,45 @@ for (const file of parsedFiles) {
 		plusBtn.onclick = () => {
 			this.openFavoriteFilterModal();
 		};
+
+		// Legend container (shown/hidden based on toggle)
+		if (this.showLegend) {
+			const legendContainer = chipsContainer.createDiv({ cls: 'kh-legend-container' });
+
+			legendContainer.createEl('h4', {
+				text: 'Legend',
+				cls: 'kh-legend-title'
+			});
+
+			// White border explanation
+			const whiteBorderItem = legendContainer.createDiv({ cls: 'kh-legend-item' });
+			const whiteBorderSample = whiteBorderItem.createDiv({ cls: 'kh-legend-sample kh-legend-white-border' });
+			whiteBorderSample.textContent = '⬜';
+			const whiteDesc = whiteBorderItem.createDiv({ cls: 'kh-legend-description' });
+			whiteDesc.createEl('strong', { text: 'White border (AND mode):' });
+			whiteDesc.createEl('br');
+			whiteDesc.appendText('Topic requires subject tag on files for F/H entries');
+
+			// Red background explanation
+			const redBgItem = legendContainer.createDiv({ cls: 'kh-legend-item' });
+			const redBgSample = redBgItem.createDiv({ cls: 'kh-legend-sample kh-legend-red-bg' });
+			redBgSample.textContent = '🔴';
+			const redDesc = redBgItem.createDiv({ cls: 'kh-legend-description' });
+			redDesc.createEl('strong', { text: 'Red background (F/H disabled):' });
+			redDesc.createEl('br');
+			redDesc.appendText('Only Record entries shown, no File/Header records');
+
+			// My Own mode explanation
+			const myOwnItem = legendContainer.createDiv({ cls: 'kh-legend-item' });
+			const myOwnSample = myOwnItem.createDiv({ cls: 'kh-legend-sample kb-matrix-myown-mode' });
+			myOwnSample.textContent = '🟨';
+			const myOwnDesc = myOwnItem.createDiv({ cls: 'kh-legend-description' });
+			myOwnDesc.createEl('strong', { text: 'Gold border (My Own mode):' });
+			myOwnDesc.createEl('br');
+			myOwnDesc.appendText('Files: Must have topic tag, NOT subject/primary tags');
+			myOwnDesc.createEl('br');
+			myOwnDesc.appendText('Headers: Topic TAG must be IN the header (keyword alone NOT enough)');
+		}
 
 		if (this.activeChips.size === 0) {
 			return; // Keep toggles visible even with no chips
@@ -3348,20 +3554,20 @@ for (const file of parsedFiles) {
 	private hasLimitedCollection(secondaryTopic: Topic | null, primaryTopic: Topic | null): boolean {
 		// For intersection: check if EITHER topic has limited collection
 		if (secondaryTopic && primaryTopic) {
-			const secondaryLimited = (secondaryTopic.showFileRecords === false) ||
-			                        (secondaryTopic.showHeaderRecords === false) ||
-			                        (secondaryTopic.showRecordRecords === false);
-			const primaryLimited = (primaryTopic.showFileRecords === false) ||
-			                      (primaryTopic.showHeaderRecords === false) ||
-			                      (primaryTopic.showRecordRecords === false);
+			const secondaryLimited = (secondaryTopic.fhDisabled) ||
+			                        (secondaryTopic.fhDisabled) ||
+			                        (false);
+			const primaryLimited = (primaryTopic.fhDisabled) ||
+			                      (primaryTopic.fhDisabled) ||
+			                      (false);
 			return secondaryLimited || primaryLimited;
 		}
 		// For single topic: check that topic's flags
 		const topic = secondaryTopic || primaryTopic;
 		if (topic) {
-			return (topic.showFileRecords === false) ||
-			       (topic.showHeaderRecords === false) ||
-			       (topic.showRecordRecords === false);
+			return (topic.fhDisabled) ||
+			       (topic.fhDisabled) ||
+			       (false);
 		}
 		return false; // Subject cell has no limited collection
 	}
