@@ -166,13 +166,11 @@ let plugin: HighlightSpaceRepeatPlugin | null = null;
 let appInstance: App | null = null;
 
 export async function initStore(pluginInstance: HighlightSpaceRepeatPlugin): Promise<void> {
-  console.log('[Settings Store] Initializing store...');
   plugin = pluginInstance;
   appInstance = plugin.app;
 
   // Wait for settings to load before plugin finishes initialization
   await loadStore();
-  console.log('[Settings Store] Main settings loaded');
 
   // These can load in parallel with plugin initialization
   loadSettingsData();
@@ -180,22 +178,17 @@ export async function initStore(pluginInstance: HighlightSpaceRepeatPlugin): Pro
   loadCodeBlocks();
   loadSubjects();
 
-  console.log('[Settings Store] Store initialization complete');
 }
 
 export async function loadStore(): Promise<void> {
   if (!plugin) return;
 
-  console.log('[Settings Store] Loading settings from keyword.json...');
   const loadedDate = await plugin.loadData();
-  console.log('[Settings Store] Loaded data:', !!loadedDate);
   const settings = Object.assign({}, DEFAULT_SETTINGS, loadedDate);
-  console.log('[Settings Store] Settings categories count:', settings.categories?.length || 0);
 
   // Ensure parserSettings exists (migration for existing settings files)
   let needsMigration = false;
   if (!settings.parserSettings) {
-    console.log('[Settings Store] Migrating: Adding parserSettings');
     settings.parserSettings = DEFAULT_PARSER_SETTINGS;
     needsMigration = true;
   }
@@ -250,17 +243,13 @@ export async function loadStore(): Promise<void> {
   // CRITICAL: Also set the static property used by the public API
   if (plugin) {
     (plugin.constructor as typeof HighlightSpaceRepeatPlugin).settings = settings;
-    console.log('[Settings Store] Set static HighlightSpaceRepeatPlugin.settings');
-    console.log('[Settings Store] Static settings categories:', (plugin.constructor as typeof HighlightSpaceRepeatPlugin).settings?.categories?.length || 0);
   }
 
   // Inject CSS after loading settings
   injectKeywordCSS(settings.categories);
-  console.log('[Settings Store] Settings loaded successfully');
 
   // Save migrated settings back to file if migration occurred
   if (needsMigration) {
-    console.log('[Settings Store] Saving migrated settings to keyword.json...');
     await saveStore();
   }
 }
@@ -279,7 +268,6 @@ export async function saveStore(): Promise<void> {
 
   // CRITICAL: Also update the static property used by the public API
   (plugin.constructor as typeof HighlightSpaceRepeatPlugin).settings = currentSettings;
-  console.log('[Settings Store] Updated static settings after save');
 
   // Update CSS after saving
   injectKeywordCSS(currentSettings.categories);
@@ -518,16 +506,10 @@ export async function saveSubjects(): Promise<void> {
     totalTopics += (s.primaryTopics?.length || 0) + (s.secondaryTopics?.length || 0);
   });
 
-  console.log('[saveSubjects] Saving subjects data:', {
-    subjectsCount: currentSubjects.subjects.length,
-    topicsCount: totalTopics
-  });
   await plugin.saveSubjects(currentSubjects);
-  console.log('[saveSubjects] Save completed');
 
   // Refresh subject selection commands
   await plugin.registerSubjectCommands();
-  console.log('[saveSubjects] Subject commands refreshed');
 }
 
 // Subjects functions

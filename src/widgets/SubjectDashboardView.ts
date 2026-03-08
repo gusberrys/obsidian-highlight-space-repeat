@@ -32,6 +32,8 @@ export class SubjectDashboardView extends ItemView {
 	private selectedSecondaryTopic: Topic | null = null; // Secondary topic for intersection
 	private selectedHeaderMode: boolean = false; // Show headers instead of entries
 	private expandedHeaders: Set<string> = new Set(); // Track expanded headers
+	private collapsedFiles: Set<string> = new Set(); // Track collapsed file groups (files are expanded by default)
+	private allFilesCollapsed: boolean = false; // Track if collapse/expand all button is in "all collapsed" state
 	private lastAutoAppliedContext: string = ''; // Track last auto-applied filter context to avoid re-applying on re-renders
 	private shouldApplyFilterOnRender: boolean = false; // Flag to request filter application on next render
 	private applyChipFiltering: boolean = false; // Flag to control chip filtering (true for filter expression, false for column clicks)
@@ -123,9 +125,7 @@ export class SubjectDashboardView extends ItemView {
 
 		// Selected records section (if any records selected)
 		// This ensures records are shown even after re-renders (e.g., clicking chips)
-		console.log(`[Dashboard] render() - about to check selectedRecords. length=${this.selectedRecords?.length || 0}, headerMode=${this.selectedHeaderMode}`);
 		if (this.selectedRecords && this.selectedRecords.length > 0) {
-			console.log(`[Dashboard] render() - calling renderSelectedRecords`);
 			await this.renderSelectedRecords(container);
 		}
 	}
@@ -192,11 +192,21 @@ export class SubjectDashboardView extends ItemView {
 			});
 			tagTextEl.style.color = isFHDisabled ? 'white' : 'var(--text-accent)';
 
-			// For fhDisabled topics, add record count from matrix
-			if (isFHDisabled && this.currentSubject?.matrix?.cells && primaryTopicIndex >= 0) {
-				const col = index + 2; // Secondary topics start at column 2
+		// For fhDisabled topics, add record count from matrix
+		if (isFHDisabled && this.currentSubject?.matrix?.cells) {
+			const col = index + 2; // Secondary topics start at column 2
+			let cellKey: string | undefined;
+
+			if (this.selectedPrimaryTopicId === 'orphans') {
+				// When in orphans mode, use row 1 (secondary topic header cells: 1x2, 1x3, etc.)
+				cellKey = `1x${col}`;
+			} else if (primaryTopicIndex >= 0) {
+				// When a primary topic is selected, use intersection cell
 				const rowNum = primaryTopicIndex + 2; // Primary topics start at row 2
-				const cellKey = `${rowNum}x${col}`;
+				cellKey = `${rowNum}x${col}`;
+			}
+
+			if (cellKey) {
 				const cell = this.currentSubject.matrix.cells[cellKey];
 				const recordCount = cell?.recordCount || 0;
 
@@ -207,8 +217,45 @@ export class SubjectDashboardView extends ItemView {
 					});
 					countEl.style.color = 'white';
 					countEl.style.fontWeight = 'bold';
+					countEl.style.cursor = 'pointer';
+
+					// Add click handler to show records
+					countEl.addEventListener('click', async (e) => {
+						e.stopPropagation();
+
+
+						// Get selected primary topic
+						const selectedPrimaryTopic = this.getSelectedPrimaryTopic();
+
+						// Use filter expression exactly like matrix does - pass ALL records and filter at entry level
+						let expandedExpr: string | null = null;
+						if (topic.appliedFilterExpIntersection && selectedPrimaryTopic) {
+							// Intersection mode: use appliedFilterExpIntersection with primary topic placeholders
+							expandedExpr = this.expandPlaceholders(
+								topic.appliedFilterExpIntersection,
+								selectedPrimaryTopic,
+								this.currentSubject
+							);
+						} else if (topic.FilterExpHeader) {
+							// Orphans mode: use FilterExpHeader (standalone, no placeholders)
+							expandedExpr = topic.FilterExpHeader;
+						}
+
+						this.applyChipFiltering = false;
+						const allRecords = await this.loadParsedRecords();
+						this.selectedRecords = allRecords;
+						this.selectedContext = `${topic.name}: ${recordCount} entries`;
+						this.selectedKeywordFilter = null;
+						this.selectedTopicTag = null;
+						this.selectedHeaderMode = false;
+						this.selectedFilterExpression = expandedExpr;
+
+
+						await this.updateRecordsSection();
+					});
 				}
 			}
+		}
 		});
 	}
 
@@ -243,6 +290,7 @@ export class SubjectDashboardView extends ItemView {
 				this.selectedTopicTag = null;
 				this.selectedHeaderMode = false;
 				this.expandedHeaders.clear();
+				this.collapsedFiles.clear();
 				this.userCustomExpression = false; // Reset to use new subject's expression
 				this.updateFilterExpression();
 				this.render();
@@ -444,7 +492,6 @@ export class SubjectDashboardView extends ItemView {
 				entries.push(...record.entries);
 			}
 
-			console.log('[SubjectDashboard] SRS button clicked, entries:', entries.length);
 			// TODO: Implement SRS integration with these entries
 			new Notice(`SRS: ${entries.length} entries from ${filteredRecords.length} files`);
 		});
@@ -644,7 +691,6 @@ export class SubjectDashboardView extends ItemView {
 	private updateFilterExpression(): void {
 		// If user manually edited expression, preserve it (don't override)
 		if (this.userCustomExpression) {
-			console.log(`[Dashboard] Preserving user-edited expression: "${this.activeFilterExpression}"`);
 			return;
 		}
 
@@ -830,8 +876,6 @@ export class SubjectDashboardView extends ItemView {
 			chip.style.filter = isActive ? 'none' : 'grayscale(80%)'; // Gray out when inactive
 
 			chip.addEventListener('click', async () => {
-				console.log(`[Dashboard] CHIP CLICKED: :${categoryId}, was active: ${this.activeChips.has(chipId)}`);
-				console.log(`[Dashboard] Expression before: "${this.activeFilterExpression}"`);
 
 				// Toggle chip active state
 				if (this.activeChips.has(chipId)) {
@@ -846,8 +890,6 @@ export class SubjectDashboardView extends ItemView {
 					chip.style.filter = 'none';
 				}
 
-				console.log(`[Dashboard] Expression after: "${this.activeFilterExpression}"`);
-				console.log(`[Dashboard] Active chips:`, Array.from(this.activeChips));
 
 				// Apply filter and update ONLY records section (don't re-render header!)
 				const parsedRecords = await this.loadParsedRecords();
@@ -942,8 +984,6 @@ export class SubjectDashboardView extends ItemView {
 			chip.style.filter = isActive ? 'none' : 'grayscale(80%)'; // Gray out when inactive
 
 			chip.addEventListener('click', async () => {
-				console.log(`[Dashboard] CHIP CLICKED: .${keyword}, was active: ${this.activeChips.has(chipId)}`);
-				console.log(`[Dashboard] Expression before: "${this.activeFilterExpression}"`);
 
 				// Clear keyword filter when using chips
 				this.selectedKeywordFilter = null;
@@ -954,16 +994,13 @@ export class SubjectDashboardView extends ItemView {
 					this.removeChipFromExpression(`.${keyword}`);
 					chip.style.opacity = '0.2';
 					chip.style.filter = 'grayscale(80%)';
-					console.log(`[Dashboard] Expression after removal: "${this.activeFilterExpression}"`);
 				} else {
 					this.activeChips.add(chipId);
 					this.addChipToExpression(`.${keyword}`);
 					chip.style.opacity = '1';
 					chip.style.filter = 'none';
-					console.log(`[Dashboard] Expression after addition: "${this.activeFilterExpression}"`);
 				}
 
-				console.log(`[Dashboard] Active chips:`, Array.from(this.activeChips));
 
 				// Apply filter and update ONLY records section (don't re-render header!)
 				const parsedRecords = await this.loadParsedRecords();
@@ -993,8 +1030,6 @@ export class SubjectDashboardView extends ItemView {
 			chip.style.filter = isActive ? 'none' : 'grayscale(80%)'; // Gray out when inactive
 
 			chip.addEventListener('click', async () => {
-				console.log(`[Dashboard] CHIP CLICKED: \`${codeBlock}, was active: ${this.activeChips.has(chipId)}`);
-				console.log(`[Dashboard] Expression before: "${this.activeFilterExpression}"`);
 
 				// Toggle chip active state
 				if (this.activeChips.has(chipId)) {
@@ -1009,8 +1044,6 @@ export class SubjectDashboardView extends ItemView {
 					chip.style.filter = 'none';
 				}
 
-				console.log(`[Dashboard] Expression after: "${this.activeFilterExpression}"`);
-				console.log(`[Dashboard] Active chips:`, Array.from(this.activeChips));
 
 				// Apply filter and update ONLY records section (don't re-render header!)
 				const parsedRecords = await this.loadParsedRecords();
@@ -1247,20 +1280,7 @@ export class SubjectDashboardView extends ItemView {
 						});
 
 						// DEBUG for german
-						if (primaryTopic.topicKeyword === 'ger' || primaryTopic.topicTag === '#german') {
-							if (keywordMatch || tagMatch) {
-								console.log(`[DASHBOARD DEBUG] Found matching header:`, {
-									filePath: record.filePath,
-									headerText: header.text,
-									headerKeywords: header.keywords,
-									headerTags: header.tags,
-									topicKeyword: primaryTopic.topicKeyword,
-									topicTag: primaryTopic.topicTag,
-									keywordMatch,
-									tagMatch
-								});
-							}
-						}
+						// Debug logging removed for performance
 
 						if (keywordMatch || tagMatch) {
 							headerCount++;
@@ -1275,12 +1295,7 @@ export class SubjectDashboardView extends ItemView {
 			}
 		}
 
-		console.log(`[DASHBOARD DEBUG] Primary topic "${primaryTopic.name}" header count:`, {
-			topicKeyword: primaryTopic.topicKeyword,
-			topicTag: primaryTopic.topicTag,
-			headerCount,
-			totalRecords: allRecords.length
-		});
+		// Debug logging removed for performance
 
 		// Count entries matching primary topic's filter expression
 		// For now, just count entries with the topic keyword (ignoring file tags and complex expressions)
@@ -1324,12 +1339,7 @@ export class SubjectDashboardView extends ItemView {
 			}
 		}
 
-		console.log(`[DASHBOARD DEBUG] Entry count for "${primaryTopic.name}":`, {
-			filterExpression: primaryTopic.dashOnlyFilterExpSide,
-			topicKeyword: primaryTopic.topicKeyword,
-			topicTag: primaryTopic.topicTag,
-			recordCount
-		});
+		// Debug logging removed for performance
 
 		// Create totals column
 		const column = columnsContainer.createDiv({ cls: 'kh-dashboard-column kh-dashboard-totals-column' });
@@ -1398,7 +1408,6 @@ export class SubjectDashboardView extends ItemView {
 		entriesCount.style.cursor = 'pointer';
 		entriesCount.addEventListener('click', async (e) => {
 			e.stopPropagation();
-			console.log(`[Dashboard] Record count clicked for primary topic. recordCount=${recordCount}, keyword="${primaryTopic.topicKeyword}"`);
 
 			// Use filteredRecords (already has primary topic tag on file)
 			// to find records with primary topic keyword in entries
@@ -1422,7 +1431,6 @@ export class SubjectDashboardView extends ItemView {
 			this.selectedKeywordFilter = primaryTopic.topicKeyword || null;
 			this.selectedTopicTag = null;
 			this.selectedHeaderMode = false;
-			console.log(`[Dashboard] About to call updateRecordsSection for records. selectedRecords.length=${this.selectedRecords.length}`);
 			await this.updateRecordsSection();
 		});
 
@@ -1437,7 +1445,6 @@ export class SubjectDashboardView extends ItemView {
 			});
 			fileItem.style.cursor = 'pointer';
 			fileItem.addEventListener('click', async (e: MouseEvent) => {
-				console.log(`[Dashboard] File item clicked: ${record.filePath}`);
 				// Command/Ctrl + click: Open file
 				if (e.metaKey || e.ctrlKey) {
 					const file = this.plugin.app.vault.getAbstractFileByPath(record.filePath);
@@ -1453,7 +1460,6 @@ export class SubjectDashboardView extends ItemView {
 					this.selectedKeywordFilter = null;
 					this.selectedTopicTag = null;
 					this.selectedHeaderMode = false;
-					console.log(`[Dashboard] About to call updateRecordsSection for file. selectedRecords.length=${this.selectedRecords.length}`);
 					await this.updateRecordsSection();
 				}
 			});
@@ -1858,12 +1864,10 @@ export class SubjectDashboardView extends ItemView {
 				// If headerCount is 0, do nothing
 				if (headerCount === 0) return;
 
-				console.log(`[Dashboard] Header count clicked. headerCount=${headerCount}, allRecords.length=${allRecords.length}`);
 
 				// Get selected primary topic for INTERSECTION logic (same as matrix)
 				const selectedPrimaryTopic = this.getSelectedPrimaryTopic();
 
-				console.log(`[Dashboard] selectedPrimaryTopic:`, selectedPrimaryTopic ? { name: selectedPrimaryTopic.name, keyword: selectedPrimaryTopic.topicKeyword, tag: selectedPrimaryTopic.topicTag } : 'null');
 
 				let records: ParsedFile[];
 
@@ -1962,7 +1966,6 @@ export class SubjectDashboardView extends ItemView {
 					});
 				}
 
-				console.log(`[Dashboard] After intersection filter: records.length=${records.length}`);
 
 				// DON'T apply chip filtering - chips are for filter expression only!
 				this.applyChipFiltering = false;
@@ -1974,11 +1977,9 @@ export class SubjectDashboardView extends ItemView {
 				this.selectedTopicTag = null;
 				this.selectedHeaderMode = true;
 
-				console.log(`[Dashboard] Click handler - about to call updateRecordsSection. selectedRecords.length=${this.selectedRecords.length}, selectedHeaderMode=${this.selectedHeaderMode}`);
 
 				await this.updateRecordsSection();
 
-				console.log(`[Dashboard] Click handler - updateRecordsSection completed`);
 			});
 
 			countsContainer.createEl('span', { text: ' ' });
@@ -1995,11 +1996,6 @@ export class SubjectDashboardView extends ItemView {
 				// If recordCount is 0, do nothing
 				if (recordCount === 0) return;
 
-				console.log(`[Dashboard] ========== RECORD COUNT CLICKED ==========`);
-			console.log(`[Dashboard] Topic: "${topic.name}" ${topic.icon}, recordCount=${recordCount}`);
-			console.log(`[Dashboard] appliedFilterExpIntersection: "${topic.appliedFilterExpIntersection}"`);
-			console.log(`[Dashboard] FilterExpHeader: "${topic.FilterExpHeader}"`);
-			console.log(`[Dashboard] topicKeyword: "${topic.topicKeyword}", topicTag: "${topic.topicTag}"`);
 
 				// Use filter expression exactly like matrix does - pass ALL records and filter at entry level
 				let expandedExpr: string | null = null;
@@ -2011,7 +2007,6 @@ export class SubjectDashboardView extends ItemView {
 						selectedPrimaryTopic,
 						this.currentSubject
 					);
-					console.log(`[Dashboard] Expanded expression: "${expandedExpr}"`);
 				}
 
 				this.applyChipFiltering = false;
@@ -2021,7 +2016,6 @@ export class SubjectDashboardView extends ItemView {
 				this.selectedTopicTag = null;
 				this.selectedHeaderMode = false;
 				this.selectedFilterExpression = expandedExpr; // Store filter expression to filter entries when rendering
-				console.log(`[Dashboard] About to call updateRecordsSection for secondary records. selectedRecords.length=${this.selectedRecords.length}`);
 				await this.updateRecordsSection();
 			});
 
@@ -2185,12 +2179,10 @@ export class SubjectDashboardView extends ItemView {
 				// If headerCount is 0, do nothing
 				if (headerCount === 0) return;
 
-				console.log(`[Dashboard] Header count clicked. headerCount=${headerCount}, allRecords.length=${allRecords.length}`);
 
 				// Get selected primary topic for INTERSECTION logic (same as matrix)
 				const selectedPrimaryTopic = this.getSelectedPrimaryTopic();
 
-				console.log(`[Dashboard] selectedPrimaryTopic:`, selectedPrimaryTopic ? { name: selectedPrimaryTopic.name, keyword: selectedPrimaryTopic.topicKeyword, tag: selectedPrimaryTopic.topicTag } : 'null');
 
 				let records: ParsedFile[];
 
@@ -2289,7 +2281,6 @@ export class SubjectDashboardView extends ItemView {
 					});
 				}
 
-				console.log(`[Dashboard] After intersection filter: records.length=${records.length}`);
 
 				// DON'T apply chip filtering - chips are for filter expression only!
 				this.applyChipFiltering = false;
@@ -2301,11 +2292,9 @@ export class SubjectDashboardView extends ItemView {
 				this.selectedTopicTag = null;
 				this.selectedHeaderMode = true;
 
-				console.log(`[Dashboard] Click handler - about to call updateRecordsSection. selectedRecords.length=${this.selectedRecords.length}, selectedHeaderMode=${this.selectedHeaderMode}`);
 
 				await this.updateRecordsSection();
 
-				console.log(`[Dashboard] Click handler - updateRecordsSection completed`);
 			});
 
 			countsContainer.createEl('span', { text: ' ' });
@@ -2322,11 +2311,6 @@ export class SubjectDashboardView extends ItemView {
 				// If recordCount is 0, do nothing
 				if (recordCount === 0) return;
 
-				console.log(`[Dashboard] ========== RECORD COUNT CLICKED ==========`);
-			console.log(`[Dashboard] Topic: "${topic.name}" ${topic.icon}, recordCount=${recordCount}`);
-			console.log(`[Dashboard] appliedFilterExpIntersection: "${topic.appliedFilterExpIntersection}"`);
-			console.log(`[Dashboard] FilterExpHeader: "${topic.FilterExpHeader}"`);
-			console.log(`[Dashboard] topicKeyword: "${topic.topicKeyword}", topicTag: "${topic.topicTag}"`);
 
 				// Use filter expression exactly like matrix does - pass ALL records and filter at entry level
 				let expandedExpr: string | null = null;
@@ -2338,7 +2322,6 @@ export class SubjectDashboardView extends ItemView {
 						selectedPrimaryTopic,
 						this.currentSubject
 					);
-					console.log(`[Dashboard] Expanded expression: "${expandedExpr}"`);
 				}
 
 				this.applyChipFiltering = false;
@@ -2348,7 +2331,6 @@ export class SubjectDashboardView extends ItemView {
 				this.selectedTopicTag = null;
 				this.selectedHeaderMode = false;
 				this.selectedFilterExpression = expandedExpr; // Store filter expression to filter entries when rendering
-				console.log(`[Dashboard] About to call updateRecordsSection for secondary records. selectedRecords.length=${this.selectedRecords.length}`);
 				await this.updateRecordsSection();
 			});
 
@@ -2500,12 +2482,10 @@ export class SubjectDashboardView extends ItemView {
 				// If headerCount is 0, do nothing
 				if (headerCount === 0) return;
 
-				console.log(`[Dashboard] Header count clicked. headerCount=${headerCount}, allRecords.length=${allRecords.length}`);
 
 				// Get selected primary topic for INTERSECTION logic (same as matrix)
 				const selectedPrimaryTopic = this.getSelectedPrimaryTopic();
 
-				console.log(`[Dashboard] selectedPrimaryTopic:`, selectedPrimaryTopic ? { name: selectedPrimaryTopic.name, keyword: selectedPrimaryTopic.topicKeyword, tag: selectedPrimaryTopic.topicTag } : 'null');
 
 				let records: ParsedFile[];
 
@@ -2604,7 +2584,6 @@ export class SubjectDashboardView extends ItemView {
 					});
 				}
 
-				console.log(`[Dashboard] After intersection filter: records.length=${records.length}`);
 
 				// DON'T apply chip filtering - chips are for filter expression only!
 				this.applyChipFiltering = false;
@@ -2616,11 +2595,9 @@ export class SubjectDashboardView extends ItemView {
 				this.selectedTopicTag = null;
 				this.selectedHeaderMode = true;
 
-				console.log(`[Dashboard] Click handler - about to call updateRecordsSection. selectedRecords.length=${this.selectedRecords.length}, selectedHeaderMode=${this.selectedHeaderMode}`);
 
 				await this.updateRecordsSection();
 
-				console.log(`[Dashboard] Click handler - updateRecordsSection completed`);
 			});
 
 			countsContainer.createEl('span', { text: ' ' });
@@ -2637,11 +2614,6 @@ export class SubjectDashboardView extends ItemView {
 				// If recordCount is 0, do nothing
 				if (recordCount === 0) return;
 
-				console.log(`[Dashboard] ========== RECORD COUNT CLICKED ==========`);
-			console.log(`[Dashboard] Topic: "${topic.name}" ${topic.icon}, recordCount=${recordCount}`);
-			console.log(`[Dashboard] appliedFilterExpIntersection: "${topic.appliedFilterExpIntersection}"`);
-			console.log(`[Dashboard] FilterExpHeader: "${topic.FilterExpHeader}"`);
-			console.log(`[Dashboard] topicKeyword: "${topic.topicKeyword}", topicTag: "${topic.topicTag}"`);
 
 				// Use filter expression exactly like matrix does - pass ALL records and filter at entry level
 				let expandedExpr: string | null = null;
@@ -2653,7 +2625,6 @@ export class SubjectDashboardView extends ItemView {
 						selectedPrimaryTopic,
 						this.currentSubject
 					);
-					console.log(`[Dashboard] Expanded expression: "${expandedExpr}"`);
 				}
 
 				this.applyChipFiltering = false;
@@ -2663,7 +2634,6 @@ export class SubjectDashboardView extends ItemView {
 				this.selectedTopicTag = null;
 				this.selectedHeaderMode = false;
 				this.selectedFilterExpression = expandedExpr; // Store filter expression to filter entries when rendering
-				console.log(`[Dashboard] About to call updateRecordsSection for secondary records. selectedRecords.length=${this.selectedRecords.length}`);
 				await this.updateRecordsSection();
 			});
 
@@ -2782,7 +2752,6 @@ export class SubjectDashboardView extends ItemView {
 			// CONDITIONAL transform - EXACTLY like Matrix does
 			// If expression has explicit AND/OR operators, use as-is. Otherwise transform.
 			const hasExplicitOperators = /\b(AND|OR)\b/.test(filterExpression);
-			console.log(`[Dashboard] hasExplicitOperators=${hasExplicitOperators}`);
 
 			let expr: string;
 			if (hasExplicitOperators) {
@@ -2794,7 +2763,6 @@ export class SubjectDashboardView extends ItemView {
 				expr = FilterExpressionService.transformFilterExpression(filterExpression);
 			}
 
-			console.log(`[Dashboard] getMatchingEntriesWithExpression: original="${filterExpression}", transformed="${expr}"`);
 
 			// Split SELECT and WHERE clauses (case-insensitive: W: or w:)
 			const hasWhere = /\s+[Ww]:\s+/.test(expr);
@@ -2807,11 +2775,9 @@ export class SubjectDashboardView extends ItemView {
 				whereExpr = parts[1]?.trim() || '';
 			}
 
-			console.log(`[Dashboard] SELECT="${selectExpr}", WHERE="${whereExpr}"`);
 
 			// If SELECT is empty, return no results (all chips disabled)
 			if (!selectExpr || selectExpr.trim() === '') {
-				console.log(`[Dashboard] Empty SELECT clause - returning no results`);
 				return [];
 			}
 
@@ -2821,13 +2787,9 @@ export class SubjectDashboardView extends ItemView {
 
 			// Debug: Check if WHERE contains text or filename filter
 			if (whereExpr && (whereExpr.includes('"') || whereExpr.includes('f"'))) {
-				console.log(`[Dashboard] Text/filename filter detected in WHERE clause: "${whereExpr}"`);
 				// Show first entry's text and fileName as sample
 				if (parsedFiles.length > 0 && parsedFiles[0].entries.length > 0) {
 					const sampleEntry = parsedFiles[0].entries[0];
-					console.log(`[Dashboard] Sample entry.text (first 100 chars): "${sampleEntry.text?.substring(0, 100) || 'UNDEFINED'}"`);
-					console.log(`[Dashboard] Sample entry.fileName: "${(sampleEntry as any).fileName || 'UNDEFINED'}"`);
-					console.log(`[Dashboard] Sample file.fileName: "${parsedFiles[0].fileName}"`);
 				}
 			}
 
@@ -2846,7 +2808,6 @@ export class SubjectDashboardView extends ItemView {
 
 					// Debug filename filtering for first 5 entries
 					if (isFilenameFilter && debugFileCount < 5) {
-						console.log(`[Dashboard] Checking entry from file: "${file.fileName}", entry.fileName: "${(entry as any).fileName}"`);
 						debugFileCount++;
 					}
 
@@ -2881,12 +2842,10 @@ export class SubjectDashboardView extends ItemView {
 				}
 			}
 
-			console.log(`[Dashboard] Checked ${checkedEntries} entries: ${whereRejected} rejected by WHERE, ${selectRejected} rejected by SELECT, ${matchingEntries.length} matched`);
 
 			// Debug: If filename filter, show unique files in results
 			if (isFilenameFilter && matchingEntries.length > 0) {
 				const uniqueFiles = new Set(matchingEntries.map(e => e.file.fileName));
-				console.log(`[Dashboard] Filename filter results from ${uniqueFiles.size} files:`, Array.from(uniqueFiles));
 			}
 
 			// Apply topRecordOnly filter if enabled - remove records where match is only in sub-items
@@ -2972,21 +2931,43 @@ export class SubjectDashboardView extends ItemView {
 
 		// Render grouped by file - EXACTLY like Matrix
 		for (const [filePath, entries] of recordsByFile) {
+			// Files are expanded by default, unless explicitly collapsed by user
+			const isExpanded = !this.collapsedFiles.has(filePath);
+
 			// File header (clickable to open file)
 			const fileGroup = container.createDiv({ cls: 'kh-widget-filter-file-group' });
 			const fileHeader = fileGroup.createDiv({ cls: 'kh-widget-filter-file-header' });
-			fileHeader.style.cursor = 'pointer';
-			fileHeader.createEl('span', {
-				text: getFileNameFromPath(filePath),
+
+			// Toggle icon
+			const toggleIcon = fileHeader.createEl('span', {
+				text: isExpanded ? '▼' : '▶',
+				cls: 'kh-header-toggle'
+			});
+			toggleIcon.addEventListener('click', (e) => {
+				e.stopPropagation();
+				if (this.collapsedFiles.has(filePath)) {
+					this.collapsedFiles.delete(filePath);
+				} else {
+					this.collapsedFiles.add(filePath);
+				}
+				// Re-render without blocking
+				this.updateRecordsSection();
+			});
+
+			// File name wrapper (clickable to open file)
+			const fileNameWrapper = fileHeader.createEl('span', {
 				cls: 'kh-widget-filter-file-name'
 			});
+			fileNameWrapper.style.cursor = 'pointer';
+			fileNameWrapper.textContent = getFileNameFromPath(filePath);
+
 			fileHeader.createEl('span', {
 				text: ` (${entries.length})`,
 				cls: 'kh-widget-filter-file-count'
 			});
 
-			// Add click handler to open file
-			fileHeader.addEventListener('click', async (e: MouseEvent) => {
+			// Add click handler to open file (on file name only)
+			fileNameWrapper.addEventListener('click', async (e: MouseEvent) => {
 				// Only open file on Command/Ctrl + click
 				if (e.metaKey || e.ctrlKey) {
 					const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
@@ -2996,7 +2977,11 @@ export class SubjectDashboardView extends ItemView {
 				}
 			});
 
-			// Entries under this file - render in PARALLEL for performance
+			// Entries under this file - only render if expanded
+			if (!isExpanded) {
+				continue; // Skip rendering entries for collapsed files
+			}
+
 			const entriesContainer = fileGroup.createDiv({ cls: 'kh-widget-filter-entries' });
 
 			// Render all entries in PARALLEL - same as Matrix
@@ -3133,27 +3118,20 @@ export class SubjectDashboardView extends ItemView {
 	 * Update only the records section without re-rendering the entire view
 	 */
 	private async updateRecordsSection(): Promise<void> {
-		console.log(`[Dashboard] updateRecordsSection called. selectedRecords=${this.selectedRecords?.length || 0}, selectedHeaderMode=${this.selectedHeaderMode}`);
 
 		const container = this.containerEl.children[1] as HTMLElement;
 
-		console.log(`[Dashboard] updateRecordsSection - container:`, container);
 
 		// Remove existing records section if present
 		const existingSection = container.querySelector('.kh-dashboard-records-section');
 		if (existingSection) {
-			console.log(`[Dashboard] updateRecordsSection - removing existing section`);
 			existingSection.remove();
 		}
 
 		// Render new records section if we have selected records
-		console.log(`[Dashboard] updateRecordsSection - checking if should render. selectedRecords.length=${this.selectedRecords?.length || 0}`);
 		if (this.selectedRecords && this.selectedRecords.length > 0) {
-			console.log(`[Dashboard] updateRecordsSection - about to call renderSelectedRecords`);
 			await this.renderSelectedRecords(container);
-			console.log(`[Dashboard] updateRecordsSection - renderSelectedRecords completed`);
 		} else {
-			console.log(`[Dashboard] updateRecordsSection - NOT rendering (no records)`);
 		}
 
 		// Note: selectedKeywordFilter is set externally before calling this method
@@ -3167,7 +3145,6 @@ export class SubjectDashboardView extends ItemView {
 	private async renderSelectedRecords(container: HTMLElement): Promise<void> {
 		if (!this.selectedRecords || this.selectedRecords.length === 0) return;
 
-		console.log(`[Dashboard] renderSelectedRecords called. selectedRecords.length=${this.selectedRecords.length}, selectedHeaderMode=${this.selectedHeaderMode}, selectedFilterExpression="${this.selectedFilterExpression}"`);
 
 		// Create section container
 		const recordsSection = container.createDiv({ cls: 'kh-dashboard-records-section' });
@@ -3179,7 +3156,6 @@ export class SubjectDashboardView extends ItemView {
 
 		// Show headers if in header mode, otherwise show entries
 		if (this.selectedHeaderMode) {
-			console.log(`[Dashboard] Calling renderSelectedHeaders`);
 			// For headers mode, just use the original context
 			const sectionHeader = recordsSection.createDiv({ cls: 'kh-dashboard-records-header' });
 			sectionHeader.createEl('h3', {
@@ -3194,7 +3170,6 @@ export class SubjectDashboardView extends ItemView {
 					this.selectedRecords,
 					this.selectedFilterExpression
 				);
-				console.log(`[Dashboard] Filter expression found ${matchingEntries.length} matching entries`);
 
 				// Count entries and unique files
 				entriesCount = matchingEntries.length;
@@ -3271,9 +3246,6 @@ export class SubjectDashboardView extends ItemView {
 	private async renderSelectedHeaders(container: HTMLElement): Promise<void> {
 		if (!this.selectedRecords) return;
 
-		console.log(`[Dashboard] renderSelectedHeaders called. selectedRecords.length=${this.selectedRecords.length}`);
-		console.log(`[Dashboard] selectedPrimaryTopic:`, this.selectedPrimaryTopic ? { name: this.selectedPrimaryTopic.name } : 'null');
-		console.log(`[Dashboard] selectedSecondaryTopic:`, this.selectedSecondaryTopic ? { name: this.selectedSecondaryTopic.name } : 'null');
 
 		const headers: { record: ParsedFile; headerText: string; headerLevel: number; entries: ParsedEntry[] }[] = [];
 
@@ -3281,7 +3253,6 @@ export class SubjectDashboardView extends ItemView {
 		// If we have ONLY primary topic, use SIMPLE matching (totals column click)
 		const useIntersection = !!(this.selectedPrimaryTopic && this.selectedSecondaryTopic);
 
-		console.log(`[Dashboard] useIntersection=${useIntersection}`);
 
 		// Collect matching headers
 		for (const record of this.selectedRecords) {
@@ -3387,7 +3358,6 @@ export class SubjectDashboardView extends ItemView {
 			}
 		}
 
-		console.log(`[Dashboard] Collected ${headers.length} headers total`);
 
 		if (headers.length === 0) {
 			container.createEl('div', {
@@ -3844,10 +3814,8 @@ export class SubjectDashboardView extends ItemView {
 	 * Apply filter expression to records and display results
 	 */
 	private async applyFilterExpression(parsedRecords: ParsedFile[]): Promise<void> {
-		console.log(`[Dashboard] >>>>>> applyFilterExpression CALLED with activeFilterExpression="${this.activeFilterExpression}"`);
 
 		if (!this.activeFilterExpression || this.activeFilterExpression.trim() === '' || this.activeFilterExpression.trim() === 'W:') {
-			console.log(`[Dashboard] >>>>>> applyFilterExpression EARLY RETURN (no expression or empty)`);
 			// Clear display when expression is empty
 			this.selectedRecords = null;
 			this.selectedFilterExpression = null;
@@ -3865,7 +3833,6 @@ export class SubjectDashboardView extends ItemView {
 			this.selectedHeaderMode = false;
 			this.selectedFilterExpression = this.activeFilterExpression; // CRITICAL: Set this so renderSelectedRecords filters entries!
 
-			console.log(`[Dashboard] >>>>>> applyFilterExpression SET selectedFilterExpression="${this.selectedFilterExpression}"`);
 			// Note: Don't call updateRecordsSection() here - let render() handle it to avoid double-rendering
 		} catch (error) {
 			console.error('[Dashboard] Error applying filter expression:', error);

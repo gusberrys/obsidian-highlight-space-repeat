@@ -1155,19 +1155,15 @@ Examples:
 	 */
 	private async renderRecordFilterResults(container: HTMLElement, parsedFiles: ParsedFile[]): Promise<void> {
 		try {
-			console.log(`[Matrix] renderRecordFilterResults - widgetFilterExpression="${this.widgetFilterExpression}"`);
-			console.log(`[Matrix] parsedFiles.length=${parsedFiles.length}`);
 
 			// Matrix expressions are already in FilterParser syntax (placeholders expanded)
 			// Only transform if expression doesn't look like FilterParser syntax (no dots for keywords, no # for tags)
 			// Check if expression already uses FilterParser syntax (has .keyword or #tag patterns)
 			const hasExplicitOperators = /\b(AND|OR)\b/.test(this.widgetFilterExpression);
-			console.log(`[Matrix] hasExplicitOperators=${hasExplicitOperators}`);
 			const expr = hasExplicitOperators
 				? this.widgetFilterExpression  // Already has operators - use as-is
 				: this.transformFilterExpression(this.widgetFilterExpression); // No operators - transform it
 
-			console.log(`[Matrix] After conditional transform: "${expr}"`);
 
 			// Split on W: to separate SELECT and WHERE clauses
 			const hasWhere = expr.includes('W:');
@@ -1180,7 +1176,6 @@ Examples:
 				whereExpr = parts[1]?.trim() || '';
 			}
 
-			console.log(`[Matrix] Before subject tag injection - SELECT="${selectExpr}", WHERE="${whereExpr}"`);
 
 			// Add subject tag to WHERE clause if this is a green cell (AND mode enabled)
 			if (this.widgetFilterContext?.includesSubjectTag && this.widgetFilterContext.subject.mainTag) {
@@ -1193,10 +1188,8 @@ Examples:
 					// Create new WHERE clause with just the subject tag
 					whereExpr = `#${subjectTag}`;
 				}
-				console.log(`[Matrix] Added subject tag - WHERE="${whereExpr}"`);
 			}
 
-			console.log(`[Matrix] Final - SELECT="${selectExpr}", WHERE="${whereExpr}"`);
 
 			// Compile expressions
 			const selectCompiled = FilterParser.compile(selectExpr);
@@ -1217,26 +1210,11 @@ for (const file of parsedFiles) {
 				const hasDefRep = entry.keywords?.includes('def') && entry.keywords?.includes('rep');
 
 				if (isKroxyFile && hasDefRep) {
-					console.log(`[Matrix] Found Kroxy entry - full entry:`, entry);
-					console.log(`[Matrix] Entry tags:`, entry.tags);
-					console.log(`[Matrix] Entry fileTags:`, (entry as any).fileTags);
-					console.log(`[Matrix] Entry fileName:`, (entry as any).fileName);
-					console.log(`[Matrix] Entry filePath:`, (entry as any).filePath);
-					console.log(`[Matrix] File tags:`, file.tags);
-					console.log(`[Matrix] File path:`, file.filePath);
 				}
 
 				// First apply WHERE clause (if present)
 				if (whereCompiled) {
 					const whereMatches = FilterParser.evaluateFlatEntry(whereCompiled.ast, entry, HighlightSpaceRepeatPlugin.settings.categories, whereCompiled.modifiers);
-
-					if (isKroxyFile && hasDefRep) {
-						console.log(`[Matrix] WHERE evaluation for Kroxy entry:`, {
-							whereMatches,
-							whereClause: whereExpr,
-							ast: JSON.stringify(whereCompiled.ast)
-						});
-					}
 
 					if (!whereMatches) {
 						rejectedByWhere++;
@@ -1253,13 +1231,6 @@ for (const file of parsedFiles) {
 				// Then apply SELECT clause
 				const selectMatches = FilterParser.evaluateFlatEntry(selectCompiled.ast, entry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers);
 
-				if (isKroxyFile && hasDefRep) {
-					console.log(`[Matrix] SELECT evaluation for Kroxy entry:`, {
-						selectMatches,
-						selectClause: selectExpr,
-						ast: JSON.stringify(selectCompiled.ast)
-					});
-				}
 
 				if (selectMatches) {
 					matchingFiles.push({ entry, file });
@@ -1268,11 +1239,6 @@ for (const file of parsedFiles) {
 			}
 		}
 
-			console.log(`[Matrix] Filtering complete:`);
-			console.log(`[Matrix]   - Total entries checked: ${totalEntriesChecked}`);
-			console.log(`[Matrix]   - Rejected by WHERE: ${rejectedByWhere}`);
-			console.log(`[Matrix]   - Matched by SELECT: ${matchedBySelect}`);
-			console.log(`[Matrix]   - Total matches: ${matchingFiles.length}`);
 
 			if (matchingFiles.length === 0) {
 				container.createEl('div', {
@@ -1714,10 +1680,6 @@ for (const file of parsedFiles) {
 			recordCountSpan.addEventListener('click', (e) => {
 				e.stopPropagation();
 
-				console.log(`[Matrix] ========== RECORD COUNT CLICKED ==========`);
-				console.log(`[Matrix] secondaryTopic: ${secondaryTopic?.name} ${secondaryTopic?.icon}`);
-				console.log(`[Matrix] primaryTopic: ${primaryTopic?.name} ${primaryTopic?.icon}`);
-				console.log(`[Matrix] includesSubjectTag: ${includesSubjectTag}`);
 
 				// Set widget filter to show record filter
 				let topic: Topic | null = null;
@@ -1731,19 +1693,16 @@ for (const file of parsedFiles) {
 					expr = secondaryTopic.appliedFilterExpIntersection;
 					topic = secondaryTopic;
 					expansionContext = primaryTopic;
-					console.log(`[Matrix] Intersection cell - using appliedFilterExpIntersection: "${expr}"`);
 				} else if (secondaryTopic) {
 					// Secondary own cell: use header expression (GREEN)
 					expr = secondaryTopic.FilterExpHeader;
 					topic = secondaryTopic;
 					expansionContext = null;
-					console.log(`[Matrix] Secondary own cell - using FilterExpHeader: "${expr}"`);
 				} else if (primaryTopic) {
 					// Primary own cell: use side expression (RED)
 					expr = primaryTopic.matrixOnlyFilterExpSide;
 					topic = primaryTopic;
 					expansionContext = primaryTopic;
-					console.log(`[Matrix] Primary own cell - using matrixOnlyFilterExpSide: "${expr}"`);
 				} else {
 					// Subject cell (1x1): use matrixOnlyFilterExp (primary), keyword (fallback), or expression (legacy)
 					expr = subject.matrixOnlyFilterExp || subject.expression;
@@ -1753,7 +1712,6 @@ for (const file of parsedFiles) {
 					}
 					topic = null;
 					expansionContext = null;
-					console.log(`[Matrix] Subject cell - using matrixOnlyFilterExp/keyword/expression: "${expr}"`);
 				}
 
 				if (expr) {
@@ -1764,7 +1722,6 @@ for (const file of parsedFiles) {
 					if (secondaryTopic && !primaryTopic) {
 						// Single secondary: expand with subject
 						this.widgetFilterExpression = this.expandPlaceholders(expr, expansionContext, subject);
-						console.log(`[Matrix] Secondary own - expanded: "${this.widgetFilterExpression}"`);
 					} else if (primaryTopic && !secondaryTopic) {
 						// Single primary: remove placeholders
 						expr = expr.replace(/\s*(AND|OR)\s*#\?/gi, '');
@@ -1777,15 +1734,12 @@ for (const file of parsedFiles) {
 						expr = expr.replace(/`\?\s*(AND|OR)\s*/gi, '');
 						expr = expr.replace(/`\?/g, '');
 						this.widgetFilterExpression = this.expandPlaceholders(expr, expansionContext, subject);
-						console.log(`[Matrix] Primary own - placeholders removed, expanded: "${this.widgetFilterExpression}"`);
 					} else {
 						// Intersection: expand with primary topic
 						this.widgetFilterExpression = this.expandPlaceholders(expr, expansionContext, subject);
-						console.log(`[Matrix] Intersection - expanded: "${this.widgetFilterExpression}"`);
 					}
 
 					this.widgetFilterContext = { subject, secondaryTopic, primaryTopic, includesSubjectTag };
-					console.log(`[Matrix] Calling render() with widgetFilterExpression="${this.widgetFilterExpression}"`);
 					this.render();
 				}
 			});

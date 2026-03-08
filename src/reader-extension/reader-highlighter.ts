@@ -29,13 +29,7 @@ export const readerHighlighter: MarkdownPostProcessor = (el: HTMLElement) => {
       .map((k: KeywordStyle) => [k.keyword.toLowerCase(), k])
   );
 
-  // DEBUG: Check if helper keywords are loaded
-  console.log('[Reader] Keyword map size:', keywordMap.size);
-  console.log('[Reader] Has r14:', keywordMap.has('r14'));
-  console.log('[Reader] Has h:', keywordMap.has('h'));
-  if (keywordMap.has('r14')) {
-    console.log('[Reader] r14 keyword:', keywordMap.get('r14'));
-  }
+  // DEBUG: Check if helper keywords are loaded (removed excessive logging)
 
   replaceWithHighlight(el);
 
@@ -199,32 +193,23 @@ function getHighlightNode(
  * Detects highlighted paragraphs that contain images and reorganizes them
  */
 function restructureImagesLayout(el: HTMLElement) {
-  console.log('[ImageLayout] restructureImagesLayout called, el:', el);
-
   // Find all highlighted paragraphs
   const highlightedElements = el.querySelectorAll('.kh-highlighted');
-  console.log('[ImageLayout] Found highlighted elements:', highlightedElements.length);
 
   highlightedElements.forEach((highlightedEl) => {
     const paragraph = highlightedEl as HTMLElement;
-    console.log('[ImageLayout] Processing paragraph:', paragraph.className);
 
     // Check if this paragraph contains any images
     const images = Array.from(paragraph.querySelectorAll('img'));
-    console.log('[ImageLayout] Found images:', images.length);
 
     if (images.length === 0) {
-      console.log('[ImageLayout] No images, skipping');
       return; // No images, skip restructuring
     }
 
     // Check if already restructured to avoid double-processing
     if (paragraph.classList.contains('kh-record-with-images')) {
-      console.log('[ImageLayout] Already restructured, skipping');
       return;
     }
-
-    console.log('[ImageLayout] Creating two-column layout');
 
     // Create two-column wrapper
     const wrapper = document.createElement('div');
@@ -240,23 +225,18 @@ function restructureImagesLayout(el: HTMLElement) {
 
     // Move all child nodes to text column, except images
     const childNodes = Array.from(paragraph.childNodes);
-    console.log('[ImageLayout] Processing child nodes:', childNodes.length);
 
     childNodes.forEach((child) => {
       if (child.nodeType === Node.ELEMENT_NODE && (child as HTMLElement).tagName === 'IMG') {
-        console.log('[ImageLayout] Found direct IMG element');
         // This is an image, move to image column
         imageColumn.appendChild(child);
       } else if (child.nodeType === Node.ELEMENT_NODE && (child as HTMLElement).classList.contains('internal-embed')) {
-        console.log('[ImageLayout] Found internal-embed element');
         // This is an image embed wrapper, check if it contains an image
         const embeddedImg = (child as HTMLElement).querySelector('img');
         if (embeddedImg) {
-          console.log('[ImageLayout] internal-embed contains image, moving to image column');
           // Move to image column
           imageColumn.appendChild(child);
         } else {
-          console.log('[ImageLayout] internal-embed does not contain image, moving to text column');
           // Not an image embed, move to text column
           textColumn.appendChild(child);
         }
@@ -266,13 +246,8 @@ function restructureImagesLayout(el: HTMLElement) {
       }
     });
 
-    console.log('[ImageLayout] Text column children:', textColumn.childNodes.length);
-    console.log('[ImageLayout] Image column children:', imageColumn.childNodes.length);
-
     // Only restructure if we actually have content in both columns
     if (textColumn.childNodes.length > 0 && imageColumn.childNodes.length > 0) {
-      console.log('[ImageLayout] Applying restructure');
-
       // Clear the paragraph
       paragraph.innerHTML = '';
 
@@ -285,12 +260,6 @@ function restructureImagesLayout(el: HTMLElement) {
 
       // Mark as restructured
       paragraph.classList.add('kh-record-with-images');
-
-      console.log('[ImageLayout] Restructure complete');
-    } else {
-      console.log('[ImageLayout] Not enough content in both columns, skipping restructure');
     }
   });
-
-  console.log('[ImageLayout] restructureImagesLayout complete');
 }

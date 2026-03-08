@@ -2206,15 +2206,9 @@ export class SubjectModal extends Modal {
 				return data;
 			});
 
-			console.log('[SubjectModal] Saving subjects...', {
-				subjectId: this.subject.id,
-				topicsCount: this.topics.length
-			});
-
 			// Save subjects
 			await saveSubjects();
 
-			console.log('[SubjectModal] Save completed successfully');
 
 			// Call onSubmit callback
 			this.onSubmit(this.subject);
