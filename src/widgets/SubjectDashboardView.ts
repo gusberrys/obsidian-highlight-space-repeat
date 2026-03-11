@@ -12,6 +12,7 @@ import { resolveIconKeywordNames } from '../shared/priority-resolver';
 import type { KeywordStyle } from '../shared/keyword-style';
 import { fileHasMatch } from '../utils/filter-helpers';
 import { getFileNameFromPath } from '../utils/file-helpers';
+import { getAllKeywords } from '../utils/parse-helpers';
 
 export const SUBJECT_DASHBOARD_VIEW_TYPE = 'kh-subject-dashboard-view';
 
@@ -1373,15 +1374,15 @@ export class SubjectDashboardView extends ItemView {
 					// Entry matches if it has the topic keyword (in entry or subitems)
 					let hasKeyword = false;
 
-					// Check main entry keywords
-					if (entry.keywords && entry.keywords.includes(primaryTopic.topicKeyword!)) {
+					// Check main entry keywords (includes inline keywords)
+					if (getAllKeywords(entry).includes(primaryTopic.topicKeyword!)) {
 						hasKeyword = true;
 					}
 
-					// Check subitem keywords
+					// Check subitem keywords (includes inline keywords)
 					if (!hasKeyword && entry.subItems && entry.subItems.length > 0) {
 						for (const subItem of entry.subItems) {
-							if (subItem.keywords && subItem.keywords.includes(primaryTopic.topicKeyword!)) {
+							if (getAllKeywords(subItem).includes(primaryTopic.topicKeyword!)) {
 								hasKeyword = true;
 								break;
 							}
@@ -1622,15 +1623,15 @@ export class SubjectDashboardView extends ItemView {
 				for (const entry of record.entries) {
 					let hasKeyword = false;
 
-					// Check main entry keywords
-					if (entry.keywords && entry.keywords.includes(this.currentSubject.keyword!)) {
+					// Check main entry keywords (includes inline keywords)
+					if (getAllKeywords(entry).includes(this.currentSubject.keyword!)) {
 						hasKeyword = true;
 					}
 
-					// Check subitem keywords
+					// Check subitem keywords (includes inline keywords)
 					if (!hasKeyword && entry.subItems && entry.subItems.length > 0) {
 						for (const subItem of entry.subItems) {
-							if (subItem.keywords && subItem.keywords.includes(this.currentSubject.keyword!)) {
+							if (getAllKeywords(subItem).includes(this.currentSubject.keyword!)) {
 								hasKeyword = true;
 								break;
 							}
@@ -3320,15 +3321,15 @@ export class SubjectDashboardView extends ItemView {
 						for (const entry of record.entries) {
 							let hasKeyword = false;
 
-							// Check main entry keywords
-							if (entry.keywords && entry.keywords.includes(this.selectedKeywordFilter)) {
+							// Check main entry keywords (includes inline keywords)
+							if (getAllKeywords(entry).includes(this.selectedKeywordFilter)) {
 								hasKeyword = true;
 							}
 
-							// Check subitem keywords
+							// Check subitem keywords (includes inline keywords)
 							if (!hasKeyword && entry.subItems && entry.subItems.length > 0) {
 								for (const subItem of entry.subItems) {
-									if (subItem.keywords && subItem.keywords.includes(this.selectedKeywordFilter)) {
+									if (getAllKeywords(subItem).includes(this.selectedKeywordFilter)) {
 										hasKeyword = true;
 										break;
 									}
@@ -3639,15 +3640,15 @@ export class SubjectDashboardView extends ItemView {
 			if (this.selectedKeywordFilter) {
 				let hasKeyword = false;
 
-				// Check main entry keywords
-				if (entry.keywords && entry.keywords.includes(this.selectedKeywordFilter)) {
+				// Check main entry keywords (includes inline keywords)
+				if (getAllKeywords(entry).includes(this.selectedKeywordFilter)) {
 					hasKeyword = true;
 				}
 
-				// Check subitem keywords
+				// Check subitem keywords (includes inline keywords)
 				if (!hasKeyword && entry.subItems && entry.subItems.length > 0) {
 					for (const subItem of entry.subItems) {
-						if (subItem.keywords && subItem.keywords.includes(this.selectedKeywordFilter)) {
+						if (getAllKeywords(subItem).includes(this.selectedKeywordFilter)) {
 							hasKeyword = true;
 							break;
 						}

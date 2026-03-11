@@ -1,6 +1,7 @@
 import { FilterToken, FilterTokenType, FilterNode, FilterModifiers, CompiledFilter } from '../interfaces/FilterInterfaces';
 import type { FlatEntry } from '../interfaces/ParsedFile';
 import { getFileNameFromPath } from '../utils/file-helpers';
+import { getAllKeywords } from '../utils/parse-helpers';
 
 /**
  * Variables for topic expansion
@@ -513,14 +514,20 @@ export class FilterParser {
 	}
 
 	/**
-	 * Helper: Extract all keywords from entry (entry keywords + all subItem keywords)
+	 * Helper: Extract all keywords from entry (entry keywords + inlineKeywords + all subItem keywords + inlineKeywords)
 	 */
 	private static getAllKeywords(entry: import('../interfaces/ParsedFile').ParsedEntry): string[] {
 		const keywords = [...(entry.keywords || [])];
+		if (entry.inlineKeywords) {
+			keywords.push(...entry.inlineKeywords);
+		}
 		if (entry.subItems) {
 			for (const subItem of entry.subItems) {
 				if (subItem.keywords) {
 					keywords.push(...subItem.keywords);
+				}
+				if (subItem.inlineKeywords) {
+					keywords.push(...subItem.inlineKeywords);
 				}
 			}
 		}
@@ -633,8 +640,9 @@ export class FilterParser {
 
 		for (const entry of entries) {
 			for (const item of selectItems) {
-				if (item.type === 'keyword' && entry.keywords) {
-					for (const keyword of entry.keywords) {
+				if (item.type === 'keyword') {
+					const entryKeywords = getAllKeywords(entry);
+					for (const keyword of entryKeywords) {
 						if (keyword.toLowerCase() === item.value.toLowerCase()) {
 							results.add(keyword);
 						}
@@ -672,24 +680,33 @@ export class FilterParser {
 
 		if (entry.h1) {
 			headerKeywords.push(...(entry.h1.keywords || []));
+			if (entry.h1.inlineKeywords) headerKeywords.push(...entry.h1.inlineKeywords);
 			headerTags.push(...(entry.h1.tags || []));
 		}
 		if (entry.h2) {
 			headerKeywords.push(...(entry.h2.keywords || []));
+			if (entry.h2.inlineKeywords) headerKeywords.push(...entry.h2.inlineKeywords);
 			headerTags.push(...(entry.h2.tags || []));
 		}
 		if (entry.h3) {
 			headerKeywords.push(...(entry.h3.keywords || []));
+			if (entry.h3.inlineKeywords) headerKeywords.push(...entry.h3.inlineKeywords);
 			headerTags.push(...(entry.h3.tags || []));
 		}
 
 		// Collect keywords from entry and subItems
 		const entryKeywords = [...(entry.keywords || [])];
+		if (entry.inlineKeywords) {
+			entryKeywords.push(...entry.inlineKeywords);
+		}
 		// Only include subItem keywords if topLevelOnly modifier is NOT set
 		if (!modifiers?.topLevelOnly && entry.subItems) {
 			for (const subItem of entry.subItems) {
 				if (subItem.keywords) {
 					entryKeywords.push(...subItem.keywords);
+				}
+				if (subItem.inlineKeywords) {
+					entryKeywords.push(...subItem.inlineKeywords);
 				}
 			}
 		}

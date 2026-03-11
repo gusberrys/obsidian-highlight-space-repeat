@@ -18,6 +18,7 @@ import { SubjectDashboardView, SUBJECT_DASHBOARD_VIEW_TYPE } from './SubjectDash
 import { resolveIconKeywordNames } from '../shared/priority-resolver';
 import { fileHasMatch } from '../utils/filter-helpers';
 import { getFileNameFromPath } from '../utils/file-helpers';
+import { getAllKeywords } from '../utils/parse-helpers';
 
 export const KH_MATRIX_VIEW_TYPE = 'kh-matrix-view';
 
@@ -848,8 +849,9 @@ Examples:
 						if (header.text) {
 							// Check topic1 (primary) in header
 							let topic1KeywordMatch = false;
-							if (primaryTopic.topicKeyword && header.keywords) {
-								topic1KeywordMatch = header.keywords.some(kw =>
+							if (primaryTopic.topicKeyword) {
+								const headerKeywords = getAllKeywords(header);
+								topic1KeywordMatch = headerKeywords.some(kw =>
 									kw.toLowerCase() === primaryTopic.topicKeyword!.toLowerCase()
 								);
 							}
@@ -861,8 +863,9 @@ Examples:
 
 							// Check topic2 (secondary) in header
 							let topic2KeywordMatch = false;
-							if (secondaryTopic.topicKeyword && header.keywords) {
-								topic2KeywordMatch = header.keywords.some(kw =>
+							if (secondaryTopic.topicKeyword) {
+								const headerKeywords = getAllKeywords(header);
+								topic2KeywordMatch = headerKeywords.some(kw =>
 									kw.toLowerCase() === secondaryTopic.topicKeyword!.toLowerCase()
 								);
 							}
@@ -1285,7 +1288,8 @@ for (const file of parsedFiles) {
 
 				// Debug specific entry that should match
 				const isKroxyFile = file.filePath.includes('Kroxy ST.md');
-				const hasDefRep = entry.keywords?.includes('def') && entry.keywords?.includes('rep');
+				const entryKeywords = getAllKeywords(entry);
+				const hasDefRep = entryKeywords.includes('def') && entryKeywords.includes('rep');
 
 				if (isKroxyFile && hasDefRep) {
 				}
@@ -1994,8 +1998,9 @@ for (const file of parsedFiles) {
 						if (header.text) {
 							// Secondary topic must be in HEADER (keyword OR tag)
 							let secondaryKeywordMatch = false;
-							if (secondaryTopic.topicKeyword && header.keywords) {
-								secondaryKeywordMatch = header.keywords?.some(kw =>
+							if (secondaryTopic.topicKeyword) {
+								const headerKeywords = getAllKeywords(header);
+								secondaryKeywordMatch = headerKeywords.some(kw =>
 									kw.toLowerCase() === secondaryTopic.topicKeyword!.toLowerCase()
 								);
 							}
@@ -2591,13 +2596,13 @@ for (const file of parsedFiles) {
 				// Fallback to keyword if no filter expression
 				for (const record of parsedFiles) {
 					for (const entry of record.entries) {
-						// Check main entry keywords
-						if (entry.keywords?.includes(this.currentSubject.keyword)) {
+						// Check main entry keywords (includes inline keywords)
+						if (getAllKeywords(entry).includes(this.currentSubject.keyword)) {
 							recordCount++;
 						} else if (entry.subItems) {
-							// Check subitem keywords
+							// Check subitem keywords (includes inline keywords)
 							for (const subItem of entry.subItems) {
-								if (subItem.keywords?.includes(this.currentSubject.keyword)) {
+								if (getAllKeywords(subItem).includes(this.currentSubject.keyword)) {
 									recordCount++;
 									break; // Count entry only once even if multiple subitems match
 								}
