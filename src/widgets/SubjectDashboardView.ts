@@ -40,6 +40,7 @@ export class SubjectDashboardView extends ItemView {
 	private selectedFilterExpression: string | null = null; // Filter expression to apply to entries when showing records
 	private trimSubItems: boolean = false; // Slim mode: filter sub-items to only show matching keywords (\s)
 	private topRecordOnly: boolean = false; // Top mode: only show records where keyword is top-level (\t)
+	private showAllRecords: boolean = false; // All mode: show all records regardless of activated chips (\a)
 
 	constructor(leaf: WorkspaceLeaf, plugin: HighlightSpaceRepeatPlugin) {
 		super(leaf);
@@ -248,7 +249,7 @@ export class SubjectDashboardView extends ItemView {
 						this.selectedKeywordFilter = null;
 						this.selectedTopicTag = null;
 						this.selectedHeaderMode = false;
-						this.selectedFilterExpression = expandedExpr;
+						this.selectedFilterExpression = this.appendModifiers(expandedExpr, this.extractModifiers(this.activeFilterExpression));
 
 
 						await this.updateRecordsSection();
@@ -291,6 +292,7 @@ export class SubjectDashboardView extends ItemView {
 				this.selectedHeaderMode = false;
 				this.expandedHeaders.clear();
 				this.collapsedFiles.clear();
+				this.allFilesCollapsed = false;
 				this.userCustomExpression = false; // Reset to use new subject's expression
 				this.updateFilterExpression();
 				this.render();
@@ -401,6 +403,8 @@ export class SubjectDashboardView extends ItemView {
 		});
 
 		// Handle Enter key to apply filter
+	// Sync button states when expression input changes
+
 		expressionInput.addEventListener('keydown', async (e) => {
 			if (e.key === 'Enter') {
 				applyFilterButton.click();
@@ -416,6 +420,7 @@ export class SubjectDashboardView extends ItemView {
 		slimToggle.onclick = () => {
 			this.trimSubItems = !this.trimSubItems;
 			this.toggleFilterModifier('\\s', this.trimSubItems);
+		expressionInput.value = this.activeFilterExpression || '';
 			this.render();
 		};
 
@@ -428,8 +433,32 @@ export class SubjectDashboardView extends ItemView {
 		topToggle.onclick = () => {
 			this.topRecordOnly = !this.topRecordOnly;
 			this.toggleFilterModifier('\\t', this.topRecordOnly);
+		expressionInput.value = this.activeFilterExpression || '';
 			this.render();
 		};
+
+		// 🌐 All Records toggle button
+		const allToggle = filterDiv.createEl('button', {
+			cls: 'kh-filter-toggle' + (this.showAllRecords ? ' kh-filter-toggle-active' : ''),
+			text: '💯',
+			title: 'Toggle Show All Records: Show all records regardless of activated chips (\\a)'
+		});
+		allToggle.onclick = () => {
+			this.showAllRecords = !this.showAllRecords;
+			this.toggleFilterModifier('\\a', this.showAllRecords);
+		expressionInput.value = this.activeFilterExpression || '';
+			this.render();
+		};
+
+	// Sync button states when expression input changes
+	expressionInput.addEventListener('input', () => {
+		this.activeFilterExpression = expressionInput.value;
+		this.syncButtonsFromExpression();
+		// Update button classes based on new state
+		slimToggle.className = 'kh-filter-toggle' + (this.trimSubItems ? ' kh-filter-toggle-active' : '');
+		topToggle.className = 'kh-filter-toggle' + (this.topRecordOnly ? ' kh-filter-toggle-active' : '');
+		allToggle.className = 'kh-filter-toggle' + (this.showAllRecords ? ' kh-filter-toggle-active' : '');
+	});
 
 		// Re-search button with looking glass icon
 		const researchButton = filterDiv.createEl('button', {
@@ -694,25 +723,56 @@ export class SubjectDashboardView extends ItemView {
 			return;
 		}
 
+		// Extract current modifiers to preserve them
+		const currentModifiers = this.extractModifiers(this.activeFilterExpression);
+
 		const selectedPrimaryTopic = this.getSelectedPrimaryTopic();
+
+		let baseExpression: string | null = null;
 
 		// If primary topic selected, use its dashOnlyFilterExpSide
 		if (selectedPrimaryTopic?.dashOnlyFilterExpSide) {
-			this.activeFilterExpression = selectedPrimaryTopic.dashOnlyFilterExpSide;
+			baseExpression = selectedPrimaryTopic.dashOnlyFilterExpSide;
 		}
 		// If on subject/orphans view, use subject's dashOnlyFilterExp (fallback to legacy expression)
 		else if (this.selectedPrimaryTopicId === 'orphans') {
-			this.activeFilterExpression = this.currentSubject?.dashOnlyFilterExp || this.currentSubject?.expression || null;
+			baseExpression = this.currentSubject?.dashOnlyFilterExp || this.currentSubject?.expression || null;
 		}
-		// Otherwise clear
-		else {
-			this.activeFilterExpression = null;
-		}
+
+		// Re-apply modifiers to the new base expression
+		this.activeFilterExpression = this.appendModifiers(baseExpression, currentModifiers);
 
 		// Reset auto-apply context when expression changes
 		this.lastAutoAppliedContext = '';
 		// Request filter application since expression changed
 		this.shouldApplyFilterOnRender = true;
+	}
+
+	/**
+	 * Extract active modifiers from expression
+	 */
+	private extractModifiers(expression: string | null): string[] {
+		if (!expression) return [];
+		const modifiers: string[] = [];
+		if (expression.includes('\\s')) modifiers.push('\\s');
+		if (expression.includes('\\t')) modifiers.push('\\t');
+		if (expression.includes('\\a')) modifiers.push('\\a');
+		return modifiers;
+	}
+
+	/**
+	 * Append modifiers to an expression
+	 */
+	private appendModifiers(expression: string | null, modifiers: string[]): string | null {
+		if (!expression) return modifiers.length > 0 ? modifiers.join(' ') : null;
+		let result = expression;
+		// Remove existing modifiers first
+		result = result.replace(/\s*\\[sat]\s*/g, ' ').trim();
+		// Add modifiers at the end
+		if (modifiers.length > 0) {
+			result = (result + ' ' + modifiers.join(' ')).trim();
+		}
+		return result || null;
 	}
 
 	/**
@@ -742,6 +802,7 @@ export class SubjectDashboardView extends ItemView {
 	private syncButtonsFromExpression(): void {
 		this.trimSubItems = this.activeFilterExpression?.includes('\\s') || false;
 		this.topRecordOnly = this.activeFilterExpression?.includes('\\t') || false;
+		this.showAllRecords = this.activeFilterExpression?.includes('\\a') || false;
 	}
 
 	/**
@@ -1436,8 +1497,13 @@ export class SubjectDashboardView extends ItemView {
 
 		// Content area - show files matching primary topic
 		const content = column.createDiv({ cls: 'kh-dashboard-files-list' });
-		const limitedFiles = filteredRecords.slice(0, 10);
-		limitedFiles.forEach(record => {
+		// Sort files alphabetically by name
+		const sortedRecords = filteredRecords.slice().sort((a, b) => {
+			const nameA = getFileNameFromPath(a.filePath).toLowerCase();
+			const nameB = getFileNameFromPath(b.filePath).toLowerCase();
+			return nameA.localeCompare(nameB);
+		});
+		sortedRecords.forEach(record => {
 			const fileItem = content.createDiv({ cls: 'kh-dashboard-file-item' });
 			fileItem.createEl('span', {
 				text: getFileNameFromPath(record.filePath).replace('.md', ''),
@@ -1653,7 +1719,7 @@ export class SubjectDashboardView extends ItemView {
 			// Use matrixOnlyFilterExp if available, otherwise fallback to keyword
 			const matrixExpr = this.currentSubject!.matrixOnlyFilterExp || this.currentSubject!.expression;
 			if (matrixExpr) {
-				this.selectedFilterExpression = matrixExpr;
+				this.selectedFilterExpression = this.appendModifiers(matrixExpr, this.extractModifiers(this.activeFilterExpression));
 				this.selectedKeywordFilter = null;
 			} else {
 				this.selectedKeywordFilter = this.currentSubject!.keyword || null;
@@ -1667,8 +1733,13 @@ export class SubjectDashboardView extends ItemView {
 
 		// Content area - show files matching subject tag (excluding primary/secondary tags)
 		const content = column.createDiv({ cls: 'kh-dashboard-files-list' });
-		const limitedFiles = filteredRecords.slice(0, 10);
-		limitedFiles.forEach(record => {
+		// Sort files alphabetically by name
+		const sortedRecords = filteredRecords.slice().sort((a, b) => {
+			const nameA = getFileNameFromPath(a.filePath).toLowerCase();
+			const nameB = getFileNameFromPath(b.filePath).toLowerCase();
+			return nameA.localeCompare(nameB);
+		});
+		sortedRecords.forEach(record => {
 			const fileItem = content.createDiv({ cls: 'kh-dashboard-file-item' });
 			fileItem.createEl('span', {
 				text: getFileNameFromPath(record.filePath).replace('.md', ''),
@@ -2015,13 +2086,19 @@ export class SubjectDashboardView extends ItemView {
 				this.selectedKeywordFilter = null;
 				this.selectedTopicTag = null;
 				this.selectedHeaderMode = false;
-				this.selectedFilterExpression = expandedExpr; // Store filter expression to filter entries when rendering
+				this.selectedFilterExpression = this.appendModifiers(expandedExpr, this.extractModifiers(this.activeFilterExpression)); // Store filter expression to filter entries when rendering
 				await this.updateRecordsSection();
 			});
 
 			// Render files (display mode)
 			const filesList = column.createDiv({ cls: 'kh-dashboard-files-list' });
-			topicFiles.slice(0, 10).forEach(record => {
+			// Sort files alphabetically by name
+			const sortedTopicFiles = topicFiles.slice().sort((a, b) => {
+				const nameA = getFileNameFromPath(a.filePath).toLowerCase();
+				const nameB = getFileNameFromPath(b.filePath).toLowerCase();
+				return nameA.localeCompare(nameB);
+			});
+			sortedTopicFiles.forEach(record => {
 				const fileItem = filesList.createDiv({ cls: 'kh-dashboard-file-item' });
 				fileItem.createEl('span', {
 					text: getFileNameFromPath(record.filePath).replace('.md', ''),
@@ -2330,13 +2407,13 @@ export class SubjectDashboardView extends ItemView {
 				this.selectedKeywordFilter = null;
 				this.selectedTopicTag = null;
 				this.selectedHeaderMode = false;
-				this.selectedFilterExpression = expandedExpr; // Store filter expression to filter entries when rendering
+				this.selectedFilterExpression = this.appendModifiers(expandedExpr, this.extractModifiers(this.activeFilterExpression)); // Store filter expression to filter entries when rendering
 				await this.updateRecordsSection();
 			});
 
 			// Render headers (display mode)
 			const headersList = column.createDiv({ cls: 'kh-dashboard-files-list' });
-			matchingHeaders.slice(0, 10).forEach(({ record, header }) => {
+			matchingHeaders.forEach(({ record, header }) => {
 				const headerItem = headersList.createDiv({ cls: 'kh-dashboard-file-item' });
 				headerItem.createEl('span', {
 					text: `${getFileNameFromPath(record.filePath).replace('.md', '')} #${header.text}`,
@@ -2633,13 +2710,13 @@ export class SubjectDashboardView extends ItemView {
 				this.selectedKeywordFilter = null;
 				this.selectedTopicTag = null;
 				this.selectedHeaderMode = false;
-				this.selectedFilterExpression = expandedExpr; // Store filter expression to filter entries when rendering
+				this.selectedFilterExpression = this.appendModifiers(expandedExpr, this.extractModifiers(this.activeFilterExpression)); // Store filter expression to filter entries when rendering
 				await this.updateRecordsSection();
 			});
 
 			// Render files with entries (display mode)
 			const recordsList = column.createDiv({ cls: 'kh-dashboard-files-list' });
-			recordsWithMatchingEntries.slice(0, 10).forEach(record => {
+			recordsWithMatchingEntries.forEach(record => {
 				const recordItem = recordsList.createDiv({ cls: 'kh-dashboard-file-item' });
 				recordItem.createEl('span', {
 					text: getFileNameFromPath(record.filePath).replace('.md', ''),
@@ -2678,9 +2755,12 @@ export class SubjectDashboardView extends ItemView {
 
 		// Enrich entries with file-level metadata required by FilterParser.evaluateFlatEntry
 		for (const file of parsedFiles) {
+			// Normalize file tags - remove # prefix if present (FilterParser expects tags WITHOUT #)
+			const normalizedTags = file.tags.map(tag => tag.startsWith('#') ? tag.slice(1) : tag);
+
 			for (const entry of file.entries) {
 				// Add file-level metadata to each entry as required by FilterParser
-				(entry as any).fileTags = file.tags;
+				(entry as any).fileTags = normalizedTags;
 				(entry as any).fileName = file.fileName;
 				(entry as any).filePath = file.filePath;
 
@@ -2749,6 +2829,9 @@ export class SubjectDashboardView extends ItemView {
 		filterExpression: string
 	): Promise<{ entry: FlatEntry; file: ParsedFile }[]> {
 		try {
+			// Check if \a (show all) modifier is present
+			const hasShowAllModifier = filterExpression.includes('\\a');
+
 			// CONDITIONAL transform - EXACTLY like Matrix does
 			// If expression has explicit AND/OR operators, use as-is. Otherwise transform.
 			const hasExplicitOperators = /\b(AND|OR)\b/.test(filterExpression);
@@ -2775,14 +2858,14 @@ export class SubjectDashboardView extends ItemView {
 				whereExpr = parts[1]?.trim() || '';
 			}
 
-
-			// If SELECT is empty, return no results (all chips disabled)
-			if (!selectExpr || selectExpr.trim() === '') {
+			// If SELECT is empty (and not using \a), return no results (all chips disabled)
+			if (!hasShowAllModifier && (!selectExpr || selectExpr.trim() === '')) {
 				return [];
 			}
 
 			// Compile expressions
-			const selectCompiled = FilterParser.compile(selectExpr);
+			// If \a modifier is present, skip SELECT compilation (show all records)
+			const selectCompiled = hasShowAllModifier ? null : FilterParser.compile(selectExpr);
 			const whereCompiled = whereExpr ? FilterParser.compile(whereExpr) : null;
 
 			// Debug: Check if WHERE contains text or filename filter
@@ -2827,12 +2910,13 @@ export class SubjectDashboardView extends ItemView {
 					}
 
 					// Then apply SELECT clause
-					const selectMatches = FilterParser.evaluateFlatEntry(
-						selectCompiled.ast,
-						entry,
-						HighlightSpaceRepeatPlugin.settings.categories,
-						selectCompiled.modifiers
-					);
+				// Then apply SELECT clause (unless \a is active)
+				const selectMatches = hasShowAllModifier ? true : FilterParser.evaluateFlatEntry(
+					selectCompiled!.ast,
+					entry,
+					HighlightSpaceRepeatPlugin.settings.categories,
+					selectCompiled!.modifiers
+				);
 
 					if (selectMatches) {
 						matchingEntries.push({ entry, file });
@@ -2850,7 +2934,7 @@ export class SubjectDashboardView extends ItemView {
 
 			// Apply topRecordOnly filter if enabled - remove records where match is only in sub-items
 			let filteredEntries = matchingEntries;
-			if (this.topRecordOnly && filterExpression) {
+			if (this.topRecordOnly && filterExpression && !hasShowAllModifier) {
 				filteredEntries = filteredEntries.filter(({ entry, file }) => {
 					// Keep codeblocks - they are always top-level entries
 					if (entry.type === 'codeblock') {
@@ -2866,12 +2950,12 @@ export class SubjectDashboardView extends ItemView {
 						filePath: entry.filePath,
 						subItems: [] // IMPORTANT: exclude sub-items to check only top-level
 					};
-					return FilterParser.evaluateFlatEntry(selectCompiled.ast, topLevelEntry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers);
+					return FilterParser.evaluateFlatEntry(selectCompiled!.ast, topLevelEntry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled!.modifiers);
 				});
 			}
 
 			// Apply trim filter if enabled - filter sub-items to only those matching SELECT clause
-			if (this.trimSubItems) {
+			if (this.trimSubItems && !hasShowAllModifier) {
 				filteredEntries = filteredEntries.map(({ entry, file }) => {
 					if (entry.subItems && entry.subItems.length > 0) {
 						// Filter sub-items to only those matching the SELECT clause
@@ -2888,7 +2972,7 @@ export class SubjectDashboardView extends ItemView {
 								filePath: entry.filePath,
 								subItems: []
 							};
-							return FilterParser.evaluateFlatEntry(selectCompiled.ast, subItemEntry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers);
+							return FilterParser.evaluateFlatEntry(selectCompiled.ast, subItemEntry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled!.modifiers);
 						});
 
 						// Return entry with filtered sub-items
@@ -3142,6 +3226,43 @@ export class SubjectDashboardView extends ItemView {
 	 * Render selected records section
 	 * Shows records from clicked file or column, filtered by active chips
 	 */
+	/**
+	 * Add collapse/expand all button to records section header
+	 */
+	private addCollapseAllButton(sectionHeader: HTMLElement): void {
+		const toggleBtn = sectionHeader.createEl('button', {
+			text: this.allFilesCollapsed ? 'Expand All' : 'Collapse All',
+			cls: 'kh-dashboard-toggle-all-btn'
+		});
+		toggleBtn.title = this.allFilesCollapsed ? 'Expand all file groups' : 'Collapse all file groups';
+
+		toggleBtn.addEventListener('click', () => {
+			this.toggleAllFiles();
+		});
+	}
+
+	/**
+	 * Toggle all file groups between collapsed and expanded
+	 */
+	public toggleAllFiles(): void {
+		this.allFilesCollapsed = !this.allFilesCollapsed;
+
+		if (this.allFilesCollapsed) {
+			// Collapse all: get all file paths from current records and add to collapsedFiles
+			if (this.selectedRecords) {
+				this.selectedRecords.forEach(record => {
+					this.collapsedFiles.add(record.filePath);
+				});
+			}
+		} else {
+			// Expand all: clear collapsedFiles
+			this.collapsedFiles.clear();
+		}
+
+		// Re-render to apply changes
+		this.updateRecordsSection();
+	}
+
 	private async renderSelectedRecords(container: HTMLElement): Promise<void> {
 		if (!this.selectedRecords || this.selectedRecords.length === 0) return;
 
@@ -3162,6 +3283,7 @@ export class SubjectDashboardView extends ItemView {
 				text: headerText,
 				cls: 'kh-dashboard-records-title'
 			});
+			this.addCollapseAllButton(sectionHeader);
 			await this.renderSelectedHeaders(recordsSection);
 		} else {
 			// If we have a filter expression, get matching entries FIRST (exactly like matrix does)
@@ -3185,6 +3307,7 @@ export class SubjectDashboardView extends ItemView {
 					text: headerText,
 					cls: 'kh-dashboard-records-title'
 				});
+				this.addCollapseAllButton(sectionHeader);
 
 				// Render matching entries
 				await this.renderMatchingEntries(matchingEntries, recordsSection);
@@ -3232,6 +3355,7 @@ export class SubjectDashboardView extends ItemView {
 					text: headerText,
 					cls: 'kh-dashboard-records-title'
 				});
+				this.addCollapseAllButton(sectionHeader);
 
 				for (const record of this.selectedRecords) {
 					await this.renderRecordEntries(record, recordsSection);

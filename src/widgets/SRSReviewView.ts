@@ -150,10 +150,16 @@ export class SRSReviewView extends ItemView {
 		infoIcon.setAttribute('title',
 			'Pattern Priority (highest to lowest):\n' +
 			'1. {{content}} → "___"\n' +
-			'2. `code` or code blocks → "___"\n' +
-			'3. ::: → show left side only\n' +
+			'2. ::: → show left side only\n' +
+			'3. `code` or code blocks → "___"\n' +
 			'4. **bold** → "*___*"\n\n' +
-			'Only the highest priority pattern is hidden.'
+			'Main text: hides its highest priority pattern.\n' +
+			'Subitems: find highest priority across ALL subitems, hide only that pattern.\n\n' +
+			'Keyboard Shortcuts:\n' +
+			'Space = Show/Hide Answer\n' +
+			'Shift+Space = Close SRS Review\n' +
+			'1/2/3/4 = Answer (Again/Hard/Good/Easy)\n' +
+			'Shift+1/2/3/4 = Answer & Close'
 		);
 
 		// Card info
@@ -231,9 +237,9 @@ export class SRSReviewView extends ItemView {
 		// Keyboard shortcuts hint - adjust based on whether Show Answer button is shown
 		const hintContainer = container.createDiv({ cls: 'srs-keyboard-hint' });
 		if (hasContentToHide) {
-			hintContainer.textContent = 'Keyboard: Space=Show Answer, 1=Again, 2=Hard, 3=Good, 4=Easy';
+			hintContainer.textContent = 'Keyboard: Space=Show Answer, Shift+Space=Close, 1/2/3/4=Answer, Shift+1/2/3/4=Answer & Close';
 		} else {
-			hintContainer.textContent = 'Keyboard: 1=Again, 2=Hard, 3=Good, 4=Easy';
+			hintContainer.textContent = 'Keyboard: 1=Again, 2=Hard, 3=Good, 4=Easy, Shift+1/2/3/4=Answer & Close, Shift+Space=Close';
 		}
 	}
 
@@ -422,29 +428,72 @@ export class SRSReviewView extends ItemView {
 		// Check if there's anything to hide
 		const hasContentToHide = this.hasAnythingToHide(entry, record, card);
 
-		// Deep copy the entry with modified text
-		// Only apply hiding if there's something to hide AND answer is not shown
-		const displayEntry: FlatEntry = {
-			...entry,
-			text: (hasContentToHide && !this.isAnswerShown) ? this.hideContent(mainText) : mainText
+		// Helper to get numeric priority (lower = higher priority)
+		const getPatternPriority = (pattern: 'curly' | 'code' | 'triple' | 'bold' | null): number => {
+			if (pattern === 'curly') return 1;
+			if (pattern === 'triple') return 2;
+			if (pattern === 'code') return 3;
+			if (pattern === 'bold') return 4;
+			return 999; // No pattern
 		};
 
-		// Process sub-items recursively
+		// RULE 1: Find highest priority pattern in MAIN text only
+		const mainPattern = this.getHighestPriorityPattern(mainText);
+
+		// RULE 2: Find highest priority pattern across ALL subitems
+		let subitemsHighestPattern: 'curly' | 'code' | 'triple' | 'bold' | null = null;
+		let subitemsHighestPriority = 999;
+
+		if (entry.subItems) {
+			for (const subItem of entry.subItems) {
+				const subPattern = this.getHighestPriorityPattern(subItem.content);
+				if (subPattern) {
+					const priority = getPatternPriority(subPattern);
+					if (priority < subitemsHighestPriority) {
+						subitemsHighestPriority = priority;
+						subitemsHighestPattern = subPattern;
+					}
+				}
+				if (subItem.nestedCodeBlock) {
+					const nestedPattern = this.getHighestPriorityPattern(subItem.nestedCodeBlock.content);
+					if (nestedPattern) {
+						const priority = getPatternPriority(nestedPattern);
+						if (priority < subitemsHighestPriority) {
+							subitemsHighestPriority = priority;
+							subitemsHighestPattern = nestedPattern;
+						}
+					}
+				}
+			}
+		}
+
+		// Process main text - hide its pattern
+		const displayEntry: FlatEntry = {
+			...entry,
+			text: (hasContentToHide && !this.isAnswerShown && mainPattern)
+				? this.hideContent(mainText)
+				: mainText
+		};
+
+		// Process subitems - only hide the highest priority pattern found across ALL subitems
 		if (entry.subItems && entry.subItems.length > 0) {
 			displayEntry.subItems = entry.subItems.map(subItem => {
 				const processedSubItem = { ...subItem };
 
-				// Hide content in sub-item only if there's something to hide
-				if (hasContentToHide && !this.isAnswerShown) {
+				// Only hide if this subitem has the highest priority pattern
+				const subPattern = this.getHighestPriorityPattern(subItem.content);
+				if (hasContentToHide && !this.isAnswerShown && subPattern === subitemsHighestPattern) {
 					processedSubItem.content = this.hideContent(subItem.content);
 				}
 
-				// Hide nested code block content if present and there's something to hide
-				if (subItem.nestedCodeBlock && hasContentToHide && !this.isAnswerShown) {
-					processedSubItem.nestedCodeBlock = {
-						...subItem.nestedCodeBlock,
-						content: this.hideContent(subItem.nestedCodeBlock.content)
-					};
+				if (subItem.nestedCodeBlock) {
+					const nestedPattern = this.getHighestPriorityPattern(subItem.nestedCodeBlock.content);
+					if (hasContentToHide && !this.isAnswerShown && nestedPattern === subitemsHighestPattern) {
+						processedSubItem.nestedCodeBlock = {
+							...subItem.nestedCodeBlock,
+							content: this.hideContent(subItem.nestedCodeBlock.content)
+						};
+					}
 				}
 
 				return processedSubItem;
@@ -469,22 +518,26 @@ export class SRSReviewView extends ItemView {
 	}
 
 	/**
-	 * Detect highest priority pattern
+	 * Detect highest priority pattern in text
 	 */
 	private getHighestPriorityPattern(text: string): 'curly' | 'code' | 'triple' | 'bold' | null {
+		// Priority 1: {{content}}
 		if (/\{\{[^}]+\}\}/.test(text)) {
 			return 'curly';
 		}
 
-		if (/`[^`]+`/.test(text) || /```[\s\S]+?```/.test(text)) {
-			return 'code';
-		}
-
+		// Priority 2: :::
 		if (/:::/.test(text)) {
 			return 'triple';
 		}
 
-		if(/\*\*[^*]+\*\*/.test(text)) {
+		// Priority 3: `code` or ```code blocks```
+		if (/`[^`]+`/.test(text) || /```[\s\S]+?```/.test(text)) {
+			return 'code';
+		}
+
+		// Priority 4: **bold**
+		if (/\*\*[^*]+\*\*/.test(text)) {
 			return 'bold';
 		}
 
@@ -493,33 +546,34 @@ export class SRSReviewView extends ItemView {
 
 	/**
 	 * Hide content based on pattern
+	 * Priority: {{}} > ::: > backticks > bold
 	 */
 	private hideContent(text: string): string {
-		const pattern = this.getHighestPriorityPattern(text);
-
-		if (!pattern) {
-			return text;
+		// Priority 1: {{content}} - replace with ___
+		if (/\{\{[^}]+\}\}/.test(text)) {
+			return text.replace(/\{\{[^}]+\}\}/g, '___');
 		}
 
-		switch (pattern) {
-			case 'curly':
-				return text.replace(/\{\{[^}]+\}\}/g, '___');
-
-			case 'code':
-				return text
-					.replace(/```[\s\S]+?```/g, '___')
-					.replace(/`[^`]+`/g, '___');
-
-			case 'triple':
-				const parts = text.split(':::');
-				return parts[0] || text;
-
-			case 'bold':
-				return text.replace(/\*\*([^*]+)\*\*/g, '*___*');
-
-			default:
-				return text;
+		// Priority 2: ::: - show ONLY left side (everything before :::), NO OTHER HIDING
+		if (/:::/.test(text)) {
+			const parts = text.split(':::');
+			return parts[0] || text;
 		}
+
+		// Priority 3: `code` - replace with ___
+		if (/`[^`]+`/.test(text) || /```[\s\S]+?```/.test(text)) {
+			return text
+				.replace(/```[\s\S]+?```/g, '___')
+				.replace(/`[^`]+`/g, '___');
+		}
+
+		// Priority 4: **bold** - replace with *___*
+		if (/\*\*[^*]+\*\*/.test(text)) {
+			return text.replace(/\*\*([^*]+)\*\*/g, '*___*');
+		}
+
+		// No pattern found
+		return text;
 	}
 
 	/**
@@ -622,24 +676,54 @@ export class SRSReviewView extends ItemView {
 			}
 
 			if (evt.key === ' ' || evt.key === 'Spacebar') {
-				// Space bar for Show Answer
 				evt.preventDefault(); // Prevent page scroll
-				const answerButton = this.containerEl.querySelector('.srs-answer-button-container button');
-				if (answerButton) {
-					(answerButton as HTMLElement).click();
+
+				if (evt.shiftKey) {
+					// Shift+Space = Close SRS review
+					this.leaf.detach();
+				} else {
+					// Space = Show/Hide Answer
+					const answerButton = this.containerEl.querySelector('.srs-answer-button-container button');
+					if (answerButton) {
+						(answerButton as HTMLElement).click();
+					}
 				}
 			} else if (evt.key === '1') {
 				const card = this.cards[this.currentIndex];
-				if (card) this.handleReview('again', card);
+				if (card) {
+					this.handleReview('again', card);
+					if (evt.shiftKey) {
+						// Shift+1 = Answer and close
+						this.leaf.detach();
+					}
+				}
 			} else if (evt.key === '2') {
 				const card = this.cards[this.currentIndex];
-				if (card) this.handleReview('hard', card);
+				if (card) {
+					this.handleReview('hard', card);
+					if (evt.shiftKey) {
+						// Shift+2 = Answer and close
+						this.leaf.detach();
+					}
+				}
 			} else if (evt.key === '3') {
 				const card = this.cards[this.currentIndex];
-				if (card) this.handleReview('good', card);
+				if (card) {
+					this.handleReview('good', card);
+					if (evt.shiftKey) {
+						// Shift+3 = Answer and close
+						this.leaf.detach();
+					}
+				}
 			} else if (evt.key === '4') {
 				const card = this.cards[this.currentIndex];
-				if (card) this.handleReview('easy', card);
+				if (card) {
+					this.handleReview('easy', card);
+					if (evt.shiftKey) {
+						// Shift+4 = Answer and close
+						this.leaf.detach();
+					}
+				}
 			}
 		});
 	}

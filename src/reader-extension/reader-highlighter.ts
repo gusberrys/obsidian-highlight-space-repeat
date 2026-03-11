@@ -80,6 +80,14 @@ function extractAndMatch(textValue: string): [KeywordStyle[], string] | undefine
 }
 
 function replaceWithHighlight(node: Node) {
+  // Skip code blocks entirely - don't interfere with execute-code plugin's RUN button
+  if (
+    node.nodeType === Node.ELEMENT_NODE &&
+    (<Element>node).tagName === 'PRE'
+  ) {
+    return;
+  }
+
   if (
     // skip highlighting nodes
     node.nodeType === Node.ELEMENT_NODE &&
@@ -98,8 +106,8 @@ function replaceWithHighlight(node: Node) {
       const mainKeywords = matchedKeywords.filter(k => getKeywordType(k) === KeywordType.MAIN);
       const auxiliaryKeywords = matchedKeywords.filter(k => getKeywordType(k) === KeywordType.AUXILIARY);
 
-      // Use first MAIN keyword as primary (for now - later we can validate only one MAIN)
-      const primaryKeyword = mainKeywords[0] || auxiliaryKeywords[0];
+      // Use first MAIN keyword as primary, fallback to first auxiliary, ultimate fallback to first matched
+      const primaryKeyword = mainKeywords[0] || auxiliaryKeywords[0] || matchedKeywords[0];
 
       // Resolve icon based on priority (centralized)
       const iconToDisplay = resolveIcon(matchedKeywords);
@@ -114,7 +122,10 @@ function replaceWithHighlight(node: Node) {
         matchedKeywords
       );
 
-      parent.insertBefore(document.createTextNode("" + iconToDisplay + " "), node);
+      // Only insert icon if it exists
+      if (iconToDisplay) {
+        parent.insertBefore(document.createTextNode(iconToDisplay + " "), node);
+      }
       parent.insertBefore(highlight, node);
       node.nodeValue = ""; // original node fully replaced
 
@@ -144,24 +155,50 @@ function getHighlightNode(
   const highlight = parent.createSpan();
 
   // Resolve colors based on priority
-  let finalColor = primaryKeyword.color;
-  let finalBackgroundColor = primaryKeyword.backgroundColor;
+  // Standard priority rules:
+  // 1. Different priorities → highest priority wins
+  // 2. Same priority → FIRST one wins (most generic)
+  // 3. No Style/StyleAndIcon priority → first keyword wins
 
-  const firstMain = mainKeywords[0];
-  if (firstMain && auxiliaryKeywords.length > 0) {
-    const hasStylePriority =
-      firstMain.combinePriority === MainCombinePriority.Style ||
-      firstMain.combinePriority === MainCombinePriority.StyleAndIcon;
+  // Safety check: if primaryKeyword is undefined, use first matched keyword
+  const fallbackKeyword = primaryKeyword || matchedKeywords[0];
+  if (!fallbackKeyword) {
+    // No keywords at all - shouldn't happen, but return empty node
+    const emptyNode = parent.createSpan();
+    emptyNode.setText(textContent);
+    return emptyNode;
+  }
 
-    if (hasStylePriority) {
-      // Use main's colors
-      finalColor = firstMain.color;
-      finalBackgroundColor = firstMain.backgroundColor;
-    } else if (auxiliaryKeywords.length > 0) {
-      // Use first auxiliary's colors
-      const firstAux = auxiliaryKeywords[0];
-      if (firstAux.color) finalColor = firstAux.color;
-      if (firstAux.backgroundColor) finalBackgroundColor = firstAux.backgroundColor;
+  const keywordsWithStylePriority = matchedKeywords.filter(kw =>
+    kw.combinePriority === MainCombinePriority.Style ||
+    kw.combinePriority === MainCombinePriority.StyleAndIcon
+  );
+
+  // Start with fallback keyword colors (with defaults if undefined)
+  let finalColor = fallbackKeyword.color || '#000000';
+  let finalBackgroundColor = fallbackKeyword.backgroundColor || '#ffffff';
+
+  if (keywordsWithStylePriority.length > 0) {
+    // Map priority enum values to numbers for comparison
+    const getPriorityValue = (priority: MainCombinePriority) => {
+      if (priority === MainCombinePriority.StyleAndIcon) return 3;
+      if (priority === MainCombinePriority.Style) return 2;
+      return 0;
+    };
+
+    // Find the highest priority value
+    const maxPriority = Math.max(...keywordsWithStylePriority.map(kw => getPriorityValue(kw.combinePriority)));
+
+    // Filter to only those with the highest priority
+    const highestPriorityKeywords = keywordsWithStylePriority.filter(kw =>
+      getPriorityValue(kw.combinePriority) === maxPriority
+    );
+
+    // Take FIRST with highest priority (most generic)
+    if (highestPriorityKeywords.length > 0) {
+      const winner = highestPriorityKeywords[0];
+      if (winner.color) finalColor = winner.color;
+      if (winner.backgroundColor) finalBackgroundColor = winner.backgroundColor;
     }
   }
 

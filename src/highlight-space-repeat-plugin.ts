@@ -260,6 +260,21 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       }
     });
 
+    // Add command to toggle collapse/expand all in Subject Dashboard
+    this.addCommand({
+      id: 'dashboard-toggle-collapse-all',
+      name: 'Dashboard: Toggle Collapse/Expand All',
+      callback: () => {
+        const leaves = this.app.workspace.getLeavesOfType(SUBJECT_DASHBOARD_VIEW_TYPE);
+        if (leaves.length > 0) {
+          const dashboardView = leaves[0].view as SubjectDashboardView;
+          if (dashboardView && 'toggleAllFiles' in dashboardView) {
+            dashboardView.toggleAllFiles();
+          }
+        }
+      }
+    });
+
     // Add command to start SRS review
     this.addCommand({
       id: 'srs-review-due',
@@ -291,6 +306,41 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       }
     });
 
+    // Add command to review current file
+    this.addCommand({
+      id: 'srs-review-current-file',
+      name: 'SRS: Review Current File',
+      callback: async () => {
+        const activeFile = this.app.workspace.getActiveFile();
+        if (!activeFile) {
+          new Notice('No active file');
+          return;
+        }
+
+        // Get all cards for this file
+        const allFileCards = this.srsManager.getCardsForFile(activeFile.path);
+        if (allFileCards.length === 0) {
+          new Notice('No SRS cards found in this file. Mark keywords as SPACED and rescan.');
+          return;
+        }
+
+        // Filter for due cards only
+        const now = new Date();
+        const dueCards = allFileCards.filter(card => {
+          const nextReview = new Date(card.nextReviewDate);
+          return nextReview <= now;
+        });
+
+        if (dueCards.length === 0) {
+          new Notice(`No cards due in this file. Total cards: ${allFileCards.length}`);
+          return;
+        }
+
+        // Start review session with due cards only
+        await this.activateSRSReviewView(dueCards);
+      }
+    });
+
     // Add command to rescan knowledge base
     this.addCommand({
       id: 'rescan-knowledge-base',
@@ -307,6 +357,37 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       new Notice('Rescanning knowledge base...');
       await this.triggerScan();
       new Notice('Knowledge base rescan complete!');
+    });
+
+    // Add ribbon icon for SRS review of current file
+    this.addRibbonIcon('graduation-cap', 'SRS: Review Current File', async () => {
+      const activeFile = this.app.workspace.getActiveFile();
+      if (!activeFile) {
+        new Notice('No active file');
+        return;
+      }
+
+      // Get all cards for this file
+      const allFileCards = this.srsManager.getCardsForFile(activeFile.path);
+      if (allFileCards.length === 0) {
+        new Notice('No SRS cards found in this file. Mark keywords as SPACED and rescan.');
+        return;
+      }
+
+      // Filter for due cards only
+      const now = new Date();
+      const dueCards = allFileCards.filter(card => {
+        const nextReview = new Date(card.nextReviewDate);
+        return nextReview <= now;
+      });
+
+      if (dueCards.length === 0) {
+        new Notice(`No cards due in this file. Total cards: ${allFileCards.length}`);
+        return;
+      }
+
+      // Start review session with due cards only
+      await this.activateSRSReviewView(dueCards);
     });
 
     const settingTab = new SettingTab(this.app, this);
@@ -481,8 +562,8 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     const { get } = await import('svelte/store');
     const { settingsStore } = await import('./stores/settings-store');
 
-    const recordParser = new RecordParser(this.app);
     const settings = get(settingsStore);
+    const recordParser = new RecordParser(this.app, settings.parserSettings);
 
     // Get keywords that should be parsed (PARSED or SPACED status)
     const keywordsToParse: string[] = [];

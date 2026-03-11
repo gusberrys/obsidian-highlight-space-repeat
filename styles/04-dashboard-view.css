@@ -1049,27 +1049,31 @@
 
 .kh-filter-toggle {
   padding: 6px 10px;
-  background: var(--interactive-normal);
-  border: 1px solid var(--background-modifier-border);
+  background: rgba(128, 128, 128, 0.15);
+  border: 1px solid rgba(128, 128, 128, 0.3);
   border-radius: 4px;
   cursor: pointer;
   font-size: 16px;
   transition: all 0.2s ease;
+  opacity: 0.5;
+  filter: grayscale(0.6);
 }
 
 .kh-filter-toggle:hover {
-  background: var(--interactive-hover);
+  background: rgba(128, 128, 128, 0.25);
+  opacity: 0.7;
   transform: scale(1.05);
 }
 
 .kh-filter-toggle-active {
-  background: var(--interactive-accent) !important;
-  color: var(--text-on-accent) !important;
-  border: 2px solid var(--text-on-accent) !important;
-  box-shadow: 0 0 0 4px var(--interactive-accent-hover), 0 0 16px var(--interactive-accent), inset 0 0 20px rgba(255, 255, 255, 0.3) !important;
-  font-weight: 700 !important;
-  transform: scale(1.15) !important;
-  filter: brightness(1.2);
+  background: rgba(40, 167, 69, 0.3) !important;
+  color: var(--text-normal) !important;
+  border: 2px solid rgba(40, 167, 69, 0.8) !important;
+  box-shadow: 0 0 8px rgba(40, 167, 69, 0.4), inset 0 0 12px rgba(40, 167, 69, 0.2) !important;
+  font-weight: 600 !important;
+  opacity: 1 !important;
+  filter: grayscale(0) brightness(1.2) !important;
+  transform: scale(1.1) !important;
 }
 
 /* ============================================

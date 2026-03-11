@@ -1,5 +1,6 @@
 import { App, TFile } from 'obsidian';
 import type { ParsedFile, ParsedHeader, ParsedEntry, ParsedEntrySubItem, FlatEntry, HeaderInfo } from '../interfaces/ParsedFile';
+import type { ParserSettings } from '../interfaces/ParserSettings';
 
 /**
  * RecordParser - Hierarchical file parser for highlight-space-repeat
@@ -11,7 +12,7 @@ import type { ParsedFile, ParsedHeader, ParsedEntry, ParsedEntrySubItem, FlatEnt
  * All keywords before :: are equal (space-separated)
  */
 export class RecordParser {
-	constructor(private app: App) {}
+	constructor(private app: App, private parserSettings?: ParserSettings) {}
 
 	/**
 	 * Resolve aliases to main keywords and deduplicate
@@ -29,6 +30,28 @@ export class RecordParser {
 		// Deduplicate
 		const deduplicated = [...new Set(resolved)];
 		return deduplicated;
+	}
+
+	/**
+	 * Extract keywords from inline <mark class="xxx"> tags
+	 * Handles both regular and escaped quotes: <mark class="syn"> or <mark class=\"syn\" x=\"⚒️\">
+	 * @param text The text to scan for mark tags
+	 * @returns Array of keywords found in mark class attributes
+	 */
+	private extractInlineKeywords(text: string): string[] {
+		const keywords: string[] = [];
+		// Match <mark...class="keyword"...> or <mark...class=\"keyword\"...> with any additional attributes
+		// Handles escaped quotes and additional attributes like x="⚒️"
+		const markRegex = /<mark[^>]*?class\s*=\s*\\?["']([^"'\\]+?)\\?["']/g;
+		let match;
+
+		while ((match = markRegex.exec(text)) !== null) {
+			const classes = match[1].split(/\s+/);
+			// Take all classes as potential keywords
+			keywords.push(...classes.filter(c => c.length > 0).map(c => c.toLowerCase()));
+		}
+
+		return keywords;
 	}
 
 	/**
@@ -613,6 +636,21 @@ export class RecordParser {
 
 		const text = textLines.join('\n').trim();
 
+		// Extract inline keywords from <mark> tags if parseInlines is enabled
+		let finalKeywords = keywords;
+		if (this.parserSettings?.parseInlines) {
+			const inlineKeywords = this.extractInlineKeywords(text);
+			if (inlineKeywords.length > 0) {
+				console.log('[Parser] parseInlines enabled - Found inline keywords:', inlineKeywords, 'in text:', text.substring(0, 100));
+				// Combine with existing keywords and resolve aliases
+				const combined = [...keywords, ...inlineKeywords];
+				finalKeywords = this.resolveKeywords(combined, aliasMap);
+				console.log('[Parser] Combined keywords:', keywords, '+', inlineKeywords, '=', finalKeywords);
+			}
+		} else {
+			console.log('[Parser] parseInlines disabled or no inline keywords found in:', text.substring(0, 50));
+		}
+
 		// Collect sub-items
 		const subItems: ParsedEntrySubItem[] = [];
 		let j = continuationIndex;
@@ -642,6 +680,15 @@ export class RecordParser {
 					const parsedKws = keywordsStr.split(/\s+/).map(k => k.toLowerCase()).filter(k => k.length > 0);
 					itemKeywords = this.resolveKeywords(parsedKws, aliasMap);
 					content = kwMatch[2];
+				}
+
+				// Extract inline keywords from <mark> tags if parseInlines is enabled
+				if (this.parserSettings?.parseInlines) {
+					const inlineKeywords = this.extractInlineKeywords(content);
+					if (inlineKeywords.length > 0) {
+						const combined = itemKeywords ? [...itemKeywords, ...inlineKeywords] : inlineKeywords;
+						itemKeywords = this.resolveKeywords(combined, aliasMap);
+					}
 				}
 
 				// Check if content is a code block marker
@@ -719,6 +766,15 @@ export class RecordParser {
 					const parsedKws = keywordsStr.split(/\s+/).map(k => k.toLowerCase()).filter(k => k.length > 0);
 					itemKeywords = this.resolveKeywords(parsedKws, aliasMap);
 					content = kwMatch[2];
+				}
+
+				// Extract inline keywords from <mark> tags if parseInlines is enabled
+				if (this.parserSettings?.parseInlines) {
+					const inlineKeywords = this.extractInlineKeywords(content);
+					if (inlineKeywords.length > 0) {
+						const combined = itemKeywords ? [...itemKeywords, ...inlineKeywords] : inlineKeywords;
+						itemKeywords = this.resolveKeywords(combined, aliasMap);
+					}
 				}
 
 				// Check if content is a code block marker
@@ -873,6 +929,15 @@ export class RecordParser {
 					content = kwMatch[2];
 				}
 
+				// Extract inline keywords from <mark> tags if parseInlines is enabled
+				if (this.parserSettings?.parseInlines) {
+					const inlineKeywords = this.extractInlineKeywords(content);
+					if (inlineKeywords.length > 0) {
+						const combined = itemKeywords ? [...itemKeywords, ...inlineKeywords] : inlineKeywords;
+						itemKeywords = this.resolveKeywords(combined, aliasMap);
+					}
+				}
+
 				// Check if content is a code block marker
 				let codeBlockInListMatch = content.match(/^```(\w+)\s*$/);
 				let nestedCodeBlock: { language: string; content: string } | undefined;
@@ -949,6 +1014,15 @@ export class RecordParser {
 					content = kwMatch[2];
 				}
 
+				// Extract inline keywords from <mark> tags if parseInlines is enabled
+				if (this.parserSettings?.parseInlines) {
+					const inlineKeywords = this.extractInlineKeywords(content);
+					if (inlineKeywords.length > 0) {
+						const combined = itemKeywords ? [...itemKeywords, ...inlineKeywords] : inlineKeywords;
+						itemKeywords = this.resolveKeywords(combined, aliasMap);
+					}
+				}
+
 				subItems.push({
 					content,
 					listType: 'blockquote',
@@ -1007,7 +1081,7 @@ export class RecordParser {
 				type: 'keyword',
 				lineNumber: startIndex + 1,
 				text,
-				keywords: keywords.length > 0 ? keywords : undefined,
+				keywords: finalKeywords.length > 0 ? finalKeywords : undefined,
 				subItems: subItems.length > 0 ? subItems : undefined
 			},
 			nextIndex: j

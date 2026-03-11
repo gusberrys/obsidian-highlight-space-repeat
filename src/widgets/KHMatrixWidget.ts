@@ -405,6 +405,24 @@ Examples:
 			return;
 		}
 
+		// Separate common vs specific secondary topics
+		const commonSecondaries = secondaryTopics.filter(t =>
+			!t.primaryTopicIds || t.primaryTopicIds.length === 0
+		);
+		const specificSecondaries = secondaryTopics.filter(t =>
+			t.primaryTopicIds && t.primaryTopicIds.length > 0
+		);
+
+		// Calculate max number of specific secondaries for any primary
+		const maxSpecificCount = Math.max(
+			0,
+			...primaryTopics.map(primary =>
+				specificSecondaries.filter(sec =>
+					sec.primaryTopicIds?.includes(primary.id)
+				).length
+			)
+		);
+
 		const matrixSection = container.createDiv({ cls: 'kh-matrix-section' });
 
 		// Create table
@@ -436,8 +454,8 @@ Examples:
 			cell1x1.style.backgroundColor = bgColor1x1;
 		}
 
-		// Cells 1x2, 1x3, ...: Secondary topics
-		secondaryTopics.forEach((topic, index) => {
+		// Cells 1x2, 1x3, ...: Common secondary topics (left columns)
+		commonSecondaries.forEach((topic, index) => {
 			const col = index + 2;
 			const cellKey = `1x${col}`;
 			const cell = headerRow.createEl('th', { cls: 'kh-matrix-cell kh-matrix-header-cell' });
@@ -489,6 +507,15 @@ Examples:
 			}
 		});
 
+		// Add dynamic slots for specific secondaries (right columns)
+		// These are empty in the header row - specific secondaries only show in intersection cells
+		for (let i = 0; i < maxSpecificCount; i++) {
+			const cell = headerRow.createEl('th', { cls: 'kh-matrix-cell kh-matrix-header-cell kh-matrix-specific-slot' });
+			cell.textContent = '';
+			cell.style.cursor = 'default';
+			cell.setAttribute('title', 'Specific secondary topics column');
+		}
+
 		// Data rows
 		const tbody = table.createEl('tbody');
 
@@ -539,27 +566,11 @@ Examples:
 				rowHeaderCell.style.backgroundColor = bgColor;
 			}
 
-			// Intersection cells: 2x2, 2x3, 3x2, 3x3, ...
-			secondaryTopics.forEach((secondaryTopic, colIndex) => {
+			// Intersection cells with common secondaries: 2x2, 2x3, 3x2, 3x3, ...
+			commonSecondaries.forEach((secondaryTopic, colIndex) => {
 				const col = colIndex + 2;
 				const intersectionKey = `${rowNum}x${col}`;
 				const cell = row.createEl('td', { cls: 'kh-matrix-cell kh-matrix-data-cell' });
-
-				// Check if this secondary topic should intersect with this primary topic
-				// If primaryTopicIds is undefined/empty, it applies to ALL primaries (global)
-				// If primaryTopicIds is set, only show intersection if this primary is in the list
-				const shouldShowIntersection = !secondaryTopic.primaryTopicIds ||
-					secondaryTopic.primaryTopicIds.length === 0 ||
-					secondaryTopic.primaryTopicIds.includes(primaryTopic.id);
-
-				if (!shouldShowIntersection) {
-					// This secondary is assigned to specific primaries, but not this one
-					cell.classList.add('kh-matrix-cell-disabled');
-					cell.textContent = '';
-					cell.style.cursor = 'default';
-					cell.setAttribute('title', 'Not applicable - this secondary topic is not assigned to this primary topic');
-					return;
-				}
 
 				// Apply white border to all cells in row if primary topic has AND mode
 				if (andMode) {
@@ -608,6 +619,76 @@ Examples:
 					cell.style.backgroundColor = bgColor;
 				}
 			});
+
+			// Add specific secondaries for this primary in dynamic slots (right columns)
+			const primarySpecificSecondaries = specificSecondaries.filter(sec =>
+				sec.primaryTopicIds?.includes(primaryTopic.id)
+			);
+
+			for (let slotIndex = 0; slotIndex < maxSpecificCount; slotIndex++) {
+				const cell = row.createEl('td', { cls: 'kh-matrix-cell kh-matrix-data-cell kh-matrix-specific-secondary' });
+
+				if (slotIndex < primarySpecificSecondaries.length) {
+					// This primary has a specific secondary for this slot
+					const secondaryTopic = primarySpecificSecondaries[slotIndex];
+					// Find the ORIGINAL index in the full secondaryTopics array for correct cell key
+					const originalIndex = secondaryTopics.indexOf(secondaryTopic);
+					const col = originalIndex + 2;
+					const intersectionKey = `${rowNum}x${col}`;
+
+					// Apply white border to all cells in row if primary topic has AND mode
+					if (andMode) {
+						cell.classList.add('kh-matrix-and-mode-row');
+					}
+
+					const cellData = this.currentSubject!.matrix?.cells[intersectionKey];
+
+					// For intersections: ONLY use primary topic's AND mode (inherited from row)
+					const includesSubjectTag = andMode;
+
+					// Check for limited collection (blue)
+					if (this.hasLimitedCollection(secondaryTopic, primaryTopic)) {
+						cell.classList.add('kh-matrix-limited-collection');
+					}
+
+					// Apply F/H disabled styling (red background) if secondary topic has F/H disabled
+					if (secondaryTopic.fhDisabled) {
+						cell.classList.add('kb-matrix-fh-disabled');
+					}
+
+					// Display smaller icon for specific secondaries
+					const displayIcon = cellData?.icon || secondaryTopic.icon || '·';
+					const iconSpan = cell.createEl('span', { cls: 'kh-matrix-specific-icon' });
+					iconSpan.textContent = displayIcon;
+
+					// Set tooltip with F/H/R expressions
+					const expressions = this.computeCellExpressions(this.currentSubject!, secondaryTopic, primaryTopic, includesSubjectTag);
+					const expressionLines: string[] = [];
+					if (expressions.F !== null) expressionLines.push(`F: ${expressions.F}`);
+					if (expressions.H !== null) expressionLines.push(`H: ${expressions.H}`);
+					if (expressions.R !== null) expressionLines.push(`R: ${expressions.R}`);
+					const expressionsText = expressionLines.length > 0 ? '\n\n' + expressionLines.join('\n') : '';
+					const tooltipText = `${primaryTopic.name} × ${secondaryTopic.name}${expressionsText}`;
+					cell.setAttribute('title', tooltipText);
+					cell.style.cursor = 'pointer';
+
+					// Add counts if available
+					if (cellData?.fileCount !== undefined) {
+						this.addCountDisplay(cell, cellData.fileCount, cellData.headerCount || 0,
+							cellData.recordCount || 0, this.currentSubject!, secondaryTopic, primaryTopic, includesSubjectTag, tooltipText);
+					}
+
+					// Set background color based on exclusions
+					const specificBgColor = this.getCellBackgroundColor(secondaryTopic, primaryTopic);
+					if (specificBgColor) {
+						cell.style.backgroundColor = specificBgColor;
+					}
+				} else {
+					// Empty slot - this primary has fewer specific secondaries than the max
+					cell.textContent = '';
+					cell.style.cursor = 'default';
+				}
+			}
 		});
 	}
 
@@ -744,13 +825,10 @@ Examples:
 		// Collect matching headers using EXACT same logic as counting
 		if (secondaryTopic && primaryTopic) {
 			// Intersection logic: (topic1 in header + topic2 in file) OR (topic2 in header + topic1 in file)
-			const tags = this.getTags(subject, secondaryTopic, primaryTopic, includesSubjectTag);
-			const matchingFiles = parsedFiles.filter(file => {
-				const fileTags = this.getRecordTags(file);
-				return tags.every(tag => fileTags.includes(tag));
-			});
+			// Don't pre-filter files by tags - intersection logic checks headers individually
+			// A file only needs to have at least ONE of the topic tags (or none if both are keyword-based)
 
-			for (const file of matchingFiles) {
+			for (const file of parsedFiles) {
 				const fileTags = this.getRecordTags(file);
 
 				// Check both topics on file level
@@ -3049,15 +3127,13 @@ for (const file of parsedFiles) {
 	 * topic1 = primaryTopic (row), topic2 = secondaryTopic (column)
 	 */
 	public countHeadersForIntersection(parsedFiles: ParsedFile[], requiredTags: string[], topic1: Topic, topic2: Topic): number {
-		const matchingFiles = parsedFiles.filter(record => {
-			const fileTags = this.getRecordTags(record);
-			return requiredTags.every(tag => fileTags.includes(tag));
-		});
+		// Don't filter files by required tags - intersection logic checks headers individually
+		// A file only needs to have at least ONE of the topic tags (or none if both are keyword-based)
 
 		// Track distinct headers (file path + header text + level) to count each header only once
 		const countedHeaders = new Set<string>();
 
-		for (const record of matchingFiles) {
+		for (const record of parsedFiles) {
 			const fileTags = this.getRecordTags(record);
 
 			// Check if topics are on file level

@@ -22,7 +22,10 @@ export class PinnedView extends ItemView {
 	constructor(leaf: WorkspaceLeaf, plugin: HighlightSpaceRepeatPlugin) {
 		super(leaf);
 		this.plugin = plugin;
-		this.parser = new RecordParser(this.app);
+		const { get } = require('svelte/store');
+		const { settingsStore } = require('../stores/settings-store');
+		const settings = get(settingsStore);
+		this.parser = new RecordParser(this.app, settings.parserSettings);
 	}
 
 	/**

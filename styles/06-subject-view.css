@@ -119,15 +119,14 @@
 
 .kh-dashboard-columns {
   display: flex;
-  gap: 12px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 
 .kh-dashboard-column {
   flex: 1;
-  min-width: 150px;
-  max-width: 180px;
-  padding: 8px;
+  min-width: 135px;
+  max-width: 165px;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: 4px;
@@ -171,8 +170,7 @@
 .kh-dashboard-files-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  max-height: 300px;
+  max-height: 220px;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -219,6 +217,9 @@
 
 .kh-dashboard-records-header {
   margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .kh-dashboard-records-title {
@@ -226,6 +227,25 @@
   font-size: 1.2em;
   font-weight: 600;
   color: var(--text-normal);
+  flex: 1;
+}
+
+.kh-dashboard-toggle-all-btn {
+  padding: 4px 12px;
+  font-size: 0.85em;
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.kh-dashboard-toggle-all-btn:hover {
+  background: var(--interactive-hover);
+  border-color: var(--interactive-accent);
+  color: var(--interactive-accent);
 }
 
 .kh-dashboard-record-file {
@@ -306,12 +326,9 @@
 .kh-dashboard-files-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
 }
 
 .kh-dashboard-file-item {
-  padding: 2px 6px;
-  margin: 2px 0;
   background: var(--background-secondary);
   border-radius: 4px;
   cursor: pointer;

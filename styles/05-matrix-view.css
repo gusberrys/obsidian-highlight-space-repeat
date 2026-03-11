@@ -143,11 +143,23 @@
   font-size: 1.1em;
 }
 
+/* Specific secondary topics - smaller icons in dynamic slots */
+.kh-matrix-specific-secondary .kh-matrix-specific-icon {
+  font-size: 0.8em; /* 20% smaller than normal */
+  display: inline-block;
+}
+
+.kh-matrix-specific-slot {
+  /* Empty header cells for specific secondary columns */
+  background-color: var(--background-secondary-alt);
+  opacity: 0.5;
+}
+
 .kh-matrix-counts {
   display: flex;
-  gap: 4px;
+  gap: 1px;
   justify-content: center;
-  margin-top: 4px;
+  margin-bottom: 1px;
   font-size: 0.85em;
 }
 
@@ -155,7 +167,6 @@
 .kh-count-header,
 .kh-count-record {
   cursor: pointer;
-  padding: 2px 4px;
   border-radius: 3px;
   transition: background-color 0.2s;
   font-weight: 600;
@@ -194,15 +205,6 @@
 
 .kh-matrix-and-mode-row {
   border: 2px solid white !important;
-}
-
-.kh-matrix-and-mode .kh-count-file,
-.kh-matrix-and-mode .kh-count-header,
-.kh-matrix-and-mode .kh-count-record,
-.kh-matrix-and-mode-row .kh-count-file,
-.kh-matrix-and-mode-row .kh-count-header,
-.kh-matrix-and-mode-row .kh-count-record {
-  color: #e0f2e0;
 }
 
 .kh-matrix-and-mode .kh-count-file:hover,

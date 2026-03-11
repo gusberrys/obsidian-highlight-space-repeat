@@ -101,8 +101,8 @@ export function getKeywordType(keyword: KeywordStyle): KeywordType {
     return KeywordType.MAIN;
   }
 
-  // Default to AUXILIARY
-  return KeywordType.AUXILIARY;
+  // Default to MAIN (never AUXILIARY)
+  return KeywordType.MAIN;
 }
 
 

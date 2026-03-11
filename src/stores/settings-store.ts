@@ -216,13 +216,14 @@ export async function loadStore(): Promise<void> {
 
       // Migrate mainKeyword to keywordType
       if (keyword.keywordType === undefined) {
-        if (keyword.mainKeyword === true) {
+        // Check if this category is a helper category
+        if (category.isHelper) {
+          keyword.keywordType = KeywordType.HELP;
+        } else if (keyword.mainKeyword === true) {
           keyword.keywordType = KeywordType.MAIN;
-        } else if (keyword.mainKeyword === false) {
-          keyword.keywordType = KeywordType.AUXILIARY;
         } else {
-          // Default to AUXILIARY for backward compatibility
-          keyword.keywordType = KeywordType.AUXILIARY;
+          // Default to MAIN (never AUXILIARY)
+          keyword.keywordType = KeywordType.MAIN;
         }
       }
 
@@ -319,14 +320,19 @@ export function addKeyword(value?: string, categoryName?: string, container?: HT
     }
 
     // Add the keyword to the category
+    // Determine keywordType based on category's isHelper flag
+    const keywordType = targetCategory.isHelper ? KeywordType.HELP : KeywordType.MAIN;
+    const mainKeyword = keywordType === KeywordType.MAIN;
+
     targetCategory.keywords.push({
       keyword: value ?? '',
       color: color,
       backgroundColor: backgroundColor,
       description: '',
-      keywordType: KeywordType.AUXILIARY,  // Default to auxiliary keyword
-      mainKeyword: false,  // Backward compatibility
+      keywordType: keywordType,
+      mainKeyword: mainKeyword,  // Backward compatibility
       collectingStatus: CollectingStatus.PARSED,  // Default to parsed
+      combinePriority: keywordType === KeywordType.MAIN ? MainCombinePriority.StyleAndIcon : undefined,
     });
     return settings;
   });

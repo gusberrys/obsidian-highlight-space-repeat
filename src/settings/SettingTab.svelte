@@ -768,7 +768,7 @@
 
     try {
       const startTime = Date.now();
-      const recordParser = new RecordParser(plugin.app);
+      const recordParser = new RecordParser(plugin.app, $store.parserSettings);
 
       // Get keywords that should be parsed (PARSED or SPACED status)
       const keywordsToparse: string[] = [];
@@ -1621,7 +1621,7 @@
           <input
             type="text"
             value={$store.parserSettings?.excludePatterns?.join(', ') || '_/'}
-            on:change={(e) => {
+            on:change={async (e) => {
               const value = e.currentTarget.value;
               const patterns = value.split(',').map(p => p.trim()).filter(p => p.length > 0);
               settingsStore.update(s => ({
@@ -1631,9 +1631,35 @@
                   excludePatterns: patterns.length > 0 ? patterns : ['_/']
                 }
               }));
+              await saveStore();
             }}
             placeholder="_/, templates/"
             class="parser-input"
+          />
+        </div>
+      </div>
+
+      <!-- Parse Inlines Toggle -->
+      <div class="setting-item">
+        <div class="setting-item-info">
+          <div class="setting-item-name">Parse Inline Keywords</div>
+          <div class="setting-item-description">Extract keywords from &lt;mark class="keyword"&gt; tags in entry text (e.g., "foo :: bar &lt;mark class="baz"&gt;text&lt;/mark&gt;" will include "baz" as a keyword)</div>
+        </div>
+        <div class="setting-item-control">
+          <input
+            type="checkbox"
+            checked={$store.parserSettings?.parseInlines || false}
+            on:change={async (e) => {
+              const checked = e.currentTarget.checked;
+              settingsStore.update(s => ({
+                ...s,
+                parserSettings: {
+                  ...s.parserSettings,
+                  parseInlines: checked
+                }
+              }));
+              await saveStore();
+            }}
           />
         </div>
       </div>
