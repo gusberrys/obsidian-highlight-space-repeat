@@ -2714,12 +2714,21 @@ for (const file of parsedFiles) {
 			this.currentSubject!.matrix!.cells[cellKey].recordCount = recordCount;
 		});
 
+		// Separate common vs specific secondary topics (SAME as rendering)
+		const commonSecondaries = secondaryTopics.filter(t =>
+			!t.primaryTopicIds || t.primaryTopicIds.length === 0
+		);
+		const specificSecondaries = secondaryTopics.filter(t =>
+			t.primaryTopicIds && t.primaryTopicIds.length > 0
+		);
+
 		// Scan intersection cells (2x2, 2x3, 3x2, 3x3, etc.)
 		primaryTopics.forEach((primaryTopic, rowIndex) => {
 			const rowNum = rowIndex + 2;
 
-			secondaryTopics.forEach((secondaryTopic, colIndex) => {
-				const col = colIndex + 2;
+			// Scan common secondaries (main table columns)
+			commonSecondaries.forEach((secondaryTopic, colIndex) => {
+				const col = colIndex + 2;  // Use index from commonSecondaries, not full array
 				const intersectionKey = `${rowNum}x${col}`;
 
 				// For intersections: ONLY use primary topic's AND mode (inherited from row)
@@ -2733,6 +2742,33 @@ for (const file of parsedFiles) {
 				// For INTERSECTION cells (2x2, 2x3, 3x2, 3x3):
 				// - Uses appliedFilterExpIntersection (BLUE) - with variables/placeholders
 				// - Variables get replaced by PRIMARY topic's values
+				const recordCount = secondaryTopic.appliedFilterExpIntersection
+					? this.countRecordsWithExpression(parsedFiles, secondaryTopic.appliedFilterExpIntersection, primaryTopic, this.currentSubject ?? undefined, includesSubjectTag)
+					: 0;
+
+				if (!this.currentSubject!.matrix!.cells[intersectionKey]) {
+					this.currentSubject!.matrix!.cells[intersectionKey] = {};
+				}
+				this.currentSubject!.matrix!.cells[intersectionKey].fileCount = fileCount;
+				this.currentSubject!.matrix!.cells[intersectionKey].headerCount = headerCount;
+				this.currentSubject!.matrix!.cells[intersectionKey].recordCount = recordCount;
+
+			});
+
+			// Scan specific secondaries for this primary (dynamic columns)
+			const primarySpecificSecondaries = specificSecondaries.filter(sec =>
+				sec.primaryTopicIds?.includes(primaryTopic.id)
+			);
+			primarySpecificSecondaries.forEach((secondaryTopic, specIndex) => {
+				// Find the ORIGINAL index in the full secondaryTopics array for correct cell key
+				const originalIndex = secondaryTopics.indexOf(secondaryTopic);
+				const col = originalIndex + 2;
+				const intersectionKey = `${rowNum}x${col}`;
+
+				const includesSubjectTag = primaryTopic.andMode || false;
+				const tags = this.getTags(this.currentSubject!, secondaryTopic, primaryTopic, includesSubjectTag);
+				const fileCount = this.countFilesWithTags(parsedFiles, tags);
+				const headerCount = this.countHeadersForIntersection(parsedFiles, tags, primaryTopic, secondaryTopic);
 				const recordCount = secondaryTopic.appliedFilterExpIntersection
 					? this.countRecordsWithExpression(parsedFiles, secondaryTopic.appliedFilterExpIntersection, primaryTopic, this.currentSubject ?? undefined, includesSubjectTag)
 					: 0;
@@ -3458,27 +3494,33 @@ for (const file of parsedFiles) {
 	}
 
 	/**
-	 * Count records matching a filter expression
-	 * Supports W: syntax for WHERE clause (file filtering)
+	 * UNIFIED METHOD: Evaluate filter expression and return matching entries
+	 * SINGLE SOURCE OF TRUTH - used by both counting and displaying
+	 *
+	 * @param showAll - If true, ignore SELECT and return all entries matching WHERE clause
 	 */
-	private countRecordsWithExpression(
+	private evaluateFilterExpression(
 		parsedFiles: ParsedFile[],
 		filterExpression: string,
 		primaryTopic: Topic | null,
 		subject?: Subject,
-		includesSubjectTag: boolean = false
-	): number {
+		includesSubjectTag: boolean = false,
+		showAll: boolean = false
+	): Array<{ entry: FlatEntry; file: ParsedFile }> {
 		if (!filterExpression || !filterExpression.trim()) {
-			return 0;
+			return [];
 		}
 
-		// Expand placeholders in expression
+		// 1. Expand placeholders in expression (only if primaryTopic provided, otherwise already expanded)
 		const expandedExpr = this.expandPlaceholders(filterExpression, primaryTopic, subject);
 
-		// Transform expression to add OR operators between keywords
-		const transformedExpr = this.transformFilterExpression(expandedExpr);
+		// 2. Transform expression ONLY if it doesn't have explicit operators
+		const hasExplicitOperators = /\b(AND|OR)\b/.test(expandedExpr);
+		const transformedExpr = hasExplicitOperators
+			? expandedExpr  // Already has operators - use as-is
+			: this.transformFilterExpression(expandedExpr); // No operators - transform it
 
-		// Split on W: to separate SELECT and WHERE clauses
+		// 3. Split on W: to separate SELECT and WHERE clauses
 		const hasWhere = transformedExpr.includes('W:');
 		let selectExpr = transformedExpr;
 		let whereExpr = '';
@@ -3489,20 +3531,25 @@ for (const file of parsedFiles) {
 			whereExpr = parts[1]?.trim() || '';
 		}
 
-		// Add subject tag to WHERE clause if this is a green cell (AND mode enabled)
+		// 4. Add subject tag to WHERE clause if this is a green cell (AND mode enabled)
+		// ONLY add if the WHERE clause doesn't already contain it
 		if (includesSubjectTag && subject?.mainTag) {
-			// Normalize: strip leading # if present, then add it back
 			const subjectTag = subject.mainTag.replace(/^#/, '');
+			const normalizedTag = `#${subjectTag}`;
+
 			if (whereExpr) {
-				// Add to existing WHERE clause (wrap in parentheses for correct precedence)
-				whereExpr = `#${subjectTag} AND (${whereExpr})`;
+				// Only add if not already present in WHERE clause
+				if (!whereExpr.includes(normalizedTag)) {
+					whereExpr = `${normalizedTag} AND (${whereExpr})`;
+				}
 			} else {
 				// Create new WHERE clause with just the subject tag
-				whereExpr = `#${subjectTag}`;
+				whereExpr = normalizedTag;
 			}
 		}
 
-		// Compile expressions
+
+		// 5. Compile expressions
 		let selectCompiled: import('../interfaces/FilterInterfaces').CompiledFilter;
 		let whereCompiled: import('../interfaces/FilterInterfaces').CompiledFilter | null = null;
 
@@ -3513,12 +3560,12 @@ for (const file of parsedFiles) {
 			}
 		} catch (error) {
 			console.error(`[KHMatrixWidget] Failed to compile expression: ${transformedExpr}`, error);
-			return 0;
+			return [];
 		}
 
-		// Count matching entries using FlatEntry
-		let matchCount = 0;
-		
+		// 6. Evaluate and collect matching entries
+		const matchingEntries: Array<{ entry: FlatEntry; file: ParsedFile }> = [];
+
 		for (const file of parsedFiles) {
 			for (const entry of file.entries) {
 				// First apply WHERE clause (if present)
@@ -3528,14 +3575,35 @@ for (const file of parsedFiles) {
 					}
 				}
 
+				// If showAll mode: return all entries that passed WHERE clause
+				if (showAll && whereCompiled) {
+					matchingEntries.push({ entry, file });
+					continue;
+				}
+
 				// Then apply SELECT clause
 				if (FilterParser.evaluateFlatEntry(selectCompiled.ast, entry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers)) {
-					matchCount++;
+					matchingEntries.push({ entry, file });
 				}
 			}
 		}
 
-		return matchCount;
+		return matchingEntries;
+	}
+
+	/**
+	 * Count records matching a filter expression
+	 * Uses unified evaluation method
+	 */
+	private countRecordsWithExpression(
+		parsedFiles: ParsedFile[],
+		filterExpression: string,
+		primaryTopic: Topic | null,
+		subject?: Subject,
+		includesSubjectTag: boolean = false
+	): number {
+		const matches = this.evaluateFilterExpression(parsedFiles, filterExpression, primaryTopic, subject, includesSubjectTag);
+		return matches.length;
 	}
 
 	/**

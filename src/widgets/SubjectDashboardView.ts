@@ -1289,9 +1289,20 @@ export class SubjectDashboardView extends ItemView {
 		}
 
 		// Render each secondary topic as a column (skip fhDisabled topics)
+		// Only show: common secondaries (always) + specific secondaries for selected primary
+		const selectedPrimaryTopic = primaryTopics.find(t => t.id === this.selectedPrimaryTopicId);
+
 		secondaryTopics.forEach((topic, topicIndex) => {
 			// Skip topics with fhDisabled flag - they only show record count in reminder
 			if (topic.fhDisabled) return;
+
+			// Check if this is a common or specific secondary
+			const isCommon = !topic.primaryTopicIds || topic.primaryTopicIds.length === 0;
+			const isSpecificForCurrentPrimary = topic.primaryTopicIds && selectedPrimaryTopic && topic.primaryTopicIds.includes(selectedPrimaryTopic.id);
+
+			// Only show common secondaries OR specific secondaries for the current primary
+			if (!isCommon && !isSpecificForCurrentPrimary) return;
+
 			this.renderColumnFiles(columnsContainer, topic, topicIndex, filteredRecords, parsedRecords);
 		});
 	}
@@ -1873,7 +1884,27 @@ export class SubjectDashboardView extends ItemView {
 
 		// Override counts with pre-calculated matrix data
 		if (this.currentSubject?.matrix?.cells) {
-			const col = topicIndex + 2; // Secondary topics start at column 2
+			// Calculate column position same way as matrix: common secondaries first, then specific
+			const allSecondaryTopics = this.currentSubject.secondaryTopics || [];
+			const commonSecondaries = allSecondaryTopics.filter(t =>
+				!t.primaryTopicIds || t.primaryTopicIds.length === 0
+			);
+
+			// Find column position based on whether topic is common or specific
+			let col: number;
+			const commonIndex = commonSecondaries.findIndex(t => t.id === topic.id);
+			if (commonIndex >= 0) {
+				// Common secondary: columns start at 2
+				col = commonIndex + 2;
+			} else {
+				// Specific secondary: after common secondaries
+				const specificSecondaries = allSecondaryTopics.filter(t =>
+					t.primaryTopicIds && t.primaryTopicIds.length > 0
+				);
+				const specificIndex = specificSecondaries.findIndex(t => t.id === topic.id);
+				col = commonSecondaries.length + 2 + specificIndex;
+			}
+
 			let cellKey: string;
 
 			if (this.selectedPrimaryTopicId === 'orphans') {
