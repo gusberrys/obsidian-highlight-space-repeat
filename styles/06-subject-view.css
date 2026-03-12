@@ -24,7 +24,6 @@
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.kh-subject-select,
 .kh-dashboard-topic-select {
   flex: 0 0 auto;
   width: auto;
@@ -53,10 +52,6 @@
   font-weight: 600;
 }
 
-/* Matrix widget subject selector */
-.kh-matrix-widget-header .kh-subject-selector select {
-  border: 2px solid white !important;
-}
 
 .kh-dashboard-all-button {
   flex: 0 0 auto;

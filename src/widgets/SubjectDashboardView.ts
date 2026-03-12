@@ -270,9 +270,34 @@ export class SubjectDashboardView extends ItemView {
 	private async renderHeader(container: HTMLElement, primaryTopics: Topic[]): Promise<void> {
 		const header = container.createDiv({ cls: 'kh-dashboard-view-header' });
 
-		// Subject selector dropdown
+		// Subject selector (icon button + dropdown)
 		if (this.subjects.length > 0) {
-			const select = header.createEl('select', { cls: 'kh-subject-select' });
+			const selectorDiv = header.createDiv({ cls: 'kh-subject-selector' });
+
+			// Button with current subject icon - click to view orphans
+			const subjectBtn = selectorDiv.createEl('button', {
+				text: this.currentSubject ? (this.currentSubject.icon || '📁') : '📁',
+				cls: 'kh-subject-icon-btn',
+				title: this.currentSubject ? `${this.currentSubject.name} (click for orphans)` : 'Select a subject'
+			});
+
+			// Highlight button if orphans view is active
+			if (this.selectedPrimaryTopicId === 'orphans') {
+				subjectBtn.style.backgroundColor = 'var(--interactive-accent)';
+				subjectBtn.style.color = 'white';
+			}
+
+			// Click to view orphans (subject files without primary topics)
+			subjectBtn.addEventListener('click', () => {
+				this.selectedPrimaryTopicId = 'orphans';
+				this.userCustomExpression = false;
+				this.availableChips = { categories: [], keywords: [], codeblocks: [] };
+				this.updateFilterExpression();
+				this.render();
+			});
+
+			// Select dropdown (hidden text, only arrows visible)
+			const select = selectorDiv.createEl('select', { cls: 'kh-subject-dropdown' });
 
 			this.subjects.forEach(subject => {
 				const option = select.createEl('option', {
@@ -302,6 +327,13 @@ export class SubjectDashboardView extends ItemView {
 				this.allFilesCollapsed = false;
 				this.userCustomExpression = false; // Reset to use new subject's expression
 				this.updateFilterExpression();
+
+				// Update button icon
+				if (this.currentSubject) {
+					subjectBtn.textContent = this.currentSubject.icon || '📁';
+					subjectBtn.title = this.currentSubject.name;
+				}
+
 				this.render();
 			});
 		}
@@ -311,33 +343,6 @@ export class SubjectDashboardView extends ItemView {
 		topicButtonsContainer.style.display = 'inline-flex';
 		topicButtonsContainer.style.gap = '4px';
 		topicButtonsContainer.style.alignItems = 'center';
-
-		// First button: Subject itself (orphans)
-		const subjectButton = topicButtonsContainer.createEl('button', {
-			cls: 'kh-topic-button',
-			title: this.currentSubject?.name || 'Subject'
-		});
-		subjectButton.style.padding = '4px 8px';
-		subjectButton.style.borderRadius = '4px';
-		subjectButton.style.border = '1px solid var(--background-modifier-border)';
-		subjectButton.style.cursor = 'pointer';
-		subjectButton.style.fontSize = '1.2em';
-
-		if (this.selectedPrimaryTopicId === 'orphans') {
-			subjectButton.style.backgroundColor = 'var(--interactive-accent)';
-			subjectButton.style.color = 'white';
-		} else {
-			subjectButton.style.backgroundColor = 'var(--background-primary)';
-		}
-
-		subjectButton.setText(this.currentSubject?.icon || '📁');
-		subjectButton.addEventListener('click', () => {
-			this.selectedPrimaryTopicId = 'orphans';
-			this.userCustomExpression = false; // Reset to use topic's default expression
-			this.availableChips = { categories: [], keywords: [], codeblocks: [] }; // Reset chip palette
-			this.updateFilterExpression();
-			this.render();
-		});
 
 		// Buttons for each primary topic
 		primaryTopics.forEach(topic => {
@@ -569,24 +574,6 @@ export class SubjectDashboardView extends ItemView {
 		topToggle.className = 'kh-filter-toggle' + (this.topRecordOnly ? ' kh-filter-toggle-active' : '');
 		allToggle.className = 'kh-filter-toggle' + (this.showAllRecords ? ' kh-filter-toggle-active' : '');
 	});
-
-		// Re-search button with looking glass icon
-		const researchButton = filterDiv.createEl('button', {
-			cls: 'kh-dashboard-research-button'
-		});
-		researchButton.style.padding = '4px 12px';
-		researchButton.style.display = 'flex';
-		researchButton.style.alignItems = 'center';
-		researchButton.style.gap = '4px';
-
-		const researchIcon = researchButton.createSpan();
-		setIcon(researchIcon, 'search');
-		researchButton.createSpan({ text: 'Re-search' });
-
-		researchButton.addEventListener('click', async () => {
-			// Trigger knowledge base rescan
-			await this.plugin.triggerScan();
-		});
 
 		// SRS button with brain icon
 		const srsButton = filterDiv.createEl('button', {
@@ -3711,14 +3698,16 @@ export class SubjectDashboardView extends ItemView {
 		const hasRenderableContent = (node: HeaderNode): boolean => {
 			// Check if this node has renderable entries
 			for (const entry of node.entries) {
+				// Only count keyword entries that have keywords
 				if (entry.type === 'keyword' && entry.keywords && entry.keywords.length > 0) {
 					return true;
 				}
+				// Only count codeblock entries that have a language (and implicitly some code)
 				if (entry.type === 'codeblock' && entry.language) {
 					return true;
 				}
 			}
-			// Check if any children have renderable content
+			// Check if any children have renderable content (recursive)
 			for (const child of node.children.values()) {
 				if (hasRenderableContent(child)) return true;
 			}
@@ -3798,7 +3787,8 @@ export class SubjectDashboardView extends ItemView {
 		};
 
 		// If root has entries (entries without headers), render them at the top FIRST
-		if (root.entries.length > 0) {
+		// But ONLY if they have renderable content
+		if (root.entries.length > 0 && hasRenderableContent(root)) {
 			const noHeaderSection = container.createDiv({ cls: 'kh-file-grouped-no-header' });
 			noHeaderSection.style.marginBottom = '12px';
 			const noHeaderTitle = noHeaderSection.createEl('div', { text: 'No header', cls: 'kh-file-grouped-header' });

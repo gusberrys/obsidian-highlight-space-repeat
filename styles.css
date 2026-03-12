@@ -2948,7 +2948,7 @@ h6.kh-highlighted {
   display: flex;
   align-items: center;
   gap: 8px;
-  justify-content: space-between;
+  justify-content: flex-start;
 }
 
 .kh-matrix-buttons {
@@ -2995,7 +2995,7 @@ h6.kh-highlighted {
 .kh-subject-icon-btn {
   padding: 4px 12px;
   border-radius: 4px 0 0 4px;
-  border: 1px solid var(--background-modifier-border);
+  border: 2px solid white;
   border-right: none;
   background-color: var(--background-primary);
   color: var(--text-normal);
@@ -3011,13 +3011,13 @@ h6.kh-highlighted {
   background-color: var(--background-modifier-hover);
 }
 
-/* Dropdown with only arrow visible */
+/* Dropdown with white down arrow visible */
 .kh-subject-dropdown {
   padding: 4px 8px 4px 4px;
   border-radius: 0 4px 4px 0;
-  border: 1px solid var(--background-modifier-border);
+  border: 2px solid white;
   background-color: var(--background-primary);
-  color: transparent;
+  color: white;
   font-size: 0.9em;
   cursor: pointer;
   width: 30px;
@@ -3434,7 +3434,6 @@ h6.kh-highlighted {
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.kh-subject-select,
 .kh-dashboard-topic-select {
   flex: 0 0 auto;
   width: auto;
@@ -3463,10 +3462,6 @@ h6.kh-highlighted {
   font-weight: 600;
 }
 
-/* Matrix widget subject selector */
-.kh-matrix-widget-header .kh-subject-selector select {
-  border: 2px solid white !important;
-}
 
 .kh-dashboard-all-button {
   flex: 0 0 auto;

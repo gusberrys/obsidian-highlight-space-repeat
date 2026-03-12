@@ -554,6 +554,7 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       // Refresh views if open
       this.refreshPinnedView();
       this.refreshSubjectDashboard();
+      await this.refreshMatrixWidget();
       return;
     }
 
@@ -628,6 +629,7 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     // Refresh views if open
     this.refreshPinnedView();
     this.refreshSubjectDashboard();
+    this.refreshMatrixWidget();
   }
 
   /**
@@ -655,6 +657,20 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       if (dashboardView && 'render' in dashboardView && typeof (dashboardView as any).render === 'function') {
         (dashboardView as any).render();
         console.log('[Knowledge Base Rescan] Refreshed Subject Dashboard View');
+      }
+    }
+  }
+
+  /**
+   * Refresh Matrix Widget if it's currently open
+   */
+  private async refreshMatrixWidget(): Promise<void> {
+    const leaves = this.app.workspace.getLeavesOfType(KH_MATRIX_VIEW_TYPE);
+    if (leaves.length > 0) {
+      const matrixWidget = leaves[0].view as KHMatrixWidget;
+      if (matrixWidget && 'recalculateMatrixCounts' in matrixWidget && typeof (matrixWidget as any).recalculateMatrixCounts === 'function') {
+        await (matrixWidget as any).recalculateMatrixCounts();
+        console.log('[Knowledge Base Rescan] Refreshed Matrix Widget counts');
       }
     }
   }

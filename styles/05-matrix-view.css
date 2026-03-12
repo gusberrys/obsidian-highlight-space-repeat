@@ -18,7 +18,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  justify-content: space-between;
+  justify-content: flex-start;
 }
 
 .kh-matrix-buttons {
@@ -65,7 +65,7 @@
 .kh-subject-icon-btn {
   padding: 4px 12px;
   border-radius: 4px 0 0 4px;
-  border: 1px solid var(--background-modifier-border);
+  border: 2px solid white;
   border-right: none;
   background-color: var(--background-primary);
   color: var(--text-normal);
@@ -81,13 +81,13 @@
   background-color: var(--background-modifier-hover);
 }
 
-/* Dropdown with only arrow visible */
+/* Dropdown with white down arrow visible */
 .kh-subject-dropdown {
   padding: 4px 8px 4px 4px;
   border-radius: 0 4px 4px 0;
-  border: 1px solid var(--background-modifier-border);
+  border: 2px solid white;
   background-color: var(--background-primary);
-  color: transparent;
+  color: white;
   font-size: 0.9em;
   cursor: pointer;
   width: 30px;

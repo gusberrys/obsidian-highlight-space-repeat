@@ -1,4 +1,4 @@
-import { App, ItemView, WorkspaceLeaf, Menu, MarkdownRenderer, Modal, Setting, MarkdownView, Notice, TFile } from 'obsidian';
+import { App, ItemView, WorkspaceLeaf, Menu, MarkdownRenderer, Modal, Setting, MarkdownView, Notice, TFile, setIcon } from 'obsidian';
 import { DATA_PATHS } from '../shared/data-paths';
 import { subjectsStore, saveSubjects, settingsDataStore } from '../stores/settings-store';
 import { get } from 'svelte/store';
@@ -340,30 +340,22 @@ Examples:
 
 		// Edit button
 		const editBtn = buttonsDiv.createEl('button', {
-			text: '✏️',
 			cls: 'kh-matrix-icon-btn',
 			title: 'Edit subject'
 		});
+		const editIcon = editBtn.createSpan();
+		setIcon(editIcon, 'settings');
 		editBtn.addEventListener('click', () => {
 			this.openSubjectEditor();
 		});
 
-		// Scan button
-		const scanBtn = buttonsDiv.createEl('button', {
-			text: '🔎',
-			cls: 'kh-matrix-icon-btn',
-			title: 'Scan file counts'
-		});
-		scanBtn.addEventListener('click', async () => {
-			await this.scanMatrix();
-		});
-
 		// SRS Review button with due card count tooltip
 		const srsBtn = buttonsDiv.createEl('button', {
-			text: '🧠',
 			cls: 'kh-matrix-icon-btn kh-srs-btn',
 			title: 'Loading...'
 		});
+		const srsIcon = srsBtn.createSpan();
+		setIcon(srsIcon, 'brain');
 
 		// Update tooltip with due card count
 		this.updateSRSButtonTooltip(srsBtn);
@@ -2591,11 +2583,22 @@ for (const file of parsedFiles) {
 	private async scanMatrix(): Promise<void> {
 		if (!this.currentSubject) return;
 
-		const primaryTopics = this.currentSubject!.primaryTopics || [];
-		const secondaryTopics = this.currentSubject!.secondaryTopics || [];
-
 		// Trigger existing scan functionality from settings
 		await this.plugin.triggerScan();
+
+		// Recalculate counts from parsed data
+		await this.recalculateMatrixCounts();
+	}
+
+	/**
+	 * Recalculate matrix counts from already-parsed data
+	 * Does NOT trigger a new scan - just loads existing parsed records and recalculates
+	 */
+	private async recalculateMatrixCounts(): Promise<void> {
+		if (!this.currentSubject) return;
+
+		const primaryTopics = this.currentSubject!.primaryTopics || [];
+		const secondaryTopics = this.currentSubject!.secondaryTopics || [];
 
 		// Load freshly parsed records
 		const parsedFiles = await this.loadParsedRecords();
