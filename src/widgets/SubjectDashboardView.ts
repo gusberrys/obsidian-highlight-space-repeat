@@ -1259,7 +1259,7 @@ export class SubjectDashboardView extends ItemView {
 			const primaryTopicTags = primaryTopics.map(t => t.topicTag).filter(Boolean);
 			const secondaryTopicTags = secondaryTopics.map(t => t.topicTag).filter(Boolean);
 			filteredRecords = parsedRecords.filter(record => {
-				const tags = this.getRecordTags(record);
+				const tags = this.getFileLevelTags(record);  // Use file-level tags ONLY
 				// Must have subject tag
 				const hasSubjectTag = this.currentSubject?.mainTag ? tags.includes(this.currentSubject.mainTag) : false;
 				// Must NOT have any primary topic tags
@@ -1305,8 +1305,16 @@ export class SubjectDashboardView extends ItemView {
 		filteredRecords: ParsedFile[],
 		allRecords: ParsedFile[]
 	): void {
-		// Count files matching primary topic tag
-		const fileCount = filteredRecords.length;
+		// Filter out files that have any secondary topic tags
+		const secondaryTopics = this.currentSubject?.secondaryTopics || [];
+		const secondaryTopicTags = secondaryTopics.map(t => t.topicTag).filter(Boolean);
+		const filteredRecordsWithoutSecondary = filteredRecords.filter(record => {
+			const tags = this.getFileLevelTags(record);  // Use file-level tags ONLY
+			// Must NOT have any secondary topic tags
+			const hasSecondaryTag = secondaryTopicTags.some(tag => tags.includes(tag!));
+			return !hasSecondaryTag;
+		});
+		const fileCount = filteredRecordsWithoutSecondary.length;
 
 		// Count headers matching primary topic keyword/tag (check ALL files!)
 		// EXACT same logic as matrix view's countHeadersForSingleTopic
@@ -1429,8 +1437,8 @@ export class SubjectDashboardView extends ItemView {
 			e.stopPropagation();
 			// DON'T apply chip filtering - chips are for filter expression only!
 			this.applyChipFiltering = false;
-			this.selectedRecords = filteredRecords;
-			this.selectedContext = `${primaryTopic.name}: ${filteredRecords.length} files`;
+			this.selectedRecords = filteredRecordsWithoutSecondary;
+			this.selectedContext = `${primaryTopic.name}: ${filteredRecordsWithoutSecondary.length} files`;
 			this.selectedKeywordFilter = null;
 			this.selectedTopicTag = null;
 			this.selectedHeaderMode = false;
@@ -1472,11 +1480,11 @@ export class SubjectDashboardView extends ItemView {
 		entriesCount.addEventListener('click', async (e) => {
 			e.stopPropagation();
 
-			// Use filteredRecords (already has primary topic tag on file)
+			// Use filteredRecordsWithoutSecondary (has primary topic tag but no secondary tags)
 			// to find records with primary topic keyword in entries
 			const records: ParsedFile[] = [];
 			if (primaryTopic.topicKeyword) {
-				for (const record of filteredRecords) {
+				for (const record of filteredRecordsWithoutSecondary) {
 					const hasMatchingEntry = this.recordHasMatchingEntry(
 						record,
 						new Set([primaryTopic.topicKeyword]),
@@ -1500,7 +1508,7 @@ export class SubjectDashboardView extends ItemView {
 		// Content area - show files matching primary topic
 		const content = column.createDiv({ cls: 'kh-dashboard-files-list' });
 		// Sort files alphabetically by name
-		const sortedRecords = filteredRecords.slice().sort((a, b) => {
+		const sortedRecords = filteredRecordsWithoutSecondary.slice().sort((a, b) => {
 			const nameA = getFileNameFromPath(a.filePath).toLowerCase();
 			const nameB = getFileNameFromPath(b.filePath).toLowerCase();
 			return nameA.localeCompare(nameB);
@@ -2791,7 +2799,20 @@ export class SubjectDashboardView extends ItemView {
 	}
 
 	/**
+	 * Get ONLY file-level tags (NOT header tags)
+	 * Use this for file filtering/categorization
+	 */
+	private getFileLevelTags(record: ParsedFile): string[] {
+		const tags: string[] = [];
+		record.tags.forEach(tag => {
+			tags.push(tag.startsWith('#') ? tag : '#' + tag);
+		});
+		return tags;
+	}
+
+	/**
 	 * Get tags from a parsed record (includes both file-level and header tags)
+	 * Use this for header matching and comprehensive tag searches
 	 */
 	private getRecordTags(record: ParsedFile): string[] {
 		const tags = new Set<string>();
@@ -2824,14 +2845,14 @@ export class SubjectDashboardView extends ItemView {
 	}
 
 	/**
-	 * Get files that have a specific topic tag
+	 * Get files that have a specific topic tag (file-level only, not header tags)
 	 */
 	private getFilesWithTopicTag(parsedRecords: ParsedFile[], topicTag: string): ParsedFile[] {
 		// Normalize the topic tag
 		const normalizedTag = topicTag.startsWith('#') ? topicTag : '#' + topicTag;
 
 		return parsedRecords.filter(record => {
-			const fileTags = this.getRecordTags(record);
+			const fileTags = this.getFileLevelTags(record);  // Use file-level tags ONLY
 			return fileTags.includes(normalizedTag);
 		});
 	}

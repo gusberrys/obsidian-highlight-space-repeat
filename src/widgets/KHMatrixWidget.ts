@@ -755,7 +755,7 @@ Examples:
 			const secondaryTopicTags = secondaryTopics.map(t => t.topicTag).filter(Boolean);
 
 			matchingFiles = parsedFiles.filter(file => {
-				const fileTags = this.getRecordTags(file);
+				const fileTags = this.getFileLevelTags(file);  // Use file-level tags ONLY
 				// Must have subject tag
 				const hasSubjectTag = subject.mainTag ? fileTags.includes(subject.mainTag) : false;
 				// Must NOT have any primary topic tags
@@ -771,18 +771,32 @@ Examples:
 			const tags = this.getTags(subject, secondaryTopic, primaryTopic, includesSubjectTag);
 
 			matchingFiles = parsedFiles.filter(file => {
-				const fileTags = this.getRecordTags(file);
+				const fileTags = this.getFileLevelTags(file);  // Use file-level tags ONLY
 				// Must have the secondary topic's tag
 				const hasSecondaryTag = tags.every(tag => fileTags.includes(tag));
 				// Must NOT have any primary topic tags
 				const hasPrimaryTag = primaryTopicTags.some(tag => fileTags.includes(tag));
 				return hasSecondaryTag && !hasPrimaryTag;
 			});
+		} else if (primaryTopic && !secondaryTopic) {
+			// Primary topic cell (2x1, 3x1, etc.): has primary tag BUT NOT any secondary topic tags
+			const secondaryTopics = this.currentSubject?.secondaryTopics || [];
+			const secondaryTopicTags = secondaryTopics.map(t => t.topicTag).filter(Boolean);
+			const tags = this.getTags(subject, secondaryTopic, primaryTopic, includesSubjectTag);
+
+			matchingFiles = parsedFiles.filter(file => {
+				const fileTags = this.getFileLevelTags(file);  // Use file-level tags ONLY
+				// Must have the primary topic's tag
+				const hasPrimaryTag = tags.every(tag => fileTags.includes(tag));
+				// Must NOT have any secondary topic tags
+				const hasSecondaryTag = secondaryTopicTags.some(tag => fileTags.includes(tag));
+				return hasPrimaryTag && !hasSecondaryTag;
+			});
 		} else {
-			// Regular cells (primary topic or intersection): use getTags() for AND filtering
+			// Intersection cells (2x2, 2x3, etc.): use getTags() for AND filtering
 			const tags = this.getTags(subject, secondaryTopic, primaryTopic, includesSubjectTag);
 			matchingFiles = parsedFiles.filter(file => {
-				const fileTags = this.getRecordTags(file);
+				const fileTags = this.getFileLevelTags(file);  // Use file-level tags ONLY
 				return tags.every(tag => fileTags.includes(tag));
 			});
 		}
@@ -2571,7 +2585,7 @@ for (const file of parsedFiles) {
 			const primaryTopicTags = primaryTopics.map(t => t.topicTag).filter(Boolean);
 			const secondaryTopicTags = secondaryTopics.map(t => t.topicTag).filter(Boolean);
 			const fileCount = parsedFiles.filter(record => {
-				const fileTags = this.getRecordTags(record);
+				const fileTags = this.getFileLevelTags(record);  // Use file-level tags ONLY
 				// Must have subject tag
 				const hasSubjectTag = fileTags.includes(this.currentSubject.mainTag!);
 				// Must NOT have any primary topic tags
@@ -2639,7 +2653,7 @@ for (const file of parsedFiles) {
 			// Files: Count files that have secondary topic's tag BUT NONE of the primary topic tags
 			const primaryTopicTags = primaryTopics.map(t => t.topicTag).filter(Boolean);
 			const fileCount = parsedFiles.filter(record => {
-				const fileTags = this.getRecordTags(record);
+				const fileTags = this.getFileLevelTags(record);  // Use file-level tags ONLY
 				// Must have the secondary topic's tag
 				const hasSecondaryTag = tags.every(tag => fileTags.includes(tag));
 				// Must NOT have any primary topic tags
@@ -2673,7 +2687,16 @@ for (const file of parsedFiles) {
 			const andMode = topic.andMode || false;
 			const tags = this.getTagsForTopicCell(topic, andMode);
 
-			const fileCount = this.countFilesWithTags(parsedFiles, tags);
+			// Primary topic cell: has primary tag BUT NOT any secondary topic tags
+			const secondaryTopicTags = secondaryTopics.map(t => t.topicTag).filter(Boolean);
+			const fileCount = parsedFiles.filter(file => {
+				const fileTags = this.getFileLevelTags(file);  // Use file-level tags ONLY
+				// Must have all required tags (primary topic)
+				const hasRequiredTags = tags.every(tag => fileTags.includes(tag));
+				// Must NOT have any secondary topic tags
+				const hasSecondaryTag = secondaryTopicTags.some(tag => fileTags.includes(tag!));
+				return hasRequiredTags && !hasSecondaryTag;
+			}).length;
 			const headerCount = this.countHeadersForSingleTopic(parsedFiles, tags, topic);
 
 			// For primary topic's OWN cell (SIDE cells 2x1, 3x1):
@@ -3033,7 +3056,20 @@ for (const file of parsedFiles) {
 	}
 
 	/**
+	 * Get ONLY file-level tags (NOT header tags)
+	 * Use this for file filtering/categorization in matrix
+	 */
+	private getFileLevelTags(record: ParsedFile): string[] {
+		const tags: string[] = [];
+		record.tags.forEach(tag => {
+			tags.push(tag.startsWith('#') ? tag : '#' + tag);
+		});
+		return tags;
+	}
+
+	/**
 	 * Get all tags from a parsed record (file-level tags + all header tags)
+	 * Use this for header matching and comprehensive tag searches
 	 */
 	private getRecordTags(record: ParsedFile): string[] {
 		const tags = new Set<string>();
@@ -3072,7 +3108,7 @@ for (const file of parsedFiles) {
 		if (tags.length === 0) return 0;
 
 		return parsedFiles.filter(record => {
-			const fileTags = this.getRecordTags(record);
+			const fileTags = this.getFileLevelTags(record);  // Use file-level tags ONLY
 			return tags.every(tag => fileTags.includes(tag));
 		}).length;
 	}
