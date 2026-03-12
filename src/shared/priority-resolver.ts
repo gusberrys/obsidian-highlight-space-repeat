@@ -5,7 +5,7 @@ import { MainCombinePriority } from '../shared/combine-priority';
  * Centralized icon resolution using standardized priority rules
  * Priority Rules:
  * 1. Different priorities → highest priority wins
- * 2. Same priority → LAST one wins (most specific)
+ * 2. Same priority, multiple keywords → combine icons with "/"
  * 3. No Icon/StyleAndIcon priority → last keyword with icon
  * @param keywords Array of KeywordStyle objects to resolve icons from
  * @returns Icon string or undefined
@@ -35,10 +35,15 @@ export function resolveIcon(keywords: KeywordStyle[]): string | undefined {
       getPriorityValue(kw.combinePriority) === maxPriority
     );
 
-    // Take LAST with highest priority (most specific)
+    // Combine icons from all keywords with highest priority
     if (highestPriorityKeywords.length > 0) {
-      const winner = highestPriorityKeywords[highestPriorityKeywords.length - 1];
-      if (winner?.generateIcon) return winner.generateIcon;
+      const icons = highestPriorityKeywords
+        .filter(kw => kw.generateIcon)
+        .map(kw => kw.generateIcon!);
+
+      if (icons.length > 0) {
+        return icons.join('/');
+      }
     }
   }
 
@@ -55,9 +60,9 @@ export function resolveIcon(keywords: KeywordStyle[]): string | undefined {
 /**
  * Resolve keyword NAMES that should provide icons (for widget mark elements)
  * Used when creating <mark class="kh-icon keywordname"> elements (icons shown via CSS ::before)
- * Uses same standardized priority rules as resolveIcon (LAST with highest priority)
+ * Uses same standardized priority rules as resolveIcon (combines all with highest priority)
  * @param keywords Array of KeywordStyle objects
- * @returns Array with single keyword name (the winner)
+ * @returns Array with all keyword names that have highest priority
  */
 export function resolveIconKeywordNames(keywords: KeywordStyle[]): string[] {
   if (keywords.length === 0) return [];
@@ -84,9 +89,9 @@ export function resolveIconKeywordNames(keywords: KeywordStyle[]): string[] {
       getPriorityValue(kw.combinePriority) === maxPriority
     );
 
-    // Take LAST with highest priority (most specific)
+    // Return ALL keywords with highest priority (for combining icons)
     if (highestPriorityKeywords.length > 0) {
-      return [highestPriorityKeywords[highestPriorityKeywords.length - 1].keyword];
+      return highestPriorityKeywords.map(kw => kw.keyword);
     }
   }
 

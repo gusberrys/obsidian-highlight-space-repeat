@@ -7,6 +7,7 @@ import { MainCombinePriority } from '../shared/combine-priority';
 import type { KeywordStyle } from '../shared/keyword-style';
 import { RecordParser } from '../services/RecordParser';
 import { resolveIconKeywordNames } from '../shared/priority-resolver';
+import { getAllKeywords } from '../utils/parse-helpers';
 
 export const PINNED_VIEW_TYPE = 'kh-pinned-view';
 
@@ -533,8 +534,10 @@ export class PinnedView extends ItemView {
 
 			for (const headerLevel of headerLevels) {
 				const header = headerLevel!.info;
-				if (header.text) {
-					const headerKey = `${headerLevel!.level}:${header.text}`;
+				if (header.text || header.keywords || header.inlineKeywords) {
+					// Use text if available, otherwise use keywords joined with space
+					const headerIdentifier = header.text || (header.keywords ? header.keywords.join(' ') : '');
+					const headerKey = `${headerLevel!.level}:${headerIdentifier}`;
 					if (!headerMap.has(headerKey)) {
 						headerMap.set(headerKey, {
 							text: header.text,
@@ -576,9 +579,10 @@ export class PinnedView extends ItemView {
 
 			for (const headerLevel of headerLevels) {
 				const header = headerLevel!.info;
-				if (header.text) {
-					// Check if header keywords contain "pin"
-					const headerContainsPinKeyword = header.keywords?.some(kw =>
+				if (header.text || header.keywords || header.inlineKeywords) {
+					// Check if header keywords contain "pin" (includes inline keywords)
+					const headerKeywords = getAllKeywords(header);
+					const headerContainsPinKeyword = headerKeywords.some(kw =>
 						kw.toLowerCase().includes('pin')
 					);
 

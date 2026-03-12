@@ -142,7 +142,8 @@ export class RecordParser {
 				const h1Header = this.parseHeader(headerContent, 1, aliasMap);
 
 				// Update header context for flat entries
-				currentH1Info = h1Header.text ? {
+				// Header is valid if it has text OR keywords OR inlineKeywords
+				currentH1Info = (h1Header.text || h1Header.keywords || h1Header.inlineKeywords) ? {
 					text: h1Header.text,
 					tags: h1Header.tags,
 					keywords: h1Header.keywords || [],
@@ -191,7 +192,8 @@ export class RecordParser {
 				const h2Header = this.parseHeader(headerContent, 2, aliasMap);
 
 				// Update header context for flat entries
-				currentH2Info = h2Header.text ? {
+				// Header is valid if it has text OR keywords OR inlineKeywords
+				currentH2Info = (h2Header.text || h2Header.keywords || h2Header.inlineKeywords) ? {
 					text: h2Header.text,
 					tags: h2Header.tags,
 					keywords: h2Header.keywords || [],
@@ -239,7 +241,8 @@ export class RecordParser {
 				const h3Header = this.parseHeader(headerContent, 3, aliasMap);
 
 				// Update header context for flat entries
-				currentH3Info = h3Header.text ? {
+				// Header is valid if it has text OR keywords OR inlineKeywords
+				currentH3Info = (h3Header.text || h3Header.keywords || h3Header.inlineKeywords) ? {
 					text: h3Header.text,
 					tags: h3Header.tags,
 					keywords: h3Header.keywords || [],
@@ -538,19 +541,36 @@ export class RecordParser {
 	}
 
 	/**
-	 * Parse a header line (NEW SYNTAX: foo bar baz :: text)
+	 * Parse a header line
+	 * Supports:
+	 * - foo bar :: text (keywords with text)
+	 * - foo bar (keywords only, no text)
+	 * - regular text (no keywords)
 	 */
 	private parseHeader(headerContent: string, level: number, aliasMap?: Map<string, string>): ParsedHeader & { inlineKeywords?: string[] } {
-		// Check for keyword pattern: foo bar baz :: text
-		const keywordMatch = headerContent.match(/^([\w\s]+)::\s*(.*)$/);
 		let keywords: string[] | undefined;
 		let text = headerContent;
 
+		// Check for keyword pattern: foo bar baz :: text
+		const keywordMatch = headerContent.match(/^([\w\s]+)::\s*(.*)$/);
+
 		if (keywordMatch) {
+			// Pattern with :: found
 			const keywordsStr = keywordMatch[1].trim();
 			const parsedKeywords = keywordsStr.split(/\s+/).map(k => k.toLowerCase()).filter(k => k.length > 0);
 			keywords = this.resolveKeywords(parsedKeywords, aliasMap);
 			text = keywordMatch[2];
+		} else {
+			// No :: found - try to parse entire content as keywords
+			const possibleKeywords = headerContent.split(/\s+/).map(k => k.toLowerCase()).filter(k => k.length > 0);
+			const resolvedKeywords = this.resolveKeywords(possibleKeywords, aliasMap);
+
+			// If at least one keyword was recognized, treat as keywords-only header
+			if (resolvedKeywords.length > 0) {
+				keywords = resolvedKeywords;
+				text = '';
+			}
+			// Otherwise, treat as regular text (no keywords)
 		}
 
 		// Extract tags
@@ -570,7 +590,7 @@ export class RecordParser {
 		}
 
 		return {
-			text,
+			text: text || null,  // Return null instead of empty string
 			level,
 			keywords: keywords && keywords.length > 0 ? keywords : undefined,
 			inlineKeywords: inlineKeywords && inlineKeywords.length > 0 ? inlineKeywords : undefined,

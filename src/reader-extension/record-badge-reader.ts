@@ -6,6 +6,7 @@ import { settingsStore, settingsDataStore } from '../stores/settings-store';
 import { get } from 'svelte/store';
 import { DATA_PATHS } from '../shared/data-paths';
 import { getFileNameFromPath } from '../utils/file-helpers';
+import { getAllKeywords } from '../utils/parse-helpers';
 
 
 /**
@@ -132,7 +133,8 @@ function findHeaderWithKeyword(entry: FlatEntry, keyword: string): string | null
 
 	for (const headerLevel of headerLevels) {
 		const header = headerLevel!.info;
-		const headerHasKeyword = header.keywords?.includes(keyword);
+		const headerKeywords = getAllKeywords(header);
+		const headerHasKeyword = headerKeywords.includes(keyword);
 		if (headerHasKeyword && header.text) {
 			return header.text;
 		}

@@ -846,7 +846,7 @@ Examples:
 
 					for (const headerLevel of headerLevels) {
 						const header = headerLevel!.info;
-						if (header.text) {
+						if (header.text || header.keywords || header.inlineKeywords) {
 							// Check topic1 (primary) in header
 							let topic1KeywordMatch = false;
 							if (primaryTopic.topicKeyword) {
@@ -909,7 +909,7 @@ Examples:
 
 						for (const headerLevel of headerLevels) {
 							const header = headerLevel!.info;
-							if (header.text) {
+							if (header.text || header.keywords || header.inlineKeywords) {
 								// Check if topic keyword is in header.keywords array
 								let keywordMatch = false;
 								if (topic.topicKeyword && header.keywords) {
@@ -953,7 +953,7 @@ Examples:
 
 							for (const headerLevel of headerLevels) {
 								const header = headerLevel!.info;
-								if (header.text) {
+								if (header.text || header.keywords || header.inlineKeywords) {
 									// Check if subject keyword is in header.keywords array
 									let keywordMatch = false;
 									if (subject.keyword && header.keywords) {
@@ -1043,21 +1043,23 @@ Examples:
 			headerContent.style.alignItems = 'center';
 			headerContent.style.gap = '4px';
 
-			// Filename (truncated)
+			// Filename (truncated, without .md extension)
+			const fileName = getFileNameFromPath(file.filePath).replace(/\.md$/, '');
 			headerContent.createEl('span', {
-				text: truncateFileName(getFileNameFromPath(file.filePath)),
+				text: truncateFileName(fileName),
 				cls: 'kh-header-filename'
 			}).style.fontWeight = 'bold';
 
-			// Separator
-			if (headerInfo.keywords && headerInfo.keywords.length > 0) {
+			// Separator and icons (only display keywords, NOT inline keywords)
+			const headerKeywords = headerInfo.keywords || [];
+			if (headerKeywords.length > 0) {
 				headerContent.createEl('span', { text: '::' }).style.opacity = '0.5';
 
 				// Render keyword icons
-				headerInfo.keywords.forEach((kw, idx) => {
+				headerKeywords.forEach((kw, idx) => {
 					const mark = headerContent.createEl('mark', { cls: `kh-icon ${kw}` });
 					mark.innerHTML = '&nbsp;';
-					if (headerInfo.keywords && idx < headerInfo.keywords.length - 1) {
+					if (idx < headerKeywords.length - 1) {
 						headerContent.createEl('span', { text: ' ' });
 					}
 				});
@@ -1065,11 +1067,17 @@ Examples:
 				headerContent.createEl('span', { text: '::' }).style.opacity = '0.5';
 			}
 
-			// Header text
-			headerContent.createEl('span', {
-				text: headerInfo.text || '',
-				cls: 'kh-header-text'
-			});
+			// Header text (render markdown)
+			const headerTextSpan = headerContent.createEl('span', { cls: 'kh-header-text' });
+			if (headerInfo.text) {
+				MarkdownRenderer.render(
+					this.app,
+					headerInfo.text,
+					headerTextSpan,
+					file.filePath,
+					this
+				);
+			}
 
 			// Tags
 			if (headerInfo.tags && headerInfo.tags.length > 0) {
@@ -1397,7 +1405,7 @@ for (const file of parsedFiles) {
 				const fileHeader = fileGroup.createDiv({ cls: 'kh-widget-filter-file-header' });
 				fileHeader.style.cursor = 'pointer';
 				fileHeader.createEl('span', {
-					text: getFileNameFromPath(filePath),
+					text: getFileNameFromPath(filePath).replace(/\.md$/, ''),
 					cls: 'kh-widget-filter-file-name'
 				});
 				fileHeader.createEl('span', {
@@ -1908,7 +1916,7 @@ for (const file of parsedFiles) {
 
 					for (const headerLevel of headerLevels) {
 						const header = headerLevel!.info;
-						if (header.text) {
+						if (header.text || header.keywords || header.inlineKeywords) {
 							// Check if topic keyword is in header.keywords array
 							let keywordMatch = false;
 							if (topic.topicKeyword && header.keywords) {
@@ -1995,7 +2003,7 @@ for (const file of parsedFiles) {
 
 					for (const headerLevel of headerLevels) {
 						const header = headerLevel!.info;
-						if (header.text) {
+						if (header.text || header.keywords || header.inlineKeywords) {
 							// Secondary topic must be in HEADER (keyword OR tag)
 							let secondaryKeywordMatch = false;
 							if (secondaryTopic.topicKeyword) {
@@ -3092,11 +3100,12 @@ for (const file of parsedFiles) {
 
 				for (const headerLevel of headerLevels) {
 					const header = headerLevel!.info;
-					if (header.text) {
-						// Check if topic keyword is in header.keywords array
+					if (header.text || header.keywords || header.inlineKeywords) {
+						// Check if topic keyword is in header.keywords array (includes inline keywords)
 						let keywordMatch = false;
-						if (topic.topicKeyword && header.keywords) {
-							keywordMatch = header.keywords?.some(kw =>
+						if (topic.topicKeyword) {
+							const headerKeywords = getAllKeywords(header);
+							keywordMatch = headerKeywords.some(kw =>
 								kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
 							);
 						}
@@ -3155,11 +3164,12 @@ for (const file of parsedFiles) {
 
 				for (const headerLevel of headerLevels) {
 					const header = headerLevel!.info;
-					if (header.text) {
-						// Check if topic1 is in header (keyword OR tag)
+					if (header.text || header.keywords || header.inlineKeywords) {
+						// Check if topic1 is in header (keyword OR tag, includes inline keywords)
 						let topic1KeywordMatch = false;
-						if (topic1.topicKeyword && header.keywords) {
-							topic1KeywordMatch = header.keywords?.some(kw =>
+						if (topic1.topicKeyword) {
+							const headerKeywords = getAllKeywords(header);
+							topic1KeywordMatch = headerKeywords.some(kw =>
 								kw.toLowerCase() === topic1.topicKeyword!.toLowerCase()
 							);
 						}
@@ -3169,10 +3179,11 @@ for (const file of parsedFiles) {
 						});
 						const topic1InHeader = topic1KeywordMatch || topic1TagMatch;
 
-						// Check if topic2 is in header (keyword OR tag)
+						// Check if topic2 is in header (keyword OR tag, includes inline keywords)
 						let topic2KeywordMatch = false;
-						if (topic2.topicKeyword && header.keywords) {
-							topic2KeywordMatch = header.keywords?.some(kw =>
+						if (topic2.topicKeyword) {
+							const headerKeywords = getAllKeywords(header);
+							topic2KeywordMatch = headerKeywords.some(kw =>
 								kw.toLowerCase() === topic2.topicKeyword!.toLowerCase()
 							);
 						}

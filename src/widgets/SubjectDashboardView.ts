@@ -1326,11 +1326,12 @@ export class SubjectDashboardView extends ItemView {
 
 				for (const headerLevel of headerLevels) {
 					const header = headerLevel!.info;
-					if (header.text) {
-						// Check if topic keyword is in header.keywords array
+					if (header.text || header.keywords || header.inlineKeywords) {
+						// Check if topic keyword is in header.keywords array (includes inline keywords)
 						let keywordMatch = false;
-						if (primaryTopic.topicKeyword && header.keywords) {
-							keywordMatch = header.keywords?.some(kw =>
+						if (primaryTopic.topicKeyword) {
+							const headerKeywords = getAllKeywords(header);
+							keywordMatch = headerKeywords.some(kw =>
 								kw.toLowerCase() === primaryTopic.topicKeyword!.toLowerCase()
 							);
 						}
@@ -1566,11 +1567,12 @@ export class SubjectDashboardView extends ItemView {
 
 					for (const headerLevel of headerLevels) {
 						const header = headerLevel!.info;
-						if (header.text) {
-							// Check if subject keyword is in header.keywords array
+						if (header.text || header.keywords || header.inlineKeywords) {
+							// Check if subject keyword is in header.keywords array (includes inline keywords)
 							let keywordMatch = false;
-							if (this.currentSubject.keyword && header.keywords) {
-								keywordMatch = header.keywords?.some(kw =>
+							if (this.currentSubject.keyword) {
+								const headerKeywords = getAllKeywords(header);
+								keywordMatch = headerKeywords.some(kw =>
 									kw.toLowerCase() === this.currentSubject.keyword!.toLowerCase()
 								);
 							}
@@ -1813,11 +1815,12 @@ export class SubjectDashboardView extends ItemView {
 
 				for (const headerLevel of headerLevels) {
 					const header = headerLevel!.info;
-					if (header.text) {
+					if (header.text || header.keywords || header.inlineKeywords) {
 						// Check if topic keyword is in header.keywords array
 						let keywordMatch = false;
-						if (topic.topicKeyword && header.keywords) {
-							keywordMatch = header.keywords?.some(kw =>
+						if (topic.topicKeyword) {
+							const headerKeywords = getAllKeywords(header);
+						keywordMatch = headerKeywords.some(kw =>
 								kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
 							);
 						}
@@ -1957,11 +1960,12 @@ export class SubjectDashboardView extends ItemView {
 
 							for (const headerLevel of headerLevels) {
 								const header = headerLevel!.info;
-								if (header.text) {
+								if (header.text || header.keywords || header.inlineKeywords) {
 									// Check if SECONDARY topic is in header
 									let secondaryKeywordMatch = false;
-									if (topic.topicKeyword && header.keywords) {
-										secondaryKeywordMatch = header.keywords?.some(kw =>
+									if (topic.topicKeyword) {
+						const headerKeywords = getAllKeywords(header);
+						secondaryKeywordMatch = headerKeywords.some(kw =>
 											kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
 										);
 									}
@@ -1997,11 +2001,12 @@ export class SubjectDashboardView extends ItemView {
 
 							for (const headerLevel of headerLevels) {
 								const header = headerLevel!.info;
-								if (header.text) {
+								if (header.text || header.keywords || header.inlineKeywords) {
 									// Check if PRIMARY topic is in header
 									let primaryKeywordMatch = false;
-									if (selectedPrimaryTopic?.topicKeyword && header.keywords) {
-										primaryKeywordMatch = header.keywords?.some(kw =>
+									if (selectedPrimaryTopic?.topicKeyword) {
+						const headerKeywords = getAllKeywords(header);
+						primaryKeywordMatch = headerKeywords.some(kw =>
 											kw.toLowerCase() === selectedPrimaryTopic.topicKeyword!.toLowerCase()
 										);
 									}
@@ -2013,8 +2018,9 @@ export class SubjectDashboardView extends ItemView {
 
 									// Check if SECONDARY topic is in header
 									let secondaryKeywordMatch = false;
-									if (topic.topicKeyword && header.keywords) {
-										secondaryKeywordMatch = header.keywords?.some(kw =>
+									if (topic.topicKeyword) {
+						const headerKeywords = getAllKeywords(header);
+						secondaryKeywordMatch = headerKeywords.some(kw =>
 											kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
 										);
 									}
@@ -2161,11 +2167,12 @@ export class SubjectDashboardView extends ItemView {
 
 				for (const headerLevel of headerLevels) {
 					const header = headerLevel!.info;
-					if (header.text) {
+					if (header.text || header.keywords || header.inlineKeywords) {
 						// Check if topic keyword is in header.keywords array
 						let keywordMatch = false;
-						if (topic.topicKeyword && header.keywords) {
-							keywordMatch = header.keywords?.some(kw =>
+						if (topic.topicKeyword) {
+							const headerKeywords = getAllKeywords(header);
+						keywordMatch = headerKeywords.some(kw =>
 								kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
 							);
 						}
@@ -2278,11 +2285,12 @@ export class SubjectDashboardView extends ItemView {
 
 							for (const headerLevel of headerLevels) {
 								const header = headerLevel!.info;
-								if (header.text) {
+								if (header.text || header.keywords || header.inlineKeywords) {
 									// Check if SECONDARY topic is in header
 									let secondaryKeywordMatch = false;
-									if (topic.topicKeyword && header.keywords) {
-										secondaryKeywordMatch = header.keywords?.some(kw =>
+									if (topic.topicKeyword) {
+						const headerKeywords = getAllKeywords(header);
+						secondaryKeywordMatch = headerKeywords.some(kw =>
 											kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
 										);
 									}
@@ -2318,11 +2326,12 @@ export class SubjectDashboardView extends ItemView {
 
 							for (const headerLevel of headerLevels) {
 								const header = headerLevel!.info;
-								if (header.text) {
+								if (header.text || header.keywords || header.inlineKeywords) {
 									// Check if PRIMARY topic is in header
 									let primaryKeywordMatch = false;
-									if (selectedPrimaryTopic?.topicKeyword && header.keywords) {
-										primaryKeywordMatch = header.keywords?.some(kw =>
+									if (selectedPrimaryTopic?.topicKeyword) {
+						const headerKeywords = getAllKeywords(header);
+						primaryKeywordMatch = headerKeywords.some(kw =>
 											kw.toLowerCase() === selectedPrimaryTopic.topicKeyword!.toLowerCase()
 										);
 									}
@@ -2334,8 +2343,9 @@ export class SubjectDashboardView extends ItemView {
 
 									// Check if SECONDARY topic is in header
 									let secondaryKeywordMatch = false;
-									if (topic.topicKeyword && header.keywords) {
-										secondaryKeywordMatch = header.keywords?.some(kw =>
+									if (topic.topicKeyword) {
+						const headerKeywords = getAllKeywords(header);
+						secondaryKeywordMatch = headerKeywords.some(kw =>
 											kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
 										);
 									}
@@ -2465,11 +2475,12 @@ export class SubjectDashboardView extends ItemView {
 
 				for (const headerLevel of headerLevels) {
 					const header = headerLevel!.info;
-					if (header.text) {
+					if (header.text || header.keywords || header.inlineKeywords) {
 						// Check if topic keyword is in header.keywords array
 						let keywordMatch = false;
-						if (topic.topicKeyword && header.keywords) {
-							keywordMatch = header.keywords?.some(kw =>
+						if (topic.topicKeyword) {
+							const headerKeywords = getAllKeywords(header);
+						keywordMatch = headerKeywords.some(kw =>
 								kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
 							);
 						}
@@ -2581,11 +2592,12 @@ export class SubjectDashboardView extends ItemView {
 
 							for (const headerLevel of headerLevels) {
 								const header = headerLevel!.info;
-								if (header.text) {
+								if (header.text || header.keywords || header.inlineKeywords) {
 									// Check if SECONDARY topic is in header
 									let secondaryKeywordMatch = false;
-									if (topic.topicKeyword && header.keywords) {
-										secondaryKeywordMatch = header.keywords?.some(kw =>
+									if (topic.topicKeyword) {
+						const headerKeywords = getAllKeywords(header);
+						secondaryKeywordMatch = headerKeywords.some(kw =>
 											kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
 										);
 									}
@@ -2621,11 +2633,12 @@ export class SubjectDashboardView extends ItemView {
 
 							for (const headerLevel of headerLevels) {
 								const header = headerLevel!.info;
-								if (header.text) {
+								if (header.text || header.keywords || header.inlineKeywords) {
 									// Check if PRIMARY topic is in header
 									let primaryKeywordMatch = false;
-									if (selectedPrimaryTopic?.topicKeyword && header.keywords) {
-										primaryKeywordMatch = header.keywords?.some(kw =>
+									if (selectedPrimaryTopic?.topicKeyword) {
+						const headerKeywords = getAllKeywords(header);
+						primaryKeywordMatch = headerKeywords.some(kw =>
 											kw.toLowerCase() === selectedPrimaryTopic.topicKeyword!.toLowerCase()
 										);
 									}
@@ -2637,8 +2650,9 @@ export class SubjectDashboardView extends ItemView {
 
 									// Check if SECONDARY topic is in header
 									let secondaryKeywordMatch = false;
-									if (topic.topicKeyword && header.keywords) {
-										secondaryKeywordMatch = header.keywords?.some(kw =>
+									if (topic.topicKeyword) {
+						const headerKeywords = getAllKeywords(header);
+						secondaryKeywordMatch = headerKeywords.some(kw =>
 											kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
 										);
 									}
@@ -3039,12 +3053,12 @@ export class SubjectDashboardView extends ItemView {
 				this.updateRecordsSection();
 			});
 
-			// File name wrapper (clickable to open file)
+			// File name wrapper (clickable to open file, without .md extension)
 			const fileNameWrapper = fileHeader.createEl('span', {
 				cls: 'kh-widget-filter-file-name'
 			});
 			fileNameWrapper.style.cursor = 'pointer';
-			fileNameWrapper.textContent = getFileNameFromPath(filePath);
+			fileNameWrapper.textContent = getFileNameFromPath(filePath).replace(/\.md$/, '');
 
 			fileHeader.createEl('span', {
 				text: ` (${entries.length})`,
@@ -3400,12 +3414,13 @@ export class SubjectDashboardView extends ItemView {
 
 				for (const headerLevel of headerLevels) {
 					const header = headerLevel!.info;
-					if (header.text) {
+					if (header.text || header.keywords || header.inlineKeywords) {
 						// Check if PRIMARY topic is in header
 						let primaryKeywordMatch = false;
 						if (this.selectedPrimaryTopic && this.selectedPrimaryTopic.topicKeyword && header.keywords) {
 							const primaryKeyword = this.selectedPrimaryTopic.topicKeyword;
-							primaryKeywordMatch = header.keywords?.some(kw =>
+							const headerKeywords = getAllKeywords(header);
+								primaryKeywordMatch = headerKeywords.some(kw =>
 								kw.toLowerCase() === primaryKeyword.toLowerCase()
 							);
 						}
@@ -3423,7 +3438,8 @@ export class SubjectDashboardView extends ItemView {
 						let secondaryKeywordMatch = false;
 						if (this.selectedSecondaryTopic && this.selectedSecondaryTopic.topicKeyword && header.keywords) {
 							const secondaryKeyword = this.selectedSecondaryTopic.topicKeyword;
-							secondaryKeywordMatch = header.keywords?.some(kw =>
+							const headerKeywords = getAllKeywords(header);
+								secondaryKeywordMatch = headerKeywords.some(kw =>
 								kw.toLowerCase() === secondaryKeyword.toLowerCase()
 							);
 						}
@@ -3461,6 +3477,7 @@ export class SubjectDashboardView extends ItemView {
 								headerToEntriesMap.set(headerKey, {
 									level: headerLevel!.level,
 									text: header.text,
+									headerInfo: header,  // Store full header info
 									entries: []
 								});
 							}
@@ -3478,6 +3495,7 @@ export class SubjectDashboardView extends ItemView {
 					record,
 					headerText: headerGroup.text,
 					headerLevel: headerGroup.level,
+					headerInfo: headerGroup.headerInfo,  // Include full header info
 					entries: headerGroup.entries
 				});
 			}
@@ -3493,7 +3511,7 @@ export class SubjectDashboardView extends ItemView {
 		}
 
 		// Render each header with toggle
-		for (const { record, headerText, headerLevel, entries } of headers) {
+		for (const { record, headerText, headerLevel, headerInfo, entries } of headers) {
 			const headerId = `${record.filePath}:${headerLevel}:${headerText}`;
 			const isExpanded = this.expandedHeaders.has(headerId);
 
@@ -3528,11 +3546,33 @@ export class SubjectDashboardView extends ItemView {
 			});
 			fileSpan.title = fileName;
 
-			// Header text
-			headerItem.createEl('span', {
-				text: ` #${headerText}`,
-				cls: 'kh-widget-filter-header-text'
-			});
+			// Show keyword icons if header has keywords (only display keywords, NOT inline keywords)
+			if (headerInfo) {
+				const headerKeywords = headerInfo.keywords || [];
+				if (headerKeywords.length > 0) {
+					headerItem.createEl('span', { text: ' :: ' });
+					headerKeywords.forEach((kw, idx) => {
+						const mark = headerItem.createEl('mark', { cls: `kh-icon ${kw}` });
+						mark.innerHTML = '&nbsp;';
+						if (idx < headerKeywords.length - 1) {
+							headerItem.createEl('span', { text: ' ' });
+						}
+					});
+					headerItem.createEl('span', { text: ' :: ' });
+				}
+			}
+
+			// Header text (render markdown)
+			const headerTextSpan = headerItem.createEl('span', { cls: 'kh-widget-filter-header-text' });
+			if (headerText) {
+				MarkdownRenderer.render(
+					this.app,
+					headerText,
+					headerTextSpan,
+					record.filePath,
+					this
+				);
+			}
 
 			// If expanded, show entries under this header
 			if (isExpanded && entries && entries.length > 0) {

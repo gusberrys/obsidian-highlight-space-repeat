@@ -5,6 +5,7 @@ import { SRSCardData, ReviewButton } from '../interfaces/SRSData';
 import { ParsedEntry, ParsedFile, FlatEntry } from '../interfaces/ParsedFile';
 import { KHEntry } from '../components/KHEntry';
 import { getFileNameFromPath } from '../utils/file-helpers';
+import { getAllKeywords } from '../utils/parse-helpers';
 
 export const SRS_REVIEW_VIEW_TYPE = 'kh-srs-review-view';
 
@@ -374,9 +375,11 @@ export class SRSReviewView extends ItemView {
 
 		for (const headerLevel of headerLevels) {
 			const header = headerLevel!.info;
-			const headerHasKeyword = header.keywords?.includes(keyword);
-			if (headerHasKeyword && header.text) {
-				return header.text;
+			const headerKeywords = getAllKeywords(header);
+			const headerHasKeyword = headerKeywords.includes(keyword);
+			if (headerHasKeyword) {
+				// Return text if available, otherwise return keywords joined
+				return header.text || (header.keywords ? header.keywords.join(' ') : null);
 			}
 		}
 
@@ -581,14 +584,15 @@ export class SRSReviewView extends ItemView {
 	 */
 	private findHeaderContext(entry: FlatEntry, record: ParsedFile): string | null {
 		// Check header levels from most specific to least specific (h3 -> h2 -> h1)
-		if (entry.h3?.text) {
-			return entry.h3.text;
+		// Use text if available, otherwise use keywords
+		if (entry.h3?.text || entry.h3?.keywords) {
+			return entry.h3.text || (entry.h3.keywords ? entry.h3.keywords.join(' ') : null);
 		}
-		if (entry.h2?.text) {
-			return entry.h2.text;
+		if (entry.h2?.text || entry.h2?.keywords) {
+			return entry.h2.text || (entry.h2.keywords ? entry.h2.keywords.join(' ') : null);
 		}
-		if (entry.h1?.text) {
-			return entry.h1.text;
+		if (entry.h1?.text || entry.h1?.keywords) {
+			return entry.h1.text || (entry.h1.keywords ? entry.h1.keywords.join(' ') : null);
 		}
 		return null;
 	}
