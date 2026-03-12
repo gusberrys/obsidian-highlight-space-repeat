@@ -567,6 +567,12 @@ Examples:
 				rowHeaderCell.style.backgroundColor = bgColor;
 			}
 
+			// Click handler to open dashboard for this primary topic
+			rowHeaderCell.style.cursor = 'pointer';
+			rowHeaderCell.addEventListener('click', async () => {
+				await this.openSubjectDashboardWithPrimary(primaryTopic.id);
+			});
+
 			// Intersection cells with common secondaries: 2x2, 2x3, 3x2, 3x3, ...
 			commonSecondaries.forEach((secondaryTopic, colIndex) => {
 				const col = colIndex + 2;
@@ -2453,6 +2459,46 @@ for (const file of parsedFiles) {
 			const dashboardView = leaf.view as SubjectDashboardView;
 			if (dashboardView && 'setSubject' in dashboardView) {
 				dashboardView.setSubject(this.currentSubject);
+			}
+		}
+	}
+
+	/**
+	 * Open Subject Dashboard View with specific primary topic selected
+	 */
+	private async openSubjectDashboardWithPrimary(primaryTopicId: string): Promise<void> {
+		if (!this.currentSubject) {
+			new Notice('No subject selected');
+			return;
+		}
+
+		// Get or create Subject Dashboard View
+		const { workspace } = this.app;
+		let leaf: WorkspaceLeaf | null = null;
+		const leaves = workspace.getLeavesOfType(SUBJECT_DASHBOARD_VIEW_TYPE);
+
+		if (leaves.length > 0) {
+			// View already exists, reveal it
+			leaf = leaves[0];
+		} else {
+			// Create new view in main workspace area
+			leaf = workspace.getLeaf(false);
+			if (leaf) {
+				await leaf.setViewState({
+					type: SUBJECT_DASHBOARD_VIEW_TYPE,
+					active: true,
+				});
+			}
+		}
+
+		// Reveal the leaf and set the subject with primary topic
+		if (leaf) {
+			workspace.revealLeaf(leaf);
+
+			// Set the subject in the dashboard view
+			const dashboardView = leaf.view as SubjectDashboardView;
+			if (dashboardView && 'setSubject' in dashboardView) {
+				dashboardView.setSubject(this.currentSubject, primaryTopicId);
 			}
 		}
 	}

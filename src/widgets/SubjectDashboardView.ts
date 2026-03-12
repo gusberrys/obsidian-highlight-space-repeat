@@ -85,9 +85,9 @@ export class SubjectDashboardView extends ItemView {
 	/**
 	 * Set current subject (called from command)
 	 */
-	setSubject(subject: Subject): void {
+	setSubject(subject: Subject, primaryTopicId?: string): void {
 		this.currentSubject = subject;
-		this.selectedPrimaryTopicId = 'orphans';
+		this.selectedPrimaryTopicId = primaryTopicId || 'orphans';
 		this.updateFilterExpression();
 		this.render();
 	}
