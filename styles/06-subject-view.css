@@ -375,3 +375,49 @@
 .kh-dashboard-orphans-info p {
   margin: 4px 0;
 }
+
+/* File grouped view headers */
+.kh-file-grouped-header {
+  font-weight: bold;
+  margin-top: 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  user-select: none;
+  padding-bottom: 4px;
+  display: flex;
+  align-items: center;
+}
+
+/* H1 headers - larger with white underline */
+.kh-file-grouped-header.kh-header-level-1 {
+  font-size: 1.05em;
+  border-bottom: 2px solid white;
+}
+
+/* H2 headers - medium with gold dotted underline */
+.kh-file-grouped-header.kh-header-level-2 {
+  font-size: 1em;
+  border-bottom: 2px dotted gold;
+}
+
+/* H3 headers - smaller, no underline */
+.kh-file-grouped-header.kh-header-level-3 {
+  font-size: 0.95em;
+}
+
+/* Header text container - remove paragraph margins/bullets */
+.kh-header-text p {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.kh-header-text {
+  display: inline;
+}
+
+/* No header section */
+.kh-file-grouped-no-header {
+  margin-bottom: 12px;
+}

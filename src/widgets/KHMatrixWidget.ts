@@ -208,29 +208,11 @@ export class KHMatrixWidget extends ItemView {
 		// Filter input (always visible at top)
 		const filterDiv = header.createDiv({ cls: 'kh-widget-filter-input' });
 
-		const modeSelect = filterDiv.createEl('select', {
-			cls: 'kh-widget-filter-mode-select'
-		});
-
-		['F', 'H', 'R'].forEach(mode => {
-			const option = modeSelect.createEl('option', {
-				value: mode,
-				text: mode + ':'
-			});
-			if (this.widgetFilterType === mode) {
-				option.selected = true;
-			}
-		});
-
-		modeSelect.addEventListener('change', (e) => {
-			this.widgetFilterType = (e.target as HTMLSelectElement).value as 'F' | 'H' | 'R';
-			this.render();
-		});
-
 		const input = filterDiv.createEl('input', {
 			type: 'text',
 			cls: 'kh-widget-filter-expression',
-			value: this.widgetFilterExpression || ''
+			value: this.widgetFilterExpression || '',
+			placeholder: 'Filter expression...'
 		});
 
 		const searchBtn = filterDiv.createEl('button', {

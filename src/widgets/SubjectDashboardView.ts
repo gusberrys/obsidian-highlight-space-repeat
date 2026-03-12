@@ -32,14 +32,18 @@ export class SubjectDashboardView extends ItemView {
 	private selectedPrimaryTopic: Topic | null = null; // Primary topic for intersection
 	private selectedSecondaryTopic: Topic | null = null; // Secondary topic for intersection
 	private selectedHeaderMode: boolean = false; // Show headers instead of entries
+	private selectedFileGroupedMode: boolean = false; // Show single file with entries grouped by headers
+	private selectedFileTextFilter: string | null = null; // Filter entries by text when showing file in grouped mode
 	private expandedHeaders: Set<string> = new Set(); // Track expanded headers
 	private collapsedFiles: Set<string> = new Set(); // Track collapsed file groups (files are expanded by default)
+	private collapsedHeaders: Set<string> = new Set(); // Track collapsed headers in file grouped view
 	private allFilesCollapsed: boolean = false; // Track if collapse/expand all button is in "all collapsed" state
 	private lastAutoAppliedContext: string = ''; // Track last auto-applied filter context to avoid re-applying on re-renders
 	private shouldApplyFilterOnRender: boolean = false; // Flag to request filter application on next render
 	private applyChipFiltering: boolean = false; // Flag to control chip filtering (true for filter expression, false for column clicks)
 	private selectedFilterExpression: string | null = null; // Filter expression to apply to entries when showing records
 	private trimSubItems: boolean = false; // Slim mode: filter sub-items to only show matching keywords (\s)
+	private columnFileTextFilter: string = ''; // Search query to filter files and their content in columns
 	private topRecordOnly: boolean = false; // Top mode: only show records where keyword is top-level (\t)
 	private showAllRecords: boolean = false; // All mode: show all records regardless of activated chips (\a)
 
@@ -250,6 +254,8 @@ export class SubjectDashboardView extends ItemView {
 						this.selectedKeywordFilter = null;
 						this.selectedTopicTag = null;
 						this.selectedHeaderMode = false;
+					this.selectedFileGroupedMode = false;
+					this.selectedFileTextFilter = null;
 						this.selectedFilterExpression = this.appendModifiers(expandedExpr, this.extractModifiers(this.activeFilterExpression));
 
 
@@ -360,6 +366,109 @@ export class SubjectDashboardView extends ItemView {
 				this.updateFilterExpression();
 				this.render();
 			});
+		});
+
+		// File search input (between topic buttons and filter expression)
+		const searchContainer = header.createDiv({ cls: 'kh-dashboard-file-search-container' });
+		searchContainer.style.display = 'flex';
+		searchContainer.style.gap = '4px';
+		searchContainer.style.alignItems = 'center';
+		searchContainer.style.marginLeft = '12px';
+
+		const searchInput = searchContainer.createEl('input', {
+			type: 'text',
+			placeholder: 'Search files...',
+			cls: 'kh-dashboard-file-search-input'
+		});
+		searchInput.value = this.columnFileTextFilter;
+		searchInput.style.padding = '4px 8px';
+		searchInput.style.borderRadius = '4px';
+		searchInput.style.border = '1px solid var(--background-modifier-border)';
+		searchInput.style.minWidth = '150px';
+		searchInput.style.backgroundColor = 'var(--background-primary)';
+
+		// Search button
+		const searchButton = searchContainer.createEl('button', {
+			cls: 'kh-dashboard-file-search-button',
+			title: 'Search files'
+		});
+		searchButton.style.padding = '4px 8px';
+		searchButton.style.borderRadius = '4px';
+		searchButton.style.border = '1px solid var(--background-modifier-border)';
+		searchButton.style.cursor = 'pointer';
+		searchButton.style.backgroundColor = 'var(--interactive-accent)';
+		searchButton.style.color = 'white';
+		const searchIcon = searchButton.createSpan();
+		setIcon(searchIcon, 'search');
+
+		// Clear button
+		const clearButton = searchContainer.createEl('button', {
+			cls: 'kh-dashboard-file-search-clear',
+			title: 'Clear search'
+		});
+		clearButton.style.padding = '4px 8px';
+		clearButton.style.borderRadius = '4px';
+		clearButton.style.border = '1px solid var(--background-modifier-border)';
+		clearButton.style.cursor = 'pointer';
+		clearButton.style.backgroundColor = 'var(--background-primary)';
+		const clearIcon = clearButton.createSpan();
+		setIcon(clearIcon, 'x');
+
+		// Search button click
+		searchButton.addEventListener('click', async () => {
+			this.columnFileTextFilter = searchInput.value.trim();
+			const mainContainer = this.containerEl.children[1] as HTMLElement;
+			const primaryTopics = this.currentSubject?.primaryTopics || [];
+			const secondaryTopics = this.currentSubject?.secondaryTopics || [];
+
+			// Clear records selection
+			this.selectedRecords = null;
+			this.selectedContext = '';
+
+			// Clear records section since file list is changing
+			const recordsSection = mainContainer.querySelector('.kh-dashboard-records-section');
+			if (recordsSection) recordsSection.remove();
+
+			await this.renderColumns(mainContainer, primaryTopics, secondaryTopics);
+		});
+
+		// Enter key in search input
+		searchInput.addEventListener('keydown', async (e) => {
+			if (e.key === 'Enter') {
+				this.columnFileTextFilter = searchInput.value.trim();
+				const mainContainer = this.containerEl.children[1] as HTMLElement;
+				const primaryTopics = this.currentSubject?.primaryTopics || [];
+				const secondaryTopics = this.currentSubject?.secondaryTopics || [];
+
+				// Clear records selection
+				this.selectedRecords = null;
+				this.selectedContext = '';
+
+				// Clear records section since file list is changing
+				const recordsSection = mainContainer.querySelector('.kh-dashboard-records-section');
+				if (recordsSection) recordsSection.remove();
+
+				await this.renderColumns(mainContainer, primaryTopics, secondaryTopics);
+			}
+		});
+
+		// Clear button click
+		clearButton.addEventListener('click', async () => {
+			this.columnFileTextFilter = '';
+			searchInput.value = '';
+			const mainContainer = this.containerEl.children[1] as HTMLElement;
+			const primaryTopics = this.currentSubject?.primaryTopics || [];
+			const secondaryTopics = this.currentSubject?.secondaryTopics || [];
+
+			// Clear records selection
+			this.selectedRecords = null;
+			this.selectedContext = '';
+
+			// Clear records section since file list is changing
+			const recordsSection = mainContainer.querySelector('.kh-dashboard-records-section');
+			if (recordsSection) recordsSection.remove();
+
+			await this.renderColumns(mainContainer, primaryTopics, secondaryTopics);
 		});
 
 		// Filter expression input field with buttons
@@ -1272,8 +1381,26 @@ export class SubjectDashboardView extends ItemView {
 			// Get files for selected primary topic
 			const selectedPrimaryTopic = primaryTopics.find(t => t.id === this.selectedPrimaryTopicId);
 			if (selectedPrimaryTopic?.topicTag) {
-				filteredRecords = this.getFilesWithTopicTag(parsedRecords, selectedPrimaryTopic.topicTag);
+				// If AND mode is enabled, require BOTH primary topic tag AND subject tag
+				if (selectedPrimaryTopic.andMode && this.currentSubject?.mainTag) {
+					const primaryTag = selectedPrimaryTopic.topicTag;
+					const subjectTag = this.currentSubject.mainTag;
+					filteredRecords = parsedRecords.filter(record => {
+						const tags = this.getFileLevelTags(record);
+						return tags.includes(primaryTag) && tags.includes(subjectTag);
+					});
+				} else {
+					// Normal mode: only primary topic tag required
+					filteredRecords = this.getFilesWithTopicTag(parsedRecords, selectedPrimaryTopic.topicTag);
+				}
 			}
+		}
+
+		// Apply file search filter if active
+		if (this.columnFileTextFilter) {
+			filteredRecords = filteredRecords.filter(record => this.fileMatchesSearch(record, this.columnFileTextFilter));
+			// Also filter parsedRecords for counting purposes
+			parsedRecords = parsedRecords.filter(record => this.fileMatchesSearch(record, this.columnFileTextFilter));
 		}
 
 		// Render TOTALS column (for subject OR selected primary topic)
@@ -1477,6 +1604,7 @@ export class SubjectDashboardView extends ItemView {
 			this.selectedPrimaryTopic = primaryTopic; // Set for renderSelectedHeaders
 			this.selectedSecondaryTopic = null;
 			this.selectedHeaderMode = true;
+			this.selectedFileGroupedMode = false;
 			await this.updateRecordsSection();
 		});
 
@@ -1539,14 +1667,21 @@ export class SubjectDashboardView extends ItemView {
 						await this.plugin.app.workspace.getLeaf(false).openFile(file);
 					}
 				}
-				// Normal click: Show records from this file
+				// Normal click: Show records from this file grouped by headers
 				else {
 					this.applyChipFiltering = false;
 			this.selectedRecords = [record];
-					this.selectedContext = `${getFileNameFromPath(record.filePath).replace('.md', '')} (1 file)`;
+					const fileName = getFileNameFromPath(record.filePath).replace('.md', '');
+					const textFilterActive = this.columnFileTextFilter ? ` | Text: "${this.columnFileTextFilter}"` : '';
+					this.selectedContext = `${fileName}${textFilterActive}`;
 					this.selectedKeywordFilter = null;
 					this.selectedTopicTag = null;
 					this.selectedHeaderMode = false;
+					this.selectedFileGroupedMode = false;
+					this.selectedFileTextFilter = null;
+					this.selectedFileGroupedMode = true; // Enable grouped view
+					this.selectedFilterExpression = null;
+					this.selectedFileTextFilter = this.columnFileTextFilter || null; // Apply text filter if active
 					await this.updateRecordsSection();
 				}
 			});
@@ -1721,6 +1856,7 @@ export class SubjectDashboardView extends ItemView {
 			this.selectedPrimaryTopic = null;
 			this.selectedSecondaryTopic = null;
 			this.selectedHeaderMode = true;
+			this.selectedFileGroupedMode = false;
 			await this.updateRecordsSection();
 		});
 
@@ -1776,14 +1912,21 @@ export class SubjectDashboardView extends ItemView {
 						await this.plugin.app.workspace.getLeaf(false).openFile(file);
 					}
 				}
-				// Normal click: Show records from this file
+				// Normal click: Show records from this file grouped by headers
 				else {
 					this.applyChipFiltering = false;
 					this.selectedRecords = [record];
-					this.selectedContext = `${getFileNameFromPath(record.filePath).replace('.md', '')} (1 file)`;
+					const fileName = getFileNameFromPath(record.filePath).replace('.md', '');
+					const textFilterActive = this.columnFileTextFilter ? ` | Text: "${this.columnFileTextFilter}"` : '';
+					this.selectedContext = `${fileName}${textFilterActive}`;
 					this.selectedKeywordFilter = null;
 					this.selectedTopicTag = null;
 					this.selectedHeaderMode = false;
+					this.selectedFileGroupedMode = false;
+					this.selectedFileTextFilter = null;
+					this.selectedFileGroupedMode = true; // Enable grouped view
+					this.selectedFilterExpression = null;
+					this.selectedFileTextFilter = this.columnFileTextFilter || null; // Apply text filter if active
 					await this.updateRecordsSection();
 				}
 			});
@@ -2093,6 +2236,7 @@ export class SubjectDashboardView extends ItemView {
 				this.selectedKeywordFilter = null;
 				this.selectedTopicTag = null;
 				this.selectedHeaderMode = true;
+			this.selectedFileGroupedMode = false;
 
 
 				await this.updateRecordsSection();
@@ -2159,14 +2303,21 @@ export class SubjectDashboardView extends ItemView {
 							await this.plugin.app.workspace.getLeaf(false).openFile(file);
 						}
 					}
-					// Normal click: Show records from this file
+					// Normal click: Show records from this file grouped by headers
 					else {
 						this.applyChipFiltering = false;
 			this.selectedRecords = [record];
-						this.selectedContext = `${getFileNameFromPath(record.filePath).replace('.md', '')} (1 file)`;
+						const fileName = getFileNameFromPath(record.filePath).replace('.md', '');
+						const textFilterActive = this.columnFileTextFilter ? ` | Text: "${this.columnFileTextFilter}"` : '';
+						this.selectedContext = `${fileName}${textFilterActive}`;
 						this.selectedKeywordFilter = null;
 						this.selectedTopicTag = null;
 						this.selectedHeaderMode = false;
+					this.selectedFileGroupedMode = false;
+					this.selectedFileTextFilter = null;
+						this.selectedFileGroupedMode = true; // Enable grouped view
+						this.selectedFilterExpression = null;
+						this.selectedFileTextFilter = this.columnFileTextFilter || null; // Apply text filter if active
 						await this.updateRecordsSection();
 					}
 				});
@@ -2418,6 +2569,7 @@ export class SubjectDashboardView extends ItemView {
 				this.selectedKeywordFilter = null;
 				this.selectedTopicTag = null;
 				this.selectedHeaderMode = true;
+			this.selectedFileGroupedMode = false;
 
 
 				await this.updateRecordsSection();
@@ -2725,6 +2877,7 @@ export class SubjectDashboardView extends ItemView {
 				this.selectedKeywordFilter = null;
 				this.selectedTopicTag = null;
 				this.selectedHeaderMode = true;
+			this.selectedFileGroupedMode = false;
 
 
 				await this.updateRecordsSection();
@@ -2839,6 +2992,34 @@ export class SubjectDashboardView extends ItemView {
 			tags.push(tag.startsWith('#') ? tag : '#' + tag);
 		});
 		return tags;
+	}
+
+	/**
+	 * Check if a file matches the search query
+	 * Searches in: file name, aliases, entry text
+	 */
+	private fileMatchesSearch(record: ParsedFile, searchQuery: string): boolean {
+		if (!searchQuery) return true;
+
+		const query = searchQuery.toLowerCase();
+
+		// Check file name
+		const fileName = getFileNameFromPath(record.filePath).replace('.md', '').toLowerCase();
+		if (fileName.includes(query)) return true;
+
+		// Check aliases
+		if (record.aliases && record.aliases.length > 0) {
+			for (const alias of record.aliases) {
+				if (alias.toLowerCase().includes(query)) return true;
+			}
+		}
+
+		// Check entry text content
+		for (const entry of record.entries) {
+			if (entry.text && entry.text.toLowerCase().includes(query)) return true;
+		}
+
+		return false;
 	}
 
 	/**
@@ -3342,7 +3523,7 @@ export class SubjectDashboardView extends ItemView {
 		let filesCount = 0;
 		let headerText = `Records: ${this.selectedContext}`;
 
-		// Show headers if in header mode, otherwise show entries
+		// Show headers if in header mode, file grouped mode, or regular entries
 		if (this.selectedHeaderMode) {
 			// For headers mode, just use the original context
 			const sectionHeader = recordsSection.createDiv({ cls: 'kh-dashboard-records-header' });
@@ -3352,6 +3533,15 @@ export class SubjectDashboardView extends ItemView {
 			});
 			this.addCollapseAllButton(sectionHeader);
 			await this.renderSelectedHeaders(recordsSection);
+		} else if (this.selectedFileGroupedMode) {
+			// File grouped mode: show single file with entries grouped by headers
+			const sectionHeader = recordsSection.createDiv({ cls: 'kh-dashboard-records-header' });
+			sectionHeader.createEl('h3', {
+				text: headerText,
+				cls: 'kh-dashboard-records-title'
+			});
+			this.addCollapseAllButton(sectionHeader);
+			await this.renderFileGroupedByHeaders(recordsSection);
 		} else {
 			// If we have a filter expression, get matching entries FIRST (exactly like matrix does)
 			if (this.selectedFilterExpression) {
@@ -3428,6 +3618,295 @@ export class SubjectDashboardView extends ItemView {
 					await this.renderRecordEntries(record, recordsSection);
 				}
 			}
+		}
+	}
+
+	/**
+	 * Render a single file with entries grouped by their header hierarchy
+	 */
+	private async renderFileGroupedByHeaders(container: HTMLElement): Promise<void> {
+		if (!this.selectedRecords || this.selectedRecords.length === 0) return;
+
+		const record = this.selectedRecords[0]; // Should be exactly one file
+
+		// Build header hierarchy structure
+		interface HeaderNode {
+			text: string;
+			level: number;
+			entries: ParsedEntry[];
+			children: Map<string, HeaderNode>;
+			key: string; // Unique key for this header path
+			keywords: string[]; // Keywords if header has no text
+			headerInfo: any; // Original header info for styling
+		}
+
+		const root: HeaderNode = {
+			text: '',
+			level: 0,
+			entries: [],
+			children: new Map(),
+			key: '',
+			keywords: [],
+			headerInfo: null
+		};
+
+		// Helper to get header display text/keywords
+		const getHeaderData = (headerInfo: any): { text: string; keywords: string[] } => {
+			if (headerInfo.text) {
+				return { text: headerInfo.text, keywords: [] };
+			}
+			// No text, use keywords
+			const keywords = getAllKeywords(headerInfo);
+			return { text: '', keywords };
+		};
+
+		// Group entries by their header path
+		for (const entry of record.entries) {
+			// Apply text filter if active
+			if (this.selectedFileTextFilter) {
+				const filterText = this.selectedFileTextFilter.toLowerCase();
+				const entryText = (entry.text || '').toLowerCase();
+				if (!entryText.includes(filterText)) {
+					continue; // Skip entries that don't match the filter
+				}
+			}
+
+			let currentNode = root;
+			let pathParts: string[] = [];
+
+			// Build path through headers (h1 -> h2 -> h3)
+			const headerLevels = [
+				entry.h1 ? { level: 1, info: entry.h1 } : null,
+				entry.h2 ? { level: 2, info: entry.h2 } : null,
+				entry.h3 ? { level: 3, info: entry.h3 } : null
+			].filter(h => h !== null);
+
+			// Traverse/create header hierarchy
+			for (const header of headerLevels) {
+				const headerData = getHeaderData(header!.info);
+				const displayKey = headerData.text || headerData.keywords.join(',');
+				pathParts.push(`h${header!.level}:${displayKey}`);
+				const headerKey = pathParts.join('/');
+				const localKey = `h${header!.level}:${displayKey}`;
+
+				if (!currentNode.children.has(localKey)) {
+					currentNode.children.set(localKey, {
+						text: headerData.text,
+						level: header!.level,
+						entries: [],
+						children: new Map(),
+						key: headerKey,
+						keywords: headerData.keywords,
+						headerInfo: header!.info
+					});
+				}
+				currentNode = currentNode.children.get(localKey)!;
+			}
+
+			// Add entry to the deepest header node
+			currentNode.entries.push(entry);
+		}
+
+		// Helper to check if node or its descendants have any renderable entries
+		const hasRenderableContent = (node: HeaderNode): boolean => {
+			// Check if this node has renderable entries
+			for (const entry of node.entries) {
+				if (entry.type === 'keyword' && entry.keywords && entry.keywords.length > 0) {
+					return true;
+				}
+				if (entry.type === 'codeblock' && entry.language) {
+					return true;
+				}
+			}
+			// Check if any children have renderable content
+			for (const child of node.children.values()) {
+				if (hasRenderableContent(child)) return true;
+			}
+			return false;
+		};
+
+		// Render the hierarchy
+		const renderNode = async (node: HeaderNode, container: HTMLElement, indent: number = 0): Promise<void> => {
+			// Check if this header is collapsed
+			const isCollapsed = this.collapsedHeaders.has(node.key);
+
+			// Skip headers with no renderable content anywhere in their subtree (after filtering)
+			if (node.level > 0 && !hasRenderableContent(node)) {
+				return;
+			}
+
+			// Render this header if not root
+			if (node.level > 0) {
+				const headerDiv = container.createDiv({
+					cls: `kh-file-grouped-header kh-header-level-${node.level}`
+				});
+				headerDiv.style.paddingLeft = `${indent * 20}px`;
+
+				// Add collapse/expand toggle
+				const toggleIcon = headerDiv.createSpan({ cls: 'kh-header-toggle' });
+				toggleIcon.textContent = isCollapsed ? '▸' : '▾';
+				toggleIcon.style.marginRight = '4px';
+
+				// Render header content
+				if (node.text) {
+					// Has text - render as markdown (may contain HTML, code, etc.)
+					const headerTextSpan = headerDiv.createEl('span', { cls: 'kh-header-text' });
+					await MarkdownRenderer.render(
+						this.app,
+						node.text,
+						headerTextSpan,
+						record.filePath,
+						this
+					);
+				} else if (node.keywords.length > 0) {
+					// No text, has keywords - render keywords with their styles
+					const iconKeywords = this.resolveIconKeywords(node.keywords);
+					for (const keyword of iconKeywords) {
+						const mark = headerDiv.createEl('mark', { cls: `kh-icon ${keyword}` });
+						mark.innerHTML = '&nbsp;';
+						mark.style.marginRight = '2px';
+					}
+					headerDiv.createSpan({ text: ' ' });
+					// Also show keyword text
+					const primaryKeyword = node.keywords[0];
+					const keywordClass = this.getKeywordClass(primaryKeyword);
+					const textSpan = headerDiv.createSpan({ text: node.keywords.join(', '), cls: keywordClass });
+				}
+
+				// Toggle collapse on click
+				headerDiv.addEventListener('click', async () => {
+					if (isCollapsed) {
+						this.collapsedHeaders.delete(node.key);
+					} else {
+						this.collapsedHeaders.add(node.key);
+					}
+					await this.updateRecordsSection();
+				});
+			}
+
+			// Render entries under this header (if not collapsed)
+			if (!isCollapsed) {
+				for (const entry of node.entries) {
+					await this.renderSingleEntry(entry, record, container, indent + (node.level > 0 ? 1 : 0));
+				}
+
+				// Recursively render child headers
+				for (const childNode of node.children.values()) {
+					await renderNode(childNode, container, indent + 1);
+				}
+			}
+		};
+
+		// If root has entries (entries without headers), render them at the top FIRST
+		if (root.entries.length > 0) {
+			const noHeaderSection = container.createDiv({ cls: 'kh-file-grouped-no-header' });
+			noHeaderSection.style.marginBottom = '12px';
+			const noHeaderTitle = noHeaderSection.createEl('div', { text: 'No header', cls: 'kh-file-grouped-header' });
+			noHeaderTitle.style.fontWeight = 'bold';
+			noHeaderTitle.style.fontSize = '0.95em';
+			noHeaderTitle.style.marginBottom = '8px';
+			noHeaderTitle.style.color = 'var(--text-muted)';
+			for (const entry of root.entries) {
+				await this.renderSingleEntry(entry, record, noHeaderSection, 0);
+			}
+		}
+
+		// Then render headers and their content
+		for (const childNode of root.children.values()) {
+			await renderNode(childNode, container, 0);
+		}
+	}
+
+	/**
+	 * Render a single entry (helper for grouped view)
+	 */
+	private async renderSingleEntry(entry: ParsedEntry, record: ParsedFile, container: HTMLElement, indent: number): Promise<void> {
+		if (entry.type === 'keyword' && entry.keywords && entry.keywords.length > 0) {
+			const iconKeywords = this.resolveIconKeywords(entry.keywords);
+			const primaryKeyword = entry.keywords[0];
+			const primaryKeywordClass = this.getKeywordClass(primaryKeyword);
+			const entryItem = container.createDiv({
+				cls: `kh-widget-filter-entry ${primaryKeywordClass}`
+			});
+
+			entryItem.style.paddingLeft = `${(indent + 1) * 20}px`;
+			entryItem.style.cursor = 'pointer';
+
+			// Click handler to navigate to line
+			entryItem.addEventListener('click', async (e: MouseEvent) => {
+				if ((e.metaKey || e.ctrlKey) && entry.lineNumber !== undefined) {
+					const file = this.plugin.app.vault.getAbstractFileByPath(record.filePath);
+					if (file instanceof TFile) {
+						const leaf = this.plugin.app.workspace.getLeaf(false);
+						await leaf.openFile(file, {
+							eState: { line: entry.lineNumber }
+						});
+
+						const view = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
+						if (view && view.editor) {
+							view.editor.setCursor({ line: entry.lineNumber, ch: 0 });
+							const scrollToLine = Math.max(0, entry.lineNumber - 3);
+							view.editor.scrollIntoView({
+								from: { line: scrollToLine, ch: 0 },
+								to: { line: scrollToLine, ch: 0 }
+							}, true);
+						}
+					}
+				}
+			});
+
+			// Render icons
+			for (const iconKeyword of iconKeywords) {
+				const mark = entryItem.createEl('mark', { cls: `kh-icon ${iconKeyword}` });
+				mark.innerHTML = '&nbsp;';
+			}
+			entryItem.createEl('span', { text: ' ', cls: 'kh-separator' });
+
+			// Render entry text
+			await KHEntry.renderKeywordEntry(
+				entryItem,
+				entry,
+				record,
+				this.plugin,
+				true // compact mode
+			);
+		} else if (entry.type === 'codeblock' && entry.language) {
+			// Render codeblock
+			const codeblockItem = container.createDiv({ cls: 'kh-widget-filter-codeblock' });
+			codeblockItem.style.paddingLeft = `${(indent + 1) * 20}px`;
+			codeblockItem.style.cursor = 'pointer';
+
+			// Click handler to navigate to line
+			codeblockItem.addEventListener('click', async (e: MouseEvent) => {
+				if ((e.metaKey || e.ctrlKey) && entry.lineNumber !== undefined) {
+					const file = this.plugin.app.vault.getAbstractFileByPath(record.filePath);
+					if (file instanceof TFile) {
+						const leaf = this.plugin.app.workspace.getLeaf(false);
+						await leaf.openFile(file, {
+							eState: { line: entry.lineNumber }
+						});
+
+						const view = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
+						if (view && view.editor) {
+							view.editor.setCursor({ line: entry.lineNumber, ch: 0 });
+							const scrollToLine = Math.max(0, entry.lineNumber - 3);
+							view.editor.scrollIntoView({
+								from: { line: scrollToLine, ch: 0 },
+								to: { line: scrollToLine, ch: 0 }
+							}, true);
+						}
+					}
+				}
+			});
+
+			// Render code block with syntax highlighting
+			const codeMarkdown = '```' + (entry.language || '') + '\n' + (entry.text || '') + '\n```';
+			await MarkdownRenderer.renderMarkdown(
+				codeMarkdown,
+				codeblockItem,
+				record.filePath,
+				this
+			);
 		}
 	}
 
