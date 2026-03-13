@@ -22,6 +22,7 @@
   import type { ParsedRecord } from 'src/interfaces/ParsedRecord';
   import { SubjectModal } from './SubjectModal';
   import { DATA_PATHS } from 'src/shared/data-paths';
+  import { addSRSSettings } from './SRSSettings';
 
   export let settingsStore: Writable<PluginSettings>;
   export let plugin: HighlightSpaceRepeatPlugin;
@@ -90,7 +91,16 @@
   let collapsedGroups: Set<string> = new Set();
 
   // Tab state
-  let activeTab: 'keywords' | 'cBlocks' | 'vword' | 'parser' | 'subjects' | 'generic' | 'filters' = 'keywords';
+  let activeTab: 'keywords' | 'cBlocks' | 'vword' | 'parser' | 'subjects' | 'generic' | 'filters' | 'srs' = 'keywords';
+
+  // SRS container reference
+  let srsContainer: HTMLElement;
+
+  // Mount SRS settings when SRS tab is active
+  $: if (activeTab === 'srs' && srsContainer) {
+    srsContainer.empty();
+    addSRSSettings(srsContainer, plugin);
+  }
 
   // Initialize collapsed categories with all category names when component loads
   $: if (categories.length > 0 && collapsedCategories.size === 0) {
@@ -1178,6 +1188,14 @@
   >
     ⚙️ Generic
   </button>
+
+  <button
+    class="tab-button"
+    class:active={activeTab === 'srs'}
+    on:click={() => activeTab = 'srs'}
+  >
+    🔄 SRS
+  </button>
 </div>
 
 <div class="tab-content">
@@ -1993,6 +2011,8 @@
         </div>
       {/if}
     </div>
+  {:else if activeTab === 'srs'}
+    <div bind:this={srsContainer} class="srs-settings-content"></div>
   {/if}
 </div>
 
