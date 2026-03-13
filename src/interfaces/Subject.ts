@@ -46,28 +46,11 @@ export interface Subject {
 	/** Matrix data - stores icons for subject/primary/secondary intersections */
 	matrix?: SubjectMatrix;
 
-	/** Favorite filters for quick access */
-	favoriteFilters?: FavoriteFilter[];
-
 	/** Primary topics for this subject (array order = display order) */
 	primaryTopics?: Topic[];
 
 	/** Secondary topics for this subject (array order = display order) */
 	secondaryTopics?: Topic[];
-}
-
-/**
- * Favorite filter for quick access
- */
-export interface FavoriteFilter {
-	/** Unique identifier */
-	id: string;
-
-	/** Icon/emoji for the button */
-	icon: string;
-
-	/** Filter expression (e.g., ":boo `java W: #foo \t") */
-	expression: string;
 }
 
 /**
