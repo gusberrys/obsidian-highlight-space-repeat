@@ -204,7 +204,7 @@ export class KHMatrixWidget extends ItemView {
 			}
 
 			// Show filter results if filter is active
-			if (this.widgetFilterType && this.widgetFilterExpression && this.widgetFilterContext) {
+			if (this.widgetFilterType && this.widgetFilterContext) {
 				await this.renderWidgetFilter(container);
 			}
 		} finally {
@@ -702,7 +702,7 @@ Examples:
 	 * Render widget filter component - with text search input
 	 */
 	private async renderWidgetFilter(container: HTMLElement): Promise<void> {
-		if (!this.widgetFilterType || !this.widgetFilterExpression) {
+		if (!this.widgetFilterType) {
 			return; // Don't show filter if not active
 		}
 
@@ -779,20 +779,26 @@ Examples:
 
 		const resultsContainer = filterSection.createDiv({ cls: 'kh-widget-filter-results' });
 
-		if (!this.widgetFilterContext || !this.widgetFilterExpression) {
+		if (!this.widgetFilterContext) {
 			return;
 		}
 
 		const parsedFiles = await this.loadParsedRecords();
 
+		console.log(`[WIDGET FILTER] Type: ${this.widgetFilterType}, Expression: ${this.widgetFilterExpression}`);
+		console.log(`[WIDGET FILTER] Context:`, this.widgetFilterContext);
+
 		if (this.widgetFilterType === 'F') {
 			// File filter - show files matching tags
+			console.log(`[WIDGET FILTER] Calling renderFileFilterResults`);
 			await this.renderFileFilterResults(resultsContainer, parsedFiles);
 		} else if (this.widgetFilterType === 'H') {
 			// Header filter - show headers matching keyword/tag
+			console.log(`[WIDGET FILTER] Calling renderHeaderFilterResults`);
 			await this.renderHeaderFilterResults(resultsContainer, parsedFiles);
 		} else if (this.widgetFilterType === 'R') {
 			// Record filter - show records matching expression
+			console.log(`[WIDGET FILTER] Calling renderRecordFilterResults`);
 			await this.renderRecordFilterResults(resultsContainer, parsedFiles);
 		}
 	}
@@ -997,8 +1003,17 @@ Examples:
 			// Don't pre-filter files by tags - intersection logic checks headers individually
 			// A file only needs to have at least ONE of the topic tags (or none if both are keyword-based)
 
+			// Check if this is primary×primary intersection (both are primary topics)
+			const isPrimaryPrimaryIntersection = this.currentSubject?.primaryTopics?.some(t => t.id === secondaryTopic.id);
+
+			console.log(`[HEADER FILTER] Rendering headers for intersection:`);
+			console.log(`  Primary: ${primaryTopic.name} (tag: ${primaryTopic.topicTag}, keyword: ${primaryTopic.topicKeyword})`);
+			console.log(`  Secondary: ${secondaryTopic.name} (tag: ${secondaryTopic.topicTag}, keyword: ${secondaryTopic.topicKeyword})`);
+			console.log(`  Is Primary×Primary: ${isPrimaryPrimaryIntersection}`);
+
 			for (const file of parsedFiles) {
-				const fileTags = this.getRecordTags(file);
+				// For primary×primary, use file-level tags only. For secondary×primary, use all tags
+				const fileTags = isPrimaryPrimaryIntersection ? this.getFileLevelTags(file) : this.getRecordTags(file);
 
 				// Check both topics on file level
 				const topic1InFile = !!(primaryTopic.topicTag && fileTags.includes(primaryTopic.topicTag));
@@ -1048,6 +1063,13 @@ Examples:
 							const validCase2 = topic2InHeader && topic1InFile;
 
 							if (validCase1 || validCase2) {
+								console.log(`  ✓ MATCH FOUND: ${file.filePath} :: ${header.text}`);
+								console.log(`    validCase1 (topic1 in header + topic2 on file): ${validCase1}`);
+								console.log(`    validCase2 (topic2 in header + topic1 on file): ${validCase2}`);
+								console.log(`    topic1InFile: ${topic1InFile}, topic2InFile: ${topic2InFile}`);
+								console.log(`    topic1InHeader: ${topic1InHeader}, topic2InHeader: ${topic2InHeader}`);
+								console.log(`    File tags: ${fileTags.join(', ')}`);
+
 								const groupKey = `${file.filePath}::${header.text}`;
 								if (!headerGroups.has(groupKey)) {
 									headerGroups.set(groupKey, {
@@ -1172,7 +1194,16 @@ Examples:
 			filteredGroups.forEach((value, key) => headerGroups.set(key, value));
 		}
 
+		console.log(`[HEADER FILTER] Total header groups found: ${headerGroups.size}`);
+		if (headerGroups.size > 0) {
+			console.log(`  Headers:`);
+			for (const [key, group] of headerGroups.entries()) {
+				console.log(`    - ${key} (${group.entries.length} entries)`);
+			}
+		}
+
 		if (headerGroups.size === 0) {
+			console.log(`[HEADER FILTER] ❌ NO HEADERS FOUND - Showing empty message`);
 			container.createEl('div', {
 				text: 'No headers found',
 				cls: 'kh-widget-filter-empty'
@@ -2715,6 +2746,20 @@ for (const file of parsedFiles) {
 
 			this.renderSecondaryColumn(columnsContainer, topic, filteredRecords, parsedRecords);
 		});
+
+		// Render other primary topic columns (primary×primary intersections)
+		if (this.selectedRowId !== 'orphans' && selectedPrimaryTopic) {
+			primaryTopics.forEach((otherPrimaryTopic) => {
+				// Skip the selected primary topic itself
+				if (otherPrimaryTopic.id === this.selectedRowId) return;
+
+				// Skip if no tag
+				if (!otherPrimaryTopic.topicTag) return;
+
+				// Render intersection column
+				this.renderPrimaryIntersectionColumn(columnsContainer, selectedPrimaryTopic, otherPrimaryTopic, parsedRecords);
+			});
+		}
 	}
 
 	/**
@@ -3243,6 +3288,194 @@ for (const file of parsedFiles) {
 
 		// Content area - show files
 		const content = column.createDiv({ cls: 'kh-dashboard-files-list' });
+		const sortedRecords = topicFiles.slice().sort((a, b) => {
+			const nameA = getFileNameFromPath(a.filePath).toLowerCase();
+			const nameB = getFileNameFromPath(b.filePath).toLowerCase();
+			return nameA.localeCompare(nameB);
+		});
+
+		sortedRecords.forEach(record => {
+			const fileItem = content.createDiv({ cls: 'kh-dashboard-file-item' });
+			fileItem.createEl('span', {
+				text: getFileNameFromPath(record.filePath).replace('.md', ''),
+				cls: 'kh-dashboard-file-name'
+			});
+			fileItem.style.cursor = 'pointer';
+			fileItem.addEventListener('click', async () => {
+				const file = this.app.vault.getAbstractFileByPath(record.filePath);
+				if (file instanceof TFile) {
+					await this.app.workspace.getLeaf(false).openFile(file);
+				}
+			});
+		});
+	}
+
+	/**
+	 * Render primary×primary intersection column in matrix columns
+	 */
+	private renderPrimaryIntersectionColumn(
+		columnsContainer: HTMLElement,
+		clickedPrimary: Topic,
+		otherPrimary: Topic,
+		allRecords: ParsedFile[]
+	): void {
+		if (!this.currentSubject) return;
+
+		// Count files with BOTH tags
+		let fileCount = 0;
+		if (clickedPrimary.topicTag && otherPrimary.topicTag) {
+			fileCount = allRecords.filter(record => {
+				const tags = this.getFileLevelTags(record);
+				return tags.includes(clickedPrimary.topicTag!) && tags.includes(otherPrimary.topicTag!);
+			}).length;
+		}
+
+		// Count headers using intersection logic (use file-level tags only for primary×primary)
+		const headerCount = this.countHeadersForIntersection(allRecords, [], clickedPrimary, otherPrimary, true);
+
+		// Count records: files with BOTH tags, entries with EITHER keyword
+		let recordCount = 0;
+		if (clickedPrimary.topicTag && otherPrimary.topicTag) {
+			const filesWithBothTags = allRecords.filter(record => {
+				const tags = this.getFileLevelTags(record);
+				return tags.includes(clickedPrimary.topicTag!) && tags.includes(otherPrimary.topicTag!);
+			});
+
+			for (const record of filesWithBothTags) {
+				for (const entry of record.entries) {
+					const entryKeywords = getAllKeywords(entry);
+
+					// Count if entry has EITHER keyword
+					if ((clickedPrimary.topicKeyword && entryKeywords.includes(clickedPrimary.topicKeyword)) ||
+						(otherPrimary.topicKeyword && entryKeywords.includes(otherPrimary.topicKeyword))) {
+						recordCount++;
+					}
+
+					// Also check subItems
+					if (entry.subItems && entry.subItems.length > 0) {
+						for (const subItem of entry.subItems) {
+							const subItemKeywords = getAllKeywords(subItem);
+							if ((clickedPrimary.topicKeyword && subItemKeywords.includes(clickedPrimary.topicKeyword)) ||
+								(otherPrimary.topicKeyword && subItemKeywords.includes(otherPrimary.topicKeyword))) {
+								recordCount++;
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Only render if there are counts
+		if (fileCount === 0 && headerCount === 0 && recordCount === 0) return;
+
+		// Create column
+		const column = columnsContainer.createDiv({ cls: 'kh-dashboard-column' });
+
+		// Column header
+		const header = column.createDiv({ cls: 'kh-dashboard-column-header' });
+		header.createEl('span', {
+			text: `${otherPrimary.icon || '📌'} ${otherPrimary.name}`,
+			cls: 'kh-dashboard-column-title'
+		});
+
+		// Counts container
+		const countsContainer = header.createEl('span', { cls: 'kh-dashboard-column-count' });
+
+		// Files count
+		const filesCount = countsContainer.createEl('span', {
+			text: `/${fileCount}`,
+			cls: 'kh-count-files'
+		});
+		filesCount.style.cursor = 'pointer';
+		filesCount.addEventListener('click', async (e) => {
+			e.stopPropagation();
+			const tags = [];
+			if (clickedPrimary.topicTag) tags.push(clickedPrimary.topicTag);
+			if (otherPrimary.topicTag) tags.push(otherPrimary.topicTag);
+			this.widgetFilterType = 'F';
+			this.widgetFilterExpression = tags.join(' AND ');
+			this.widgetFilterContext = {
+				subject: this.currentSubject!,
+				secondaryTopic: null,
+				primaryTopic: clickedPrimary,
+				includesSubjectTag: false
+			};
+			await this.render();
+		});
+
+		countsContainer.createEl('span', { text: ' ' });
+
+		// Headers count
+		const headersCount = countsContainer.createEl('span', {
+			text: `+${headerCount}`,
+			cls: 'kh-count-headers'
+		});
+		headersCount.style.cursor = 'pointer';
+		headersCount.addEventListener('click', async (e) => {
+			e.stopPropagation();
+			console.log(`[PRIMARY×PRIMARY HEADER CLICK] Count: +${headerCount}`);
+			console.log(`  Clicked Primary: ${clickedPrimary.name} (tag: ${clickedPrimary.topicTag}, keyword: ${clickedPrimary.topicKeyword})`);
+			console.log(`  Other Primary: ${otherPrimary.name} (tag: ${otherPrimary.topicTag}, keyword: ${otherPrimary.topicKeyword})`);
+
+			// Use intersection logic: set both topics in context
+			this.widgetFilterExpression = '';
+			this.widgetFilterType = 'H';
+			this.widgetFilterContext = {
+				subject: this.currentSubject!,
+				secondaryTopic: otherPrimary, // Pass as secondaryTopic for intersection logic
+				primaryTopic: clickedPrimary,
+				includesSubjectTag: false
+			};
+			await this.render();
+		});
+
+		countsContainer.createEl('span', { text: ' ' });
+
+		// Records count
+		const recordsCount = countsContainer.createEl('span', {
+			text: `-${recordCount}`,
+			cls: 'kh-count-entries'
+		});
+		recordsCount.style.cursor = 'pointer';
+		recordsCount.addEventListener('click', async (e) => {
+			e.stopPropagation();
+			// Build intersection expression: (keyword1 OR keyword2) W: tag1 AND tag2
+			const selectParts = [];
+			if (clickedPrimary.topicKeyword) selectParts.push(`.${clickedPrimary.topicKeyword}`);
+			if (otherPrimary.topicKeyword) selectParts.push(`.${otherPrimary.topicKeyword}`);
+
+			const whereParts = [];
+			if (clickedPrimary.topicTag) whereParts.push(clickedPrimary.topicTag);
+			if (otherPrimary.topicTag) whereParts.push(otherPrimary.topicTag);
+
+			let expr = '';
+			if (selectParts.length > 0) {
+				expr = selectParts.length > 1 ? `(${selectParts.join(' OR ')})` : selectParts[0];
+			}
+			if (whereParts.length > 0) {
+				const whereClause = whereParts.join(' AND ');
+				expr = expr ? `${expr} W: ${whereClause}` : `W: ${whereClause}`;
+			}
+
+			this.widgetFilterExpression = expr;
+			this.widgetFilterType = 'R';
+			this.widgetFilterContext = {
+				subject: this.currentSubject!,
+				secondaryTopic: null,
+				primaryTopic: clickedPrimary,
+				includesSubjectTag: false
+			};
+			await this.render();
+		});
+
+		// Content area - show files with both tags
+		const content = column.createDiv({ cls: 'kh-dashboard-files-list' });
+		const topicFiles = allRecords.filter(record => {
+			const tags = this.getFileLevelTags(record);
+			return clickedPrimary.topicTag && otherPrimary.topicTag &&
+				tags.includes(clickedPrimary.topicTag) && tags.includes(otherPrimary.topicTag);
+		});
+
 		const sortedRecords = topicFiles.slice().sort((a, b) => {
 			const nameA = getFileNameFromPath(a.filePath).toLowerCase();
 			const nameB = getFileNameFromPath(b.filePath).toLowerCase();
@@ -4111,15 +4344,21 @@ for (const file of parsedFiles) {
 	 *
 	 * topic1 = primaryTopic (row), topic2 = secondaryTopic (column)
 	 */
-	public countHeadersForIntersection(parsedFiles: ParsedFile[], requiredTags: string[], topic1: Topic, topic2: Topic): number {
+	public countHeadersForIntersection(parsedFiles: ParsedFile[], requiredTags: string[], topic1: Topic, topic2: Topic, useFileLevelTagsOnly: boolean = false): number {
 		// Don't filter files by required tags - intersection logic checks headers individually
 		// A file only needs to have at least ONE of the topic tags (or none if both are keyword-based)
+
+		console.log(`[COUNT HEADERS] Counting intersection headers:`);
+		console.log(`  Topic1: ${topic1.name} (tag: ${topic1.topicTag}, keyword: ${topic1.topicKeyword})`);
+		console.log(`  Topic2: ${topic2.name} (tag: ${topic2.topicTag}, keyword: ${topic2.topicKeyword})`);
+		console.log(`  Use File-Level Tags Only: ${useFileLevelTagsOnly}`);
 
 		// Track distinct headers (file path + header text + level) to count each header only once
 		const countedHeaders = new Set<string>();
 
 		for (const record of parsedFiles) {
-			const fileTags = this.getRecordTags(record);
+			// For primary×primary, use file-level tags only. For primary×secondary, use all tags
+			const fileTags = useFileLevelTagsOnly ? this.getFileLevelTags(record) : this.getRecordTags(record);
 
 			// Check if topics are on file level
 			const topic1InFile = topic1.topicTag && fileTags.includes(topic1.topicTag);
@@ -4171,6 +4410,9 @@ for (const file of parsedFiles) {
 						if (validCase1 || validCase2) {
 							// Only count this header once (use file path + level + text as unique key)
 							const headerKey = `${record.filePath}::${headerLevel!.level}::${header.text}`;
+							console.log(`  ✓ COUNTED: ${headerKey}`);
+							console.log(`    validCase1: ${validCase1}, validCase2: ${validCase2}`);
+							console.log(`    File tags: ${fileTags.join(', ')}`);
 							countedHeaders.add(headerKey);
 						}
 					}
@@ -4178,6 +4420,7 @@ for (const file of parsedFiles) {
 			}
 		}
 
+		console.log(`[COUNT HEADERS] TOTAL COUNT: ${countedHeaders.size}`);
 		return countedHeaders.size;
 	}
 
