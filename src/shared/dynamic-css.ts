@@ -1,4 +1,5 @@
 import type { KeywordStyle, Category } from './keyword-style';
+import { getKeywordType, KeywordType } from './keyword-style';
 
 export function generateKeywordCSS(categories: Category[]): string {
   const cssRules: string[] = [];
@@ -63,6 +64,24 @@ span.${className} {
             cssRules.push(`
 mark.${className}::before {
   content: "${keyword.generateIcon}";
+}`);
+          }
+
+          // Add rule for list items following highlighted paragraphs
+          // ONLY for non-helper keywords (MAIN and AUXILIARY)
+          // Helper keywords should not style lists below them
+          const keywordType = getKeywordType(keyword);
+          const isHelperKeyword = keywordType === KeywordType.HELP || category.isHelper === true;
+
+          if (!isHelperKeyword) {
+            cssRules.push(`
+div.el-p:has(> .kh-highlighted.${className}) + div.el-ul {
+  margin-top: -19px;
+}
+
+div.el-p:has(> .kh-highlighted.${className}) + div.el-ul li {
+  color: ${color} !important;
+  background-color: ${backgroundColor} !important;
 }`);
           }
         }

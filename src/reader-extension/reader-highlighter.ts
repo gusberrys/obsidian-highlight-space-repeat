@@ -236,6 +236,27 @@ function restructureImagesLayout(el: HTMLElement) {
   highlightedElements.forEach((highlightedEl) => {
     const paragraph = highlightedEl as HTMLElement;
 
+    // Check if this paragraph has the 'img' keyword - skip image restructuring for full-width display
+    // Check both data-keywords attribute AND classList
+    const keywords = paragraph.getAttribute('data-keywords');
+    const hasImgInDataKeywords = keywords && keywords.split(',').map(k => k.trim()).includes('img');
+    const hasImgInClassList = paragraph.classList.contains('img');
+
+    if (hasImgInDataKeywords || hasImgInClassList) {
+      // Remove any existing restructuring if present
+      if (paragraph.classList.contains('kh-record-with-images')) {
+        paragraph.classList.remove('kh-record-with-images');
+        // Flatten back to original structure if it was restructured
+        const wrapper = paragraph.querySelector('.kh-record-with-images');
+        if (wrapper) {
+          const allChildren = Array.from(wrapper.querySelectorAll('.kh-record-text-column > *, .kh-record-image-column > *'));
+          paragraph.innerHTML = '';
+          allChildren.forEach(child => paragraph.appendChild(child));
+        }
+      }
+      return; // Skip restructuring - images will display at full width
+    }
+
     // Check if this paragraph contains any images
     const images = Array.from(paragraph.querySelectorAll('img'));
 
@@ -260,23 +281,82 @@ function restructureImagesLayout(el: HTMLElement) {
     const imageColumn = document.createElement('div');
     imageColumn.className = 'kh-record-image-column';
 
-    // Move all child nodes to text column, except images
+    // Helper to check if an image is on its own line (standalone)
+    const isStandaloneImage = (node: Node, index: number, allNodes: Node[]): boolean => {
+      // Check previous sibling - should be <br>, whitespace, or nothing
+      let prevNonWhitespace = null;
+      for (let i = index - 1; i >= 0; i--) {
+        const prevNode = allNodes[i];
+        if (prevNode.nodeType === Node.TEXT_NODE && prevNode.textContent?.trim() === '') {
+          continue; // Skip whitespace
+        }
+        if (prevNode.nodeType === Node.ELEMENT_NODE && (prevNode as HTMLElement).tagName === 'BR') {
+          break; // Found <br>, image is on its own line
+        }
+        prevNonWhitespace = prevNode;
+        break;
+      }
+
+      // Check next sibling - should be <br>, whitespace, or nothing
+      let nextNonWhitespace = null;
+      for (let i = index + 1; i < allNodes.length; i++) {
+        const nextNode = allNodes[i];
+        if (nextNode.nodeType === Node.TEXT_NODE && nextNode.textContent?.trim() === '') {
+          continue; // Skip whitespace
+        }
+        if (nextNode.nodeType === Node.ELEMENT_NODE && (nextNode as HTMLElement).tagName === 'BR') {
+          break; // Found <br>, image is on its own line
+        }
+        nextNonWhitespace = nextNode;
+        break;
+      }
+
+      // Image is standalone if:
+      // - At start of paragraph (no prev non-whitespace) OR preceded by <br>
+      // - AND at end of paragraph (no next non-whitespace) OR followed by <br>
+      return (prevNonWhitespace === null || (prevNonWhitespace.nodeType === Node.ELEMENT_NODE && (prevNonWhitespace as HTMLElement).tagName === 'BR'))
+        && (nextNonWhitespace === null || (nextNonWhitespace.nodeType === Node.ELEMENT_NODE && (nextNonWhitespace as HTMLElement).tagName === 'BR'));
+    };
+
+    // Move all child nodes to text column, except inline images
     const childNodes = Array.from(paragraph.childNodes);
 
-    childNodes.forEach((child) => {
+    childNodes.forEach((child, index) => {
       if (child.nodeType === Node.ELEMENT_NODE && (child as HTMLElement).tagName === 'IMG') {
-        // This is an image, move to image column
-        imageColumn.appendChild(child);
+        // Check if this is an Excalidraw image (keep in text column)
+        const img = child as HTMLElement;
+        if (img.classList.contains('excalidraw-svg') || img.classList.contains('excalidraw-embedded-img')) {
+          textColumn.appendChild(child);
+        } else {
+          // Check if standalone - keep in text column, otherwise move to image column
+          if (isStandaloneImage(child, index, childNodes)) {
+            textColumn.appendChild(child);
+          } else {
+            imageColumn.appendChild(child);
+          }
+        }
       } else if (child.nodeType === Node.ELEMENT_NODE && (child as HTMLElement).classList.contains('internal-embed')) {
         // This is an image embed wrapper, check if it contains an image
         const embeddedImg = (child as HTMLElement).querySelector('img');
         if (embeddedImg) {
-          // Move to image column
-          imageColumn.appendChild(child);
+          // Check if it's Excalidraw (keep in text column)
+          if (embeddedImg.classList.contains('excalidraw-svg') || embeddedImg.classList.contains('excalidraw-embedded-img')) {
+            textColumn.appendChild(child);
+          } else {
+            // Check if standalone - keep in text column, otherwise move to image column
+            if (isStandaloneImage(child, index, childNodes)) {
+              textColumn.appendChild(child);
+            } else {
+              imageColumn.appendChild(child);
+            }
+          }
         } else {
           // Not an image embed, move to text column
           textColumn.appendChild(child);
         }
+      } else if (child.nodeType === Node.ELEMENT_NODE && (child as HTMLElement).classList.contains('excalidraw-svg')) {
+        // Excalidraw wrapper div, keep in text column
+        textColumn.appendChild(child);
       } else {
         // Regular text node or other element, move to text column
         textColumn.appendChild(child);
