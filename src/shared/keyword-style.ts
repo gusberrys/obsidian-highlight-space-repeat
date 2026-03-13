@@ -3,13 +3,11 @@ import type { CombinePriority } from './combine-priority';
 
 /**
  * Keyword Type enum
- * - MAIN: Main keyword (cannot be used as auxiliary)
- * - AUXILIARY: Can be used as auxiliary keyword
+ * - MAIN: Main keyword (standard keyword)
  * - HELP: Helper keyword (blue text, simplified display, 2 per line)
  */
 export enum KeywordType {
   MAIN = 'MAIN',
-  AUXILIARY = 'AUXILIARY',
   HELP = 'HELP'
 }
 
@@ -22,9 +20,9 @@ export type KeywordStyle = {
   generateIcon?: string;
   ccssc?: string;
   collectingStatus?: CollectingStatus;  // How this keyword is collected: IGNORED, PARSED, or SPACED
-  mainKeyword?: boolean;  // DEPRECATED: Use keywordType instead. Whether this IS a main keyword (true) or CAN BE used as auxiliary (false). Default: false (can be auxiliary)
-  keywordType?: KeywordType;  // Keyword type: MAIN, AUXILIARY, or HELP
-  combinePriority?: CombinePriority;  // For MAIN keywords only: None/Style/Icon/StyleAndIcon. Auxiliary keywords always append their icons.
+  mainKeyword?: boolean;  // DEPRECATED: Use keywordType instead
+  keywordType?: KeywordType;  // Keyword type: MAIN or HELP
+  combinePriority?: CombinePriority;  // For MAIN keywords only: None/Style/Icon/StyleAndIcon
   showColor?: boolean;  // Whether to show the color (default: true)
   showBackgroundColor?: boolean;  // Whether to show the background color (default: true)
   subKeywords?: string[];  // Sub-keywords for this keyword (keywords or categories prefixed with ":")
@@ -48,29 +46,6 @@ export interface TagKeywordPair {
 export interface CodeBlockLanguage {
   id: string;      // Code block identifier (matches ```java, ```python, etc.)
   icon?: string;   // Display icon
-}
-
-/**
- * Auxiliary Keyword - lightweight keyword for adding metadata/tags inline
- */
-export interface AuxiliaryKeyword {
-  icon: string;  // Icon/emoji for the auxiliary keyword
-  keyword: string;  // The keyword identifier to match in text (e.g., "l11" in "goa :: (l11)")
-  description: string;  // Description for filtering/searching
-  class?: string;  // Optional CSS class
-  color?: string;  // Text color (synced from keyword)
-  backgroundColor?: string;  // Background color (synced from keyword)
-  isSynced?: boolean;  // Whether this is synced from a main keyword
-}
-
-/**
- * Auxiliary Keyword Category - groups auxiliary keywords
- */
-export interface AuxiliaryCategory {
-  icon: string;  // Display name/icon for the category (was: name)
-  id?: string;   // CSS class/identifier for the category (was: class)
-  auxiliaryKeywords: AuxiliaryKeyword[];
-  isSynced?: boolean;  // Whether this category is synced from keywords
 }
 
 export interface Settings {
@@ -101,7 +76,7 @@ export function getKeywordType(keyword: KeywordStyle): KeywordType {
     return KeywordType.MAIN;
   }
 
-  // Default to MAIN (never AUXILIARY)
+  // Default to MAIN
   return KeywordType.MAIN;
 }
 

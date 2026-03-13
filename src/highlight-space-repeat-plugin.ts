@@ -4,9 +4,9 @@ import { SettingTab } from 'src/settings/setting-tab';
 import { readerHighlighter, addRecordBadgesToReadingView, addGoalStatusBadges } from './reader-extension';
 import { createInsertKeywordCommand, createInsertSubKeywordCommand } from './commands';
 import { initStore, saveStore, type PluginSettings, type Settings } from './stores/settings-store';
-import { DATA_PATHS, type AuxiliaryKeyword, type AuxiliaryCategory, type CodeBlockLanguage, type SubjectsData } from './shared';
+import { DATA_PATHS, type CodeBlockLanguage, type SubjectsData } from './shared';
 import type { HighlightSpaceRepeatAPI } from './public-api';
-import { AuxiliaryKeywordSuggest } from './auxiliary-keyword-suggest';
+import { CombinedKeywordSuggest } from './combined-keyword-suggest';
 import { SubKeywordSuggest } from './subkeyword-suggest';
 import { KHMatrixWidget, KH_MATRIX_VIEW_TYPE } from './widgets/KHMatrixWidget';
 import { PinnedView, PINNED_VIEW_TYPE } from './widgets/PinnedView';
@@ -184,8 +184,8 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     this.registerMarkdownPostProcessor((el, ctx) => addGoalStatusBadges(el, ctx, this, this.app));
     this.registerMarkdownPostProcessor((el, ctx) => renderSubjectDashboard(el, ctx, this));
 
-    // Register auxiliary keyword suggest (triggers on :::)
-    this.registerEditorSuggest(new AuxiliaryKeywordSuggest(this.app));
+    // Register combined keyword suggest (triggers on :::)
+    this.registerEditorSuggest(new CombinedKeywordSuggest(this.app));
 
     // Register subkeyword suggest (triggers on //)
     this.registerEditorSuggest(new SubKeywordSuggest(this.app));
@@ -705,22 +705,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
   // Save settings to settings.json
   async saveSettingsData(data: Settings): Promise<void> {
     await this.app.vault.adapter.write(DATA_PATHS.SETTINGS, JSON.stringify(data, null, 2));
-  }
-
-  // Load auxiliary keywords from auxiliary-keywords.json
-  async loadAuxiliaryKeywords(): Promise<AuxiliaryCategory[] | null> {
-    try {
-      const data = await this.app.vault.adapter.read(DATA_PATHS.AUXILIARY_KEYWORDS);
-      return JSON.parse(data);
-    } catch (error) {
-      console.log('[Plugin] No auxiliary keywords file found, using defaults');
-      return null;
-    }
-  }
-
-  // Save auxiliary keywords to auxiliary-keywords.json
-  async saveAuxiliaryKeywords(data: AuxiliaryCategory[]): Promise<void> {
-    await this.app.vault.adapter.write(DATA_PATHS.AUXILIARY_KEYWORDS, JSON.stringify(data, null, 2));
   }
 
   // Load code blocks from codeblocks.json

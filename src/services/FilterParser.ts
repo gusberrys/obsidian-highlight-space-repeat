@@ -488,8 +488,8 @@ export class FilterParser {
 					if (token.value && token.value.includes('.')) {
 						node.multiKeywords = token.value.split('.');
 					}
-					if (token.auxiliaryKeyword) {
-						node.auxiliaryKeyword = token.auxiliaryKeyword;
+					if (token.combinedKeyword) {
+						node.combinedKeyword = token.combinedKeyword;
 					}
 					return node;
 				}

@@ -50,7 +50,7 @@ export interface FilterToken {
 	type: FilterTokenType;
 	value: string;
 	negated?: boolean;
-	auxiliaryKeyword?: string; // For .def.foo syntax
+	combinedKeyword?: string; // For .def.foo syntax
 }
 
 /**
@@ -59,7 +59,7 @@ export interface FilterToken {
 export interface FilterNode {
 	type: 'keyword' | 'tag' | 'path' | 'filename' | 'text' | 'language' | 'category' | 'and' | 'or' | 'not';
 	value?: string;
-	auxiliaryKeyword?: string; // For .def.foo syntax - match auxiliary keyword
+	combinedKeyword?: string; // For .def.foo syntax - match combined keyword
 	multiKeywords?: string[]; // For .foo.bar syntax - match ALL keywords in array
 	negated?: boolean;
 	includeHeaders?: boolean; // + prefix: match headers too

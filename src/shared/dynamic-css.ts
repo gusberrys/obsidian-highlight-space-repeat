@@ -68,7 +68,7 @@ mark.${className}::before {
           }
 
           // Add rule for list items following highlighted paragraphs
-          // ONLY for non-helper keywords (MAIN and AUXILIARY)
+          // ONLY for MAIN keywords (not HELP keywords)
           // Helper keywords should not style lists below them
           const keywordType = getKeywordType(keyword);
           const isHelperKeyword = keywordType === KeywordType.HELP || category.isHelper === true;

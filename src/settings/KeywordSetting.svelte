@@ -75,7 +75,7 @@
   }
 
   function togglePriority() {
-    // Only for main keywords - auxiliary keywords don't have priority settings
+    // Only for main keywords - helper keywords don't have priority settings
     if (keyword.mainKeyword !== true) return;
 
     // Main keyword: Cycle through - → 🎨 → 🖼️ → 🎨🖼️ → -
@@ -158,7 +158,7 @@
       class="priority-toggle"
       on:click={togglePriority}
       title={priorityTooltip}
-      aria-label="Toggle priority for auxiliary keywords"
+      aria-label="Toggle priority when combined with other keywords"
     >{priorityLabel}</button>
     <button
       class="subkeywords-toggle"

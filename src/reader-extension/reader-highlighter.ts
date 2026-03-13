@@ -102,12 +102,12 @@ function replaceWithHighlight(node: Node) {
       const parent = node.parentNode!;
       const [matchedKeywords, textContent] = result;
 
-      // Separate MAIN vs AUXILIARY keywords based on their keywordType
+      // Separate MAIN vs HELP keywords based on their keywordType
       const mainKeywords = matchedKeywords.filter(k => getKeywordType(k) === KeywordType.MAIN);
-      const auxiliaryKeywords = matchedKeywords.filter(k => getKeywordType(k) === KeywordType.AUXILIARY);
+      const helperKeywords = matchedKeywords.filter(k => getKeywordType(k) === KeywordType.HELP);
 
-      // Use first MAIN keyword as primary, fallback to first auxiliary, ultimate fallback to first matched
-      const primaryKeyword = mainKeywords[0] || auxiliaryKeywords[0] || matchedKeywords[0];
+      // Use first MAIN keyword as primary, fallback to first helper, ultimate fallback to first matched
+      const primaryKeyword = mainKeywords[0] || helperKeywords[0] || matchedKeywords[0];
 
       // Resolve icon based on priority (centralized)
       const iconToDisplay = resolveIcon(matchedKeywords);
@@ -118,7 +118,7 @@ function replaceWithHighlight(node: Node) {
         textContent,
         primaryKeyword,
         mainKeywords,
-        auxiliaryKeywords,
+        helperKeywords,
         matchedKeywords
       );
 
@@ -149,7 +149,7 @@ function getHighlightNode(
   textContent: string,
   primaryKeyword: KeywordStyle,
   mainKeywords: KeywordStyle[],
-  auxiliaryKeywords: KeywordStyle[],
+  helperKeywords: KeywordStyle[],
   matchedKeywords: KeywordStyle[]
 ): Node {
   const highlight = parent.createSpan();
@@ -211,14 +211,14 @@ function getHighlightNode(
   // Apply kh-highlighted class
   parent.classList.add('kh-highlighted');
 
-  // Apply ALL matched keywords' classes (MAIN, AUXILIARY, and HELP)
+  // Apply ALL matched keywords' classes (MAIN and HELP)
   for (const kw of matchedKeywords) {
     const cssClass = kw.ccssc && kw.ccssc.trim() !== "" ? kw.ccssc.trim() : kw.keyword;
     parent.classList.add(cssClass);
   }
 
   // Add data-keywords attribute with all matched keywords (for record badges)
-  const allKeywords = [...mainKeywords, ...auxiliaryKeywords].map(k => k.keyword);
+  const allKeywords = [...mainKeywords, ...helperKeywords].map(k => k.keyword);
   parent.setAttribute('data-keywords', allKeywords.join(' '));
 
   highlight.setText(textContent);

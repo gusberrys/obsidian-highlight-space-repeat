@@ -1,7 +1,7 @@
 import { App, MarkdownView } from 'obsidian';
 import type { HighlightSpaceRepeatPlugin } from 'src/highlight-space-repeat-plugin';
 import { generateInitialColors } from 'src/settings/generate-initial-colors';
-import type { KeywordStyle, Category, Settings, AuxiliaryKeyword, AuxiliaryCategory, CodeBlockLanguage } from 'src/shared';
+import type { KeywordStyle, Category, Settings, CodeBlockLanguage } from 'src/shared';
 import { KeywordType } from 'src/shared';
 import { CollectingStatus } from 'src/shared/collecting-status';
 import { MainCombinePriority } from 'src/shared/combine-priority';
@@ -122,33 +122,6 @@ const DEFAULT_SETTINGS_DATA: Settings = {
   pathToSubjects: '',
 };
 
-const DEFAULT_AUXILIARY_KEYWORDS: AuxiliaryCategory[] = [
-  {
-    icon: 'Metadata',
-    id: 'metadata-category',
-    auxiliaryKeywords: [
-      { icon: '👶', keyword: 'baby', description: 'Baby/beginner level', class: 'baby' },
-      { icon: '🐍', keyword: 'python', description: 'Python related', class: 'python' },
-      { icon: '⚡', keyword: 'fast', description: 'Fast/quick tip', class: 'fast' },
-    ]
-  },
-  {
-    icon: 'Layout',
-    id: 'layout-category',
-    auxiliaryKeywords: [
-      { icon: '-', keyword: 'h', description: 'Horizontal list layout (flexible)', class: 'horizontal' },
-      { icon: '1-4', keyword: '1-4', description: 'Ratio 20% / 80% for 2 items', class: 'ratio-1-4' },
-      { icon: '4-1', keyword: '4-1', description: 'Ratio 80% / 20% for 2 items', class: 'ratio-4-1' },
-      { icon: '2-3', keyword: '2-3', description: 'Ratio 40% / 60% for 2 items', class: 'ratio-2-3' },
-      { icon: '3-2', keyword: '3-2', description: 'Ratio 60% / 40% for 2 items', class: 'ratio-3-2' },
-      { icon: '1-3', keyword: '1-3', description: 'Ratio 25% / 75% for 2 items', class: 'ratio-1-3' },
-      { icon: '3-1', keyword: '3-1', description: 'Ratio 75% / 25% for 2 items', class: 'ratio-3-1' },
-      { icon: '2-1', keyword: '2-1', description: 'Ratio 66.666% / 33.333% for 2 items', class: 'ratio-2-1' },
-      { icon: '1-2', keyword: '1-2', description: 'Ratio 33.333% / 66.666% for 2 items', class: 'ratio-1-2' },
-    ]
-  }
-];
-
 const DEFAULT_CODEBLOCKS: CodeBlockLanguage[] = [
   { id: 'java', icon: '☕' },
   { id: 'python', icon: '🐍' },
@@ -158,7 +131,6 @@ const DEFAULT_CODEBLOCKS: CodeBlockLanguage[] = [
 
 export const settingsStore = writable<PluginSettings>(DEFAULT_SETTINGS);
 export const settingsDataStore = writable<Settings>(DEFAULT_SETTINGS_DATA);
-export const auxiliaryKeywordsStore = writable<AuxiliaryCategory[]>(DEFAULT_AUXILIARY_KEYWORDS);
 export const codeBlocksStore = writable<CodeBlockLanguage[]>(DEFAULT_CODEBLOCKS);
 export const subjectsStore = writable<SubjectsData>({ subjects: [] });
 
@@ -174,7 +146,6 @@ export async function initStore(pluginInstance: HighlightSpaceRepeatPlugin): Pro
 
   // These can load in parallel with plugin initialization
   loadSettingsData();
-  loadAuxiliaryKeywords();
   loadCodeBlocks();
   loadSubjects();
 
@@ -222,7 +193,7 @@ export async function loadStore(): Promise<void> {
         } else if (keyword.mainKeyword === true) {
           keyword.keywordType = KeywordType.MAIN;
         } else {
-          // Default to MAIN (never AUXILIARY)
+          // Default to MAIN
           keyword.keywordType = KeywordType.MAIN;
         }
       }
@@ -395,81 +366,6 @@ export async function saveSettingsData(): Promise<void> {
 
   const currentSettings = get(settingsDataStore);
   await plugin.saveSettingsData(currentSettings);
-}
-
-// Auxiliary Keywords functions
-export async function loadAuxiliaryKeywords(): Promise<void> {
-  if (!plugin) return;
-
-  const loadedData = await plugin.loadAuxiliaryKeywords();
-  const keywords = loadedData || DEFAULT_AUXILIARY_KEYWORDS;
-
-  // Migrate old auxiliary keywords without keyword field
-  keywords.forEach(category => {
-    category.auxiliaryKeywords.forEach(auxKw => {
-      // If keyword field is missing, create it from description or use a fallback
-      if (!auxKw.keyword) {
-        // Use the description as keyword, or generate one
-        auxKw.keyword = auxKw.description?.toLowerCase().replace(/\s+/g, '-') || 'aux';
-      }
-    });
-  });
-
-  auxiliaryKeywordsStore.set(keywords);
-}
-
-export async function saveAuxiliaryKeywords(): Promise<void> {
-  if (!plugin) return;
-
-  const currentKeywords = get(auxiliaryKeywordsStore);
-  await plugin.saveAuxiliaryKeywords(currentKeywords);
-}
-
-export function addAuxiliaryKeywordCategory(name: string, categoryClass?: string): void {
-  auxiliaryKeywordsStore.update((categories) => {
-    if (!categories.find(cat => cat.icon === name)) {
-      categories.push({ icon: name, id: categoryClass, auxiliaryKeywords: [] });
-    }
-    return categories;
-  });
-}
-
-export function removeAuxiliaryKeywordCategory(categoryName: string): void {
-  auxiliaryKeywordsStore.update((categories) => {
-    const index = categories.findIndex(cat => cat.icon === categoryName);
-    if (index > -1) {
-      categories.splice(index, 1);
-    }
-    return categories;
-  });
-}
-
-export function addAuxiliaryKeyword(categoryName: string, icon: string = '', keyword: string = '', description: string = '', cssClass: string = ''): void {
-  auxiliaryKeywordsStore.update((categories) => {
-    const category = categories.find(cat => cat.icon === categoryName);
-    if (category) {
-      category.auxiliaryKeywords.push({
-        icon,
-        keyword,
-        description,
-        class: cssClass
-      });
-    }
-    return categories;
-  });
-}
-
-export function removeAuxiliaryKeyword(categoryName: string, auxiliaryKeyword: AuxiliaryKeyword): void {
-  auxiliaryKeywordsStore.update((categories) => {
-    const category = categories.find(cat => cat.icon === categoryName);
-    if (category) {
-      const index = category.auxiliaryKeywords.indexOf(auxiliaryKeyword);
-      if (index > -1) {
-        category.auxiliaryKeywords.splice(index, 1);
-      }
-    }
-    return categories;
-  });
 }
 
 // Code Blocks functions
