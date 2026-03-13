@@ -54,6 +54,10 @@ export class KHMatrixWidget extends ItemView {
 	private showExpressions: boolean = true; // Show F/H/R filter expressions on cells
 	private showLegend: boolean = false; // Show/hide legend explaining color meanings
 
+	// Columns state (for displaying records in column view)
+	// Stores which row is currently open: 'orphans' for subject, or primaryTopicId for primary topic
+	private selectedRowId: string | null = null;
+
 	constructor(leaf: WorkspaceLeaf, plugin: HighlightSpaceRepeatPlugin) {
 		super(leaf);
 		this.plugin = plugin;
@@ -187,6 +191,11 @@ export class KHMatrixWidget extends ItemView {
 			// Matrix table
 			if (this.currentSubject) {
 				await this.renderMatrix(container);
+
+				// Columns container (for subject/primary topic columns)
+				if (this.selectedRowId) {
+					await this.renderMatrixColumns(container);
+				}
 			} else {
 				container.createEl('p', {
 					text: 'No subjects available',
@@ -218,10 +227,16 @@ export class KHMatrixWidget extends ItemView {
 			const subjectBtn = selectorDiv.createEl('button', {
 				text: this.currentSubject ? (this.currentSubject.icon || '📁') : '📁',
 				cls: 'kh-subject-icon-btn',
-				title: this.currentSubject ? `Open ${this.currentSubject.name} dashboard` : 'Select a subject'
+				title: this.currentSubject ? `Click: Open column | Cmd+Click: Open dashboard` : 'Select a subject'
 			});
-			subjectBtn.addEventListener('click', async () => {
-				await this.openSubjectDashboard();
+			subjectBtn.addEventListener('click', async (e) => {
+				if (e.metaKey || e.ctrlKey) {
+					// Cmd/Ctrl + Click: Open dashboard
+					await this.openSubjectDashboard();
+				} else {
+					// Regular click: Toggle subject column
+					this.toggleSubjectColumn();
+				}
 			});
 
 			// Select dropdown (hidden text, only arrows visible)
@@ -544,10 +559,17 @@ Examples:
 				rowHeaderCell.style.backgroundColor = bgColor;
 			}
 
-			// Click handler to open dashboard for this primary topic
+			// Click handler: Regular click opens column, Cmd/Ctrl+click opens dashboard
 			rowHeaderCell.style.cursor = 'pointer';
-			rowHeaderCell.addEventListener('click', async () => {
-				await this.openSubjectDashboardWithPrimary(primaryTopic.id);
+			rowHeaderCell.title = `Click: Open column | Cmd+Click: Open dashboard\n\n${rowHeaderCell.title}`;
+			rowHeaderCell.addEventListener('click', async (e) => {
+				if (e.metaKey || e.ctrlKey) {
+					// Cmd/Ctrl + Click: Open dashboard
+					await this.openSubjectDashboardWithPrimary(primaryTopic.id);
+				} else {
+					// Regular click: Toggle primary topic column
+					this.togglePrimaryColumn(primaryTopic.id);
+				}
 			});
 
 			// Intersection cells with common secondaries: 2x2, 2x3, 3x2, 3x3, ...
@@ -806,6 +828,17 @@ Examples:
 			if (entry.type === 'codeblock' && entry.text && entry.text.toLowerCase().includes(lowerFilter)) {
 				return true;
 			}
+			// Check subItems
+			if (entry.subItems && entry.subItems.length > 0) {
+				for (const subItem of entry.subItems) {
+					if (subItem.text && subItem.text.toLowerCase().includes(lowerFilter)) {
+						return true;
+					}
+					if (subItem.keywords && subItem.keywords.some(kw => kw.toLowerCase().includes(lowerFilter))) {
+						return true;
+					}
+				}
+			}
 		}
 
 		return false;
@@ -827,6 +860,18 @@ Examples:
 		// Check text content
 		if (entry.text && entry.text.toLowerCase().includes(lowerFilter)) {
 			return true;
+		}
+
+		// Check subItems
+		if (entry.subItems && entry.subItems.length > 0) {
+			for (const subItem of entry.subItems) {
+				if (subItem.text && subItem.text.toLowerCase().includes(lowerFilter)) {
+					return true;
+				}
+				if (subItem.keywords && subItem.keywords.some(kw => kw.toLowerCase().includes(lowerFilter))) {
+					return true;
+				}
+			}
 		}
 
 		// Check file name
@@ -2569,6 +2614,655 @@ for (const file of parsedFiles) {
 			}
 		);
 		modal.open();
+	}
+
+	/**
+	 * Toggle subject column
+	 */
+	private toggleSubjectColumn(): void {
+		if (this.selectedRowId === 'orphans') {
+			// Already showing subject columns, close them
+			this.selectedRowId = null;
+		} else {
+			// Open subject columns
+			this.selectedRowId = 'orphans';
+		}
+		this.render();
+	}
+
+	/**
+	 * Toggle primary topic column
+	 */
+	private togglePrimaryColumn(topicId: string): void {
+		if (this.selectedRowId === topicId) {
+			// Already showing this primary's columns, close them
+			this.selectedRowId = null;
+		} else {
+			// Open this primary's columns
+			this.selectedRowId = topicId;
+		}
+		this.render();
+	}
+
+	/**
+	 * Render matrix columns (similar to dashboard columns)
+	 */
+	private async renderMatrixColumns(container: HTMLElement): Promise<void> {
+		if (!this.selectedRowId || !this.currentSubject) return;
+
+		const columnsContainer = container.createDiv({ cls: 'kh-dashboard-columns kh-matrix-columns' });
+
+		// Load parsed records
+		const parsedRecords = await this.loadParsedRecords();
+
+		const primaryTopics = this.currentSubject.primaryTopics || [];
+		const secondaryTopics = this.currentSubject.secondaryTopics || [];
+
+		// Render totals column based on selected row
+		if (this.selectedRowId === 'orphans') {
+			// Subject row selected - render subject totals column
+			await this.renderSubjectColumn(columnsContainer, parsedRecords);
+		} else {
+			// Primary topic row selected - render primary totals column
+			await this.renderPrimaryColumn(columnsContainer, parsedRecords, this.selectedRowId);
+		}
+
+		// Render secondary topic columns
+		// Filter records based on selected row
+		let filteredRecords: ParsedFile[] = [];
+		if (this.selectedRowId === 'orphans') {
+			// Subject row: files with subject tag but no primary/secondary tags
+			const primaryTopicTags = primaryTopics.map(t => t.topicTag).filter(Boolean);
+			const secondaryTopicTags = secondaryTopics.map(t => t.topicTag).filter(Boolean);
+			filteredRecords = parsedRecords.filter(record => {
+				const tags = this.getFileLevelTags(record);
+				const hasSubjectTag = this.currentSubject?.mainTag ? tags.includes(this.currentSubject.mainTag) : false;
+				const hasPrimaryTag = primaryTopicTags.some(tag => tags.includes(tag!));
+				const hasSecondaryTag = secondaryTopicTags.some(tag => tags.includes(tag!));
+				return hasSubjectTag && !hasPrimaryTag && !hasSecondaryTag;
+			});
+		} else {
+			// Primary topic row: files with primary topic tag
+			const primaryTopic = primaryTopics.find(t => t.id === this.selectedRowId);
+			if (primaryTopic?.topicTag) {
+				if (primaryTopic.andMode && this.currentSubject.mainTag) {
+					filteredRecords = parsedRecords.filter(record => {
+						const tags = this.getFileLevelTags(record);
+						return tags.includes(primaryTopic.topicTag!) && tags.includes(this.currentSubject.mainTag!);
+					});
+				} else {
+					filteredRecords = parsedRecords.filter(record => {
+						const tags = this.getFileLevelTags(record);
+						return tags.includes(primaryTopic.topicTag!);
+					});
+				}
+			}
+		}
+
+		// Render each secondary topic as a column (skip fhDisabled topics)
+		const selectedPrimaryTopic = primaryTopics.find(t => t.id === this.selectedRowId);
+
+		secondaryTopics.forEach((topic) => {
+			// Skip topics with fhDisabled flag
+			if (topic.fhDisabled) return;
+
+			// Check if this is a common or specific secondary
+			const isCommon = !topic.primaryTopicIds || topic.primaryTopicIds.length === 0;
+			const isSpecificForCurrentPrimary = topic.primaryTopicIds && selectedPrimaryTopic && topic.primaryTopicIds.includes(selectedPrimaryTopic.id);
+
+			// Only show common secondaries OR specific secondaries for the current primary
+			if (!isCommon && !isSpecificForCurrentPrimary) return;
+
+			this.renderSecondaryColumn(columnsContainer, topic, filteredRecords, parsedRecords);
+		});
+	}
+
+	/**
+	 * Render subject column (1x1 cell) in matrix columns
+	 */
+	private async renderSubjectColumn(columnsContainer: HTMLElement, allRecords: ParsedFile[]): Promise<void> {
+		if (!this.currentSubject) return;
+
+		// Filter files: Has subject tag BUT NOT any primary or secondary topic tags
+		const primaryTopics = this.currentSubject.primaryTopics || [];
+		const secondaryTopics = this.currentSubject.secondaryTopics || [];
+		const primaryTopicTags = primaryTopics.map(t => t.topicTag).filter(Boolean);
+		const secondaryTopicTags = secondaryTopics.map(t => t.topicTag).filter(Boolean);
+
+		const filteredRecords = allRecords.filter(record => {
+			const tags = this.getFileLevelTags(record);
+			const hasSubjectTag = this.currentSubject?.mainTag ? tags.includes(this.currentSubject.mainTag) : false;
+			const hasPrimaryTag = primaryTopicTags.some(tag => tags.includes(tag!));
+			const hasSecondaryTag = secondaryTopicTags.some(tag => tags.includes(tag!));
+			return hasSubjectTag && !hasPrimaryTag && !hasSecondaryTag;
+		});
+
+		const fileCount = filteredRecords.length;
+
+		// Count headers matching subject keyword OR tag (check ALL files, deduplicate)
+		let headerCount = 0;
+		if (this.currentSubject.keyword || this.currentSubject.mainTag) {
+			const subjectTopic: Topic = {
+				id: 'subject',
+				name: this.currentSubject.name,
+				topicKeyword: this.currentSubject.keyword,
+				topicTag: this.currentSubject.mainTag
+			};
+			headerCount = this.countHeadersForSingleTopic(allRecords, [], subjectTopic);
+		}
+
+		// Count entries matching subject's matrixOnlyFilterExp or keyword
+		let recordCount = 0;
+		const matrixExpr = this.currentSubject.matrixOnlyFilterExp || this.currentSubject.expression;
+		if (matrixExpr) {
+			const { FilterExpressionService } = await import('../services/FilterExpressionService');
+			recordCount = FilterExpressionService.countRecordsWithExpression(
+				allRecords,
+				matrixExpr,
+				null,
+				this.currentSubject,
+				false
+			);
+		} else if (this.currentSubject.keyword) {
+			for (const record of allRecords) {
+				for (const entry of record.entries) {
+					if (getAllKeywords(entry).includes(this.currentSubject.keyword!)) {
+						recordCount++;
+					}
+					if (entry.subItems && entry.subItems.length > 0) {
+						for (const subItem of entry.subItems) {
+							if (getAllKeywords(subItem).includes(this.currentSubject.keyword!)) {
+								recordCount++;
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Create column
+		const column = columnsContainer.createDiv({ cls: 'kh-dashboard-column kh-dashboard-totals-column' });
+
+		// Column header
+		const header = column.createDiv({ cls: 'kh-dashboard-column-header' });
+		header.createEl('span', {
+			text: `${this.currentSubject.icon || '📁'} ${this.currentSubject.name}`,
+			cls: 'kh-dashboard-column-title'
+		});
+
+		// Counts container
+		const countsContainer = header.createEl('span', { cls: 'kh-dashboard-column-count' });
+
+		// Files count
+		const filesCount = countsContainer.createEl('span', {
+			text: `/${fileCount}`,
+			cls: 'kh-count-files'
+		});
+		filesCount.style.cursor = 'pointer';
+		filesCount.addEventListener('click', async (e) => {
+			e.stopPropagation();
+			const tags = this.getTags(this.currentSubject!, null, null, true);
+			this.widgetFilterType = 'F';
+			this.widgetFilterExpression = tags.join(' AND ');
+			this.widgetFilterContext = {
+				subject: this.currentSubject!,
+				secondaryTopic: null,
+				primaryTopic: null,
+				includesSubjectTag: true
+			};
+			await this.render();
+		});
+
+		countsContainer.createEl('span', { text: ' ' });
+
+		// Headers count
+		const headersCount = countsContainer.createEl('span', {
+			text: `+${headerCount}`,
+			cls: 'kh-count-headers'
+		});
+		headersCount.style.cursor = 'pointer';
+		headersCount.addEventListener('click', async (e) => {
+			e.stopPropagation();
+			// Subject cell: use subject's keyword OR tag
+			const parts = [];
+			if (this.currentSubject!.keyword) parts.push(`.${this.currentSubject!.keyword}`);
+			if (this.currentSubject!.mainTag) parts.push(this.currentSubject!.mainTag);
+			this.widgetFilterExpression = parts.join(' OR ');
+			this.widgetFilterType = 'H';
+			this.widgetFilterContext = {
+				subject: this.currentSubject!,
+				secondaryTopic: null,
+				primaryTopic: null,
+				includesSubjectTag: true
+			};
+			await this.render();
+		});
+
+		countsContainer.createEl('span', { text: ' ' });
+
+		// Records count
+		const recordsCount = countsContainer.createEl('span', {
+			text: `-${recordCount}`,
+			cls: 'kh-count-entries'
+		});
+		recordsCount.style.cursor = 'pointer';
+		recordsCount.addEventListener('click', async (e) => {
+			e.stopPropagation();
+			this.widgetFilterType = 'R';
+			this.widgetFilterExpression = matrixExpr || '';
+			this.widgetFilterContext = {
+				subject: this.currentSubject!,
+				secondaryTopic: null,
+				primaryTopic: null,
+				includesSubjectTag: true
+			};
+			await this.render();
+		});
+
+		// Content area - show files
+		const content = column.createDiv({ cls: 'kh-dashboard-files-list' });
+		const sortedRecords = filteredRecords.slice().sort((a, b) => {
+			const nameA = getFileNameFromPath(a.filePath).toLowerCase();
+			const nameB = getFileNameFromPath(b.filePath).toLowerCase();
+			return nameA.localeCompare(nameB);
+		});
+
+		sortedRecords.forEach(record => {
+			const fileItem = content.createDiv({ cls: 'kh-dashboard-file-item' });
+			fileItem.createEl('span', {
+				text: getFileNameFromPath(record.filePath).replace('.md', ''),
+				cls: 'kh-dashboard-file-name'
+			});
+			fileItem.style.cursor = 'pointer';
+			fileItem.addEventListener('click', async () => {
+				const file = this.app.vault.getAbstractFileByPath(record.filePath);
+				if (file instanceof TFile) {
+					await this.app.workspace.getLeaf(false).openFile(file);
+				}
+			});
+		});
+	}
+
+	/**
+	 * Render primary topic column in matrix columns
+	 */
+	private async renderPrimaryColumn(columnsContainer: HTMLElement, allRecords: ParsedFile[], primaryTopicId: string): Promise<void> {
+		if (!this.currentSubject) return;
+
+		const primaryTopic = this.currentSubject.primaryTopics?.find(t => t.id === primaryTopicId);
+		if (!primaryTopic || !primaryTopic.topicTag) return;
+
+		// Filter files with primary topic tag
+		let filteredRecords: ParsedFile[] = [];
+		if (primaryTopic.andMode && this.currentSubject.mainTag) {
+			filteredRecords = allRecords.filter(record => {
+				const tags = this.getFileLevelTags(record);
+				return tags.includes(primaryTopic.topicTag!) && tags.includes(this.currentSubject.mainTag!);
+			});
+		} else {
+			filteredRecords = allRecords.filter(record => {
+				const tags = this.getFileLevelTags(record);
+				return tags.includes(primaryTopic.topicTag!);
+			});
+		}
+
+		// Filter out files that have any secondary topic tags
+		const secondaryTopics = this.currentSubject.secondaryTopics || [];
+		const secondaryTopicTags = secondaryTopics.map(t => t.topicTag).filter(Boolean);
+		const filteredRecordsWithoutSecondary = filteredRecords.filter(record => {
+			const tags = this.getFileLevelTags(record);
+			return !secondaryTopicTags.some(tag => tags.includes(tag!));
+		});
+
+		const fileCount = filteredRecordsWithoutSecondary.length;
+
+		// Count headers matching topic keyword/tag (check ALL files, deduplicate)
+		const headerCount = this.countHeadersForSingleTopic(allRecords, [], primaryTopic);
+
+		// Count entries matching topic keyword
+		let recordCount = 0;
+		if (primaryTopic.topicKeyword) {
+			for (const record of allRecords) {
+				for (const entry of record.entries) {
+					if (getAllKeywords(entry).includes(primaryTopic.topicKeyword!)) {
+						recordCount++;
+					}
+					if (entry.subItems && entry.subItems.length > 0) {
+						for (const subItem of entry.subItems) {
+							if (getAllKeywords(subItem).includes(primaryTopic.topicKeyword!)) {
+								recordCount++;
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Create column
+		const column = columnsContainer.createDiv({ cls: 'kh-dashboard-column kh-dashboard-totals-column' });
+
+		// Column header
+		const header = column.createDiv({ cls: 'kh-dashboard-column-header' });
+		header.createEl('span', {
+			text: `${primaryTopic.icon || '📌'} ${primaryTopic.name}`,
+			cls: 'kh-dashboard-column-title'
+		});
+
+		// Counts container
+		const countsContainer = header.createEl('span', { cls: 'kh-dashboard-column-count' });
+
+		// Files count
+		const filesCount = countsContainer.createEl('span', {
+			text: `/${fileCount}`,
+			cls: 'kh-count-files'
+		});
+		filesCount.style.cursor = 'pointer';
+		filesCount.addEventListener('click', async (e) => {
+			e.stopPropagation();
+			const tags = this.getTags(this.currentSubject!, null, primaryTopic, false);
+			this.widgetFilterType = 'F';
+			this.widgetFilterExpression = tags.join(' AND ');
+			this.widgetFilterContext = {
+				subject: this.currentSubject!,
+				secondaryTopic: null,
+				primaryTopic: primaryTopic,
+				includesSubjectTag: false
+			};
+			await this.render();
+		});
+
+		countsContainer.createEl('span', { text: ' ' });
+
+		// Headers count
+		const headersCount = countsContainer.createEl('span', {
+			text: `+${headerCount}`,
+			cls: 'kh-count-headers'
+		});
+		headersCount.style.cursor = 'pointer';
+		headersCount.addEventListener('click', async (e) => {
+			e.stopPropagation();
+			// Primary topic cell: use primary's keyword OR tag
+			const parts = [];
+			if (primaryTopic.topicKeyword) parts.push(`.${primaryTopic.topicKeyword}`);
+			if (primaryTopic.topicTag) parts.push(primaryTopic.topicTag);
+			this.widgetFilterExpression = parts.join(' OR ');
+			this.widgetFilterType = 'H';
+			this.widgetFilterContext = {
+				subject: this.currentSubject!,
+				secondaryTopic: null,
+				primaryTopic: primaryTopic,
+				includesSubjectTag: false
+			};
+			await this.render();
+		});
+
+		countsContainer.createEl('span', { text: ' ' });
+
+		// Records count
+		const recordsCount = countsContainer.createEl('span', {
+			text: `-${recordCount}`,
+			cls: 'kh-count-entries'
+		});
+		recordsCount.style.cursor = 'pointer';
+		recordsCount.addEventListener('click', async (e) => {
+			e.stopPropagation();
+			// Primary own cell: use side expression (RED)
+			const expr = primaryTopic.matrixOnlyFilterExpSide;
+			this.widgetFilterType = 'R';
+			this.widgetFilterExpression = expr || '';
+			this.widgetFilterContext = {
+				subject: this.currentSubject!,
+				secondaryTopic: null,
+				primaryTopic: primaryTopic,
+				includesSubjectTag: false
+			};
+			await this.render();
+		});
+
+		// Content area - show files
+		const content = column.createDiv({ cls: 'kh-dashboard-files-list' });
+		const sortedRecords = filteredRecordsWithoutSecondary.slice().sort((a, b) => {
+			const nameA = getFileNameFromPath(a.filePath).toLowerCase();
+			const nameB = getFileNameFromPath(b.filePath).toLowerCase();
+			return nameA.localeCompare(nameB);
+		});
+
+		sortedRecords.forEach(record => {
+			const fileItem = content.createDiv({ cls: 'kh-dashboard-file-item' });
+			fileItem.createEl('span', {
+				text: getFileNameFromPath(record.filePath).replace('.md', ''),
+				cls: 'kh-dashboard-file-name'
+			});
+			fileItem.style.cursor = 'pointer';
+			fileItem.addEventListener('click', async () => {
+				const file = this.app.vault.getAbstractFileByPath(record.filePath);
+				if (file instanceof TFile) {
+					await this.app.workspace.getLeaf(false).openFile(file);
+				}
+			});
+		});
+	}
+
+	/**
+	 * Render secondary topic column in matrix columns
+	 */
+	private renderSecondaryColumn(columnsContainer: HTMLElement, topic: Topic, filteredRecords: ParsedFile[], allRecords: ParsedFile[]): void {
+		if (!this.currentSubject) return;
+
+		// Count files with topic tag
+		let topicFiles: ParsedFile[] = [];
+		if (topic.topicTag) {
+			if (this.selectedRowId === 'orphans') {
+				// Subject row: secondary topics should exclude primary tags
+				const primaryTopics = this.currentSubject.primaryTopics || [];
+				const primaryTopicTags = primaryTopics.map(t => t.topicTag).filter(Boolean);
+
+				topicFiles = allRecords.filter(record => {
+					const tags = this.getRecordTags(record);
+					const hasSecondaryTag = tags.includes(topic.topicTag!);
+					const hasPrimaryTag = primaryTopicTags.some(tag => tags.includes(tag!));
+					return hasSecondaryTag && !hasPrimaryTag;
+				});
+			} else {
+				// Primary topic row: use intersection (from filteredRecords)
+				topicFiles = filteredRecords.filter(record => {
+					const tags = this.getRecordTags(record);
+					return tags.includes(topic.topicTag!);
+				});
+			}
+		}
+		let fileCount = topicFiles.length;
+
+		// Count headers matching topic keyword/tag (check ALL files, deduplicate)
+		let headerCount = this.countHeadersForSingleTopic(allRecords, [], topic);
+
+		// Count entries matching topic keyword
+		let recordCount = 0;
+		if (topic.topicKeyword) {
+			for (const record of allRecords) {
+				for (const entry of record.entries) {
+					if (getAllKeywords(entry).includes(topic.topicKeyword!)) {
+						recordCount++;
+					}
+					if (entry.subItems && entry.subItems.length > 0) {
+						for (const subItem of entry.subItems) {
+							if (getAllKeywords(subItem).includes(topic.topicKeyword!)) {
+								recordCount++;
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Override counts with pre-calculated matrix data
+		if (this.currentSubject?.matrix?.cells) {
+			const allSecondaryTopics = this.currentSubject.secondaryTopics || [];
+			const commonSecondaries = allSecondaryTopics.filter(t =>
+				!t.primaryTopicIds || t.primaryTopicIds.length === 0
+			);
+
+			// Find column position
+			let col: number;
+			const commonIndex = commonSecondaries.findIndex(t => t.id === topic.id);
+			if (commonIndex >= 0) {
+				col = commonIndex + 2;
+			} else {
+				const specificSecondaries = allSecondaryTopics.filter(t =>
+					t.primaryTopicIds && t.primaryTopicIds.length > 0
+				);
+				const specificIndex = specificSecondaries.findIndex(t => t.id === topic.id);
+				col = commonSecondaries.length + 2 + specificIndex;
+			}
+
+			let cellKey: string;
+			if (this.selectedRowId === 'orphans') {
+				cellKey = `1x${col}`;
+			} else {
+				const primaryTopics = this.currentSubject.primaryTopics || [];
+				const primaryTopicIndex = primaryTopics.findIndex(t => t.id === this.selectedRowId);
+				if (primaryTopicIndex >= 0) {
+					const rowNum = primaryTopicIndex + 2;
+					cellKey = `${rowNum}x${col}`;
+				}
+			}
+
+			if (cellKey) {
+				const cell = this.currentSubject.matrix.cells[cellKey];
+				if (cell) {
+					fileCount = cell.fileCount || 0;
+					headerCount = cell.headerCount || 0;
+					recordCount = cell.recordCount || 0;
+				}
+			}
+		}
+
+		// Only render if there are counts
+		if (fileCount === 0 && headerCount === 0 && recordCount === 0) return;
+
+		// Create column
+		const column = columnsContainer.createDiv({ cls: 'kh-dashboard-column' });
+
+		// Column header
+		const header = column.createDiv({ cls: 'kh-dashboard-column-header' });
+		header.createEl('span', {
+			text: `${topic.icon || '📌'} ${topic.name}`,
+			cls: 'kh-dashboard-column-title'
+		});
+
+		// Counts container
+		const countsContainer = header.createEl('span', { cls: 'kh-dashboard-column-count' });
+
+		// Files count
+		const filesCount = countsContainer.createEl('span', {
+			text: `/${fileCount}`,
+			cls: 'kh-count-files'
+		});
+		filesCount.style.cursor = 'pointer';
+		filesCount.addEventListener('click', async (e) => {
+			e.stopPropagation();
+			const primaryTopic = this.currentSubject?.primaryTopics?.find(t => t.id === this.selectedRowId);
+			const tags = this.getTags(this.currentSubject!, topic, primaryTopic || null, this.selectedRowId === 'orphans');
+			this.widgetFilterType = 'F';
+			this.widgetFilterExpression = tags.join(' AND ');
+			this.widgetFilterContext = {
+				subject: this.currentSubject!,
+				secondaryTopic: topic,
+				primaryTopic: primaryTopic || null,
+				includesSubjectTag: this.selectedRowId === 'orphans'
+			};
+			await this.render();
+		});
+
+		countsContainer.createEl('span', { text: ' ' });
+
+		// Headers count
+		const headersCount = countsContainer.createEl('span', {
+			text: `+${headerCount}`,
+			cls: 'kh-count-headers'
+		});
+		headersCount.style.cursor = 'pointer';
+		headersCount.addEventListener('click', async (e) => {
+			e.stopPropagation();
+			const primaryTopic = this.currentSubject?.primaryTopics?.find(t => t.id === this.selectedRowId);
+
+			// Build filter expression based on intersection or single topic
+			if (topic && primaryTopic) {
+				// Intersection: BOTH topics
+				const parts1 = [];
+				if (primaryTopic.topicKeyword) parts1.push(`.${primaryTopic.topicKeyword}`);
+				if (primaryTopic.topicTag) parts1.push(primaryTopic.topicTag);
+
+				const parts2 = [];
+				if (topic.topicKeyword) parts2.push(`.${topic.topicKeyword}`);
+				if (topic.topicTag) parts2.push(topic.topicTag);
+
+				const expr1 = parts1.length > 1 ? `(${parts1.join(' OR ')})` : parts1[0];
+				const expr2 = parts2.length > 1 ? `(${parts2.join(' OR ')})` : parts2[0];
+
+				this.widgetFilterExpression = expr1 && expr2 ? `${expr1} AND ${expr2}` : (expr1 || expr2);
+			} else {
+				// Single topic cell (secondary only)
+				const parts = [];
+				if (topic.topicKeyword) parts.push(`.${topic.topicKeyword}`);
+				if (topic.topicTag) parts.push(topic.topicTag);
+				this.widgetFilterExpression = parts.join(' OR ');
+			}
+
+			this.widgetFilterType = 'H';
+			this.widgetFilterContext = {
+				subject: this.currentSubject!,
+				secondaryTopic: topic,
+				primaryTopic: primaryTopic || null,
+				includesSubjectTag: this.selectedRowId === 'orphans'
+			};
+			await this.render();
+		});
+
+		countsContainer.createEl('span', { text: ' ' });
+
+		// Records count
+		const recordsCount = countsContainer.createEl('span', {
+			text: `-${recordCount}`,
+			cls: 'kh-count-entries'
+		});
+		recordsCount.style.cursor = 'pointer';
+		recordsCount.addEventListener('click', async (e) => {
+			e.stopPropagation();
+			const primaryTopic = this.currentSubject?.primaryTopics?.find(t => t.id === this.selectedRowId);
+			this.widgetFilterType = 'R';
+			this.widgetFilterExpression = topic.appliedFilterExpIntersection || '';
+			this.widgetFilterContext = {
+				subject: this.currentSubject!,
+				secondaryTopic: topic,
+				primaryTopic: primaryTopic || null,
+				includesSubjectTag: this.selectedRowId === 'orphans'
+			};
+			await this.render();
+		});
+
+		// Content area - show files
+		const content = column.createDiv({ cls: 'kh-dashboard-files-list' });
+		const sortedRecords = topicFiles.slice().sort((a, b) => {
+			const nameA = getFileNameFromPath(a.filePath).toLowerCase();
+			const nameB = getFileNameFromPath(b.filePath).toLowerCase();
+			return nameA.localeCompare(nameB);
+		});
+
+		sortedRecords.forEach(record => {
+			const fileItem = content.createDiv({ cls: 'kh-dashboard-file-item' });
+			fileItem.createEl('span', {
+				text: getFileNameFromPath(record.filePath).replace('.md', ''),
+				cls: 'kh-dashboard-file-name'
+			});
+			fileItem.style.cursor = 'pointer';
+			fileItem.addEventListener('click', async () => {
+				const file = this.app.vault.getAbstractFileByPath(record.filePath);
+				if (file instanceof TFile) {
+					await this.app.workspace.getLeaf(false).openFile(file);
+				}
+			});
+		});
 	}
 
 	/**

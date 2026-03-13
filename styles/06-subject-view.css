@@ -120,12 +120,13 @@
 
 .kh-dashboard-column {
   flex: 1;
-  min-width: 135px;
-  max-width: 165px;
+  min-width: 115px;
+  max-width: 145px;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: 4px;
   overflow: hidden;
+  padding: 6px;
 }
 
 .kh-dashboard-column-header {
