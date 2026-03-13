@@ -226,36 +226,20 @@
     removeKeyword(keyword);
   }
 
-  function handleMoveUp(event: CustomEvent) {
-    const { categoryName, keywordIndex } = event.detail;
+  function handleKeywordReorder(categoryName: string, draggedIndex: number, targetIndex: number) {
+    if (draggedIndex === targetIndex) return;
 
     settingsStore.update(settings => {
       const category = settings.categories.find(cat => cat.icon === categoryName);
-      if (!category || keywordIndex <= 0) return settings;
+      if (!category) return settings;
 
-      // Swap with the previous keyword to move up visually (to lower index)
-      const temp = category.keywords[keywordIndex - 1];
-      category.keywords[keywordIndex - 1] = category.keywords[keywordIndex];
-      category.keywords[keywordIndex] = temp;
+      const draggedKeyword = category.keywords[draggedIndex];
 
-      // Create new array reference to trigger reactivity
-      category.keywords = [...category.keywords];
+      // Remove from old position
+      category.keywords.splice(draggedIndex, 1);
 
-      return settings;
-    });
-  }
-
-  function handleMoveDown(event: CustomEvent) {
-    const { categoryName, keywordIndex } = event.detail;
-
-    settingsStore.update(settings => {
-      const category = settings.categories.find(cat => cat.icon === categoryName);
-      if (!category || keywordIndex >= category.keywords.length - 1) return settings;
-
-      // Swap with the next keyword to move down visually (to higher index)
-      const temp = category.keywords[keywordIndex + 1];
-      category.keywords[keywordIndex + 1] = category.keywords[keywordIndex];
-      category.keywords[keywordIndex] = temp;
+      // Insert at new position
+      category.keywords.splice(targetIndex, 0, draggedKeyword);
 
       // Create new array reference to trigger reactivity
       category.keywords = [...category.keywords];
@@ -1344,25 +1328,55 @@
 
             {#if !collapsedCategories.has(category.icon)}
               <div class="category-content">
-
-                {#each category.keywords as keyword, keywordIndex}
-                  {#if keywordMatchesFilter(keyword)}
-                    <KeywordSetting
-                      {keywordIndex}
-                      categoryName={category.icon}
-                      {keyword}
-                      isFirst={keywordIndex === 0}
-                      isLast={keywordIndex === category.keywords.length - 1}
-                      on:remove={() => handleRemoveKeyword(keyword)}
-                      on:moveup={handleMoveUp}
-                      on:movedown={handleMoveDown}
-                    />
-                  {/if}
-                {/each}
-
-                <div class="setting-item">
-                  <button on:click={() => handleAddKeyword(category.icon)}>Add keyword to {category.icon}</button>
-                </div>
+                <table class="keywords-table">
+                  <colgroup>
+                    <col style="width: 25px;" /> <!-- Drag -->
+                    <col style="width: 25px;" /> <!-- State -->
+                    <col style="width: 35px;" /> <!-- Priority -->
+                    <col style="width: 30px;" /> <!-- Subkeywords -->
+                    <col style="width: 70px;" /> <!-- Keyword -->
+                    <col style="width: 90px;" /> <!-- Aliases -->
+                    <col style="width: auto;" /> <!-- Description -->
+                    <col style="width: 45px;" /> <!-- Icon -->
+                    <col style="width: 45px;" /> <!-- CSS class -->
+                    <col style="width: 80px;" /> <!-- Colors + Remove -->
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th class="th-add">
+                        <button
+                          class="add-keyword-header-btn"
+                          on:click={() => handleAddKeyword(category.icon)}
+                          title="Add keyword to {category.icon}"
+                        >
+                          +
+                        </button>
+                      </th>
+                      <th title="Collecting Status">S</th>
+                      <th title="Combine Priority">P</th>
+                      <th title="Sub-keywords">⚙️</th>
+                      <th>Keyword</th>
+                      <th>Aliases</th>
+                      <th>Description</th>
+                      <th>Icon</th>
+                      <th>CSS</th>
+                      <th>Colors</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each category.keywords as keyword, keywordIndex}
+                      {#if keywordMatchesFilter(keyword)}
+                        <KeywordSetting
+                          {keywordIndex}
+                          categoryName={category.icon}
+                          {keyword}
+                          on:remove={() => handleRemoveKeyword(keyword)}
+                          on:reorder={(e) => handleKeywordReorder(category.icon, e.detail.draggedIndex, e.detail.targetIndex)}
+                        />
+                      {/if}
+                    {/each}
+                  </tbody>
+                </table>
               </div>
             {/if}
           </div>
@@ -5291,6 +5305,71 @@
     border-radius: 4px;
     margin-top: 0.75rem;
     font-size: 0.9em;
+  }
+
+  /* Keywords Table */
+  .keywords-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 0.5rem;
+    font-size: 0.9em;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .keywords-table thead {
+    background: var(--background-primary-alt);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
+  .keywords-table th {
+    padding: 0.5rem 0.3rem;
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.8em;
+    border-bottom: 2px solid var(--background-modifier-border);
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .keywords-table th:first-child {
+    text-align: center;
+  }
+
+  .keywords-table tbody tr {
+    transition: background-color 0.1s;
+  }
+
+  .th-add {
+    padding: 0 !important;
+  }
+
+  .add-keyword-header-btn {
+    width: 100%;
+    height: 100%;
+    background: #28a745;
+    color: white;
+    border: none;
+    cursor: pointer;
+    font-size: 18px;
+    font-weight: bold;
+    padding: 0.4rem;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .add-keyword-header-btn:hover {
+    background: #218838;
+    transform: scale(1.1);
+  }
+
+  .add-keyword-header-btn:active {
+    transform: scale(0.95);
   }
 
   /* Spaced Rep Settings */
