@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { KeywordStyle } from 'src/shared';
-  import { KeywordType, getKeywordType } from 'src/shared';
   import { CollectingStatus } from 'src/shared/collecting-status';
   import { MainCombinePriority } from 'src/shared/combine-priority';
   import { setIcon } from 'obsidian';
@@ -17,10 +16,6 @@
 
   const dispatch = createEventDispatcher();
 
-  // Check if parent category is a helper category
-  $: parentCategory = $settingsStore.categories.find(cat => cat.icon === categoryName);
-  $: isHelperCategory = parentCategory?.isHelper === true;
-
   // Reactive 3-state label and tooltip for collecting status
   $: stateLabel = keyword.collectingStatus === CollectingStatus.SPACED ? '🔄'
     : keyword.collectingStatus === CollectingStatus.PARSED ? '✅'
@@ -31,26 +26,19 @@
     ? 'Parsed (collected in records)'
     : 'Ignored (not collected)';
 
-  // Reactive priority label and tooltip - ONLY for MAIN keywords
-  $: currentType = getKeywordType(keyword);
-  $: isMain = currentType === KeywordType.MAIN;
+  // Reactive priority label and tooltip
+  $: priorityLabel = keyword.combinePriority === MainCombinePriority.StyleAndIcon ? '🎨🖼️'
+    : keyword.combinePriority === MainCombinePriority.Style ? '🎨'
+    : keyword.combinePriority === MainCombinePriority.Icon ? '🖼️'
+    : '-';
 
-  $: priorityLabel = isMain
-    ? (keyword.combinePriority === MainCombinePriority.StyleAndIcon ? '🎨🖼️'
-      : keyword.combinePriority === MainCombinePriority.Style ? '🎨'
-      : keyword.combinePriority === MainCombinePriority.Icon ? '🖼️'
-      : '-')
-    : '';
-
-  $: priorityTooltip = isMain
-    ? (keyword.combinePriority === MainCombinePriority.StyleAndIcon
-      ? 'Both priorities: Use this main keyword\'s styles AND icon when auxiliaries present'
-      : keyword.combinePriority === MainCombinePriority.Style
-      ? 'Style priority: Use this main keyword\'s colors/classes when auxiliaries present'
-      : keyword.combinePriority === MainCombinePriority.Icon
-      ? 'Icon priority: Use this main keyword\'s icon when auxiliaries present'
-      : 'No priority (auxiliaries can override)')
-    : '';
+  $: priorityTooltip = keyword.combinePriority === MainCombinePriority.StyleAndIcon
+    ? 'Both priorities: Use this keyword\'s styles AND icon when combined'
+    : keyword.combinePriority === MainCombinePriority.Style
+    ? 'Style priority: Use this keyword\'s colors/classes when combined'
+    : keyword.combinePriority === MainCombinePriority.Icon
+    ? 'Icon priority: Use this keyword\'s icon when combined'
+    : 'No priority (other keywords can override)';
 
   function handleMoveUp() {
     dispatch('moveup', { categoryName, keywordIndex });
@@ -75,10 +63,7 @@
   }
 
   function togglePriority() {
-    // Only for main keywords - helper keywords don't have priority settings
-    if (keyword.mainKeyword !== true) return;
-
-    // Main keyword: Cycle through - → 🎨 → 🖼️ → 🎨🖼️ → -
+    // Cycle through - → 🎨 → 🖼️ → 🎨🖼️ → -
     if (!keyword.combinePriority || keyword.combinePriority === MainCombinePriority.None) {
       keyword.combinePriority = MainCombinePriority.Style;
     } else if (keyword.combinePriority === MainCombinePriority.Style) {
@@ -127,7 +112,7 @@
   }
 </script>
 
-<div class="keyword-item" class:help-keyword={isHelperCategory}>
+<div class="keyword-item">
   <div class="reorder-controls">
     <button
       class="move-button"
@@ -147,65 +132,55 @@
     >▼</button>
   </div>
 
-  {#if !isHelperCategory}
-    <button
-      class="state-toggle"
-      on:click={toggleState}
-      title={stateTooltip}
-      aria-label="Toggle parsing state"
-    >{stateLabel}</button>
-    <button
-      class="priority-toggle"
-      on:click={togglePriority}
-      title={priorityTooltip}
-      aria-label="Toggle priority when combined with other keywords"
-    >{priorityLabel}</button>
-    <button
-      class="subkeywords-toggle"
-      on:click={openSubKeywordsModal}
-      title="Manage sub-keywords"
-      aria-label="Manage sub-keywords"
-    >
-      {#if subKeywordsBadge}
-        <span class="subkeywords-badge">{subKeywordsBadge}</span>
-      {/if}
-      ⚙️
-    </button>
-  {/if}
+  <button
+    class="state-toggle"
+    on:click={toggleState}
+    title={stateTooltip}
+    aria-label="Toggle parsing state"
+  >{stateLabel}</button>
+  <button
+    class="priority-toggle"
+    on:click={togglePriority}
+    title={priorityTooltip}
+    aria-label="Toggle priority when combined with other keywords"
+  >{priorityLabel}</button>
+  <button
+    class="subkeywords-toggle"
+    on:click={openSubKeywordsModal}
+    title="Manage sub-keywords"
+    aria-label="Manage sub-keywords"
+  >
+    {#if subKeywordsBadge}
+      <span class="subkeywords-badge">{subKeywordsBadge}</span>
+    {/if}
+    ⚙️
+  </button>
 
-  <input type="text" spellcheck="false" bind:value={keyword.keyword} on:change={updateKeyword} placeholder="Keyword" class:help-text={isHelperCategory} />
+  <input type="text" spellcheck="false" bind:value={keyword.keyword} on:change={updateKeyword} placeholder="Keyword" />
 
-  {#if !isHelperCategory}
-    <input
-      type="text"
-      spellcheck="false"
-      value={keyword.aliases?.join(', ') || ''}
-      on:change={(e) => {
-        const val = e.currentTarget.value.trim();
-        keyword.aliases = val ? val.split(',').map(a => a.trim()).filter(a => a) : [];
-        updateKeyword();
-      }}
-      placeholder="Aliases (comma-separated)"
-    />
-  {/if}
+  <input
+    type="text"
+    spellcheck="false"
+    value={keyword.aliases?.join(', ') || ''}
+    on:change={(e) => {
+      const val = e.currentTarget.value.trim();
+      keyword.aliases = val ? val.split(',').map(a => a.trim()).filter(a => a) : [];
+      updateKeyword();
+    }}
+    placeholder="Aliases (comma-separated)"
+  />
 
-  <input type="text" spellcheck="false" bind:value={keyword.description} on:change={updateKeyword} placeholder="Description (optional)" class:help-text={isHelperCategory} />
+  <input type="text" spellcheck="false" bind:value={keyword.description} on:change={updateKeyword} placeholder="Description (optional)" />
 
-  {#if !isHelperCategory}
-    <input type="text" spellcheck="false" bind:value={keyword.generateIcon} on:change={updateKeyword} placeholder="Icon" />
-  {/if}
+  <input type="text" spellcheck="false" bind:value={keyword.generateIcon} on:change={updateKeyword} placeholder="Icon" />
 
-  <input type="text" spellcheck="false" bind:value={keyword.ccssc} on:change={updateKeyword} placeholder="CSS class" class:help-text={isHelperCategory} />
+  <input type="text" spellcheck="false" bind:value={keyword.ccssc} on:change={updateKeyword} placeholder="CSS class" />
 
-  {#if !isHelperCategory}
-    <div class="color-controls">
-      <input type="color" bind:value={keyword.color} on:change={updateKeyword} />
-      <input type="color" bind:value={keyword.backgroundColor} on:change={updateKeyword} />
-      <button class="remove-button" aria-label="Remove keyword" use:useIcon={'minus-circle'} on:click={() => dispatch('remove', keyword)}></button>
-    </div>
-  {:else}
+  <div class="color-controls">
+    <input type="color" bind:value={keyword.color} on:change={updateKeyword} />
+    <input type="color" bind:value={keyword.backgroundColor} on:change={updateKeyword} />
     <button class="remove-button" aria-label="Remove keyword" use:useIcon={'minus-circle'} on:click={() => dispatch('remove', keyword)}></button>
-  {/if}
+  </div>
 </div>
 
 <style>
@@ -307,18 +282,6 @@
     justify-content: center;
     padding: 0 3px;
     pointer-events: none;
-  }
-
-  /* HELP keyword styling */
-  .help-keyword {
-    width: 48%;
-    display: inline-flex;
-    margin-right: 2%;
-  }
-
-  .help-text {
-    color: #0088ff !important;
-    font-weight: 500;
   }
 
   .reorder-controls {

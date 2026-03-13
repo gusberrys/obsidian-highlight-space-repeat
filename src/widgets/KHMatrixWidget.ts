@@ -11,7 +11,6 @@ import { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
 import { FilterParser } from '../services/FilterParser';
 import { KHEntry } from '../components/KHEntry';
 import type { ActiveChip } from '../interfaces/ActiveChip';
-import { KeywordType, getKeywordType } from '../shared/keyword-style';
 import { MainCombinePriority } from '../shared/combine-priority';
 import type { KeywordStyle } from '../shared/keyword-style';
 import { SubjectDashboardView, SUBJECT_DASHBOARD_VIEW_TYPE } from './SubjectDashboardView';

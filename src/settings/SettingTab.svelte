@@ -8,6 +8,7 @@
     settingsStore as store, type PluginSettings, saveStore,
     settingsDataStore, saveSettingsData,
     codeBlocksStore, saveCodeBlocks,
+    vwordSettingsStore, saveVWordSettings,
     updateCategoryClass,
     subjectsStore,
     addSubject, removeSubject, updateSubject,
@@ -89,7 +90,7 @@
   let collapsedGroups: Set<string> = new Set();
 
   // Tab state
-  let activeTab: 'keywords' | 'cBlocks' | 'parser' | 'subjects' | 'generic' | 'filters' = 'keywords';
+  let activeTab: 'keywords' | 'cBlocks' | 'vword' | 'parser' | 'subjects' | 'generic' | 'filters' = 'keywords';
 
   // Initialize collapsed categories with all category names when component loads
   $: if (categories.length > 0 && collapsedCategories.size === 0) {
@@ -98,7 +99,6 @@
   let editingCategoryName: string | null = null;
   let editedCategoryName = '';
   let editedCategoryId = '';
-  let editedCategoryIsHelper = false;
 
   let editingGroupName: string | null = null;
   let editedGroupName = '';
@@ -413,15 +413,13 @@
     editingCategoryName = categoryName;
     editedCategoryName = categoryName;
     editedCategoryId = category?.id || '';
-    editedCategoryIsHelper = category?.isHelper || false;
   }
 
   function saveEditedCategory() {
     if (editingCategoryName) {
       const currentCategory = categories.find(cat => cat.icon === editingCategoryName);
       const hasChanges = (editedCategoryName.trim() !== editingCategoryName) ||
-                        (editedCategoryId.trim() !== (currentCategory?.id || '')) ||
-                        (editedCategoryIsHelper !== (currentCategory?.isHelper || false));
+                        (editedCategoryId.trim() !== (currentCategory?.id || ''));
 
       if (hasChanges && editedCategoryName.trim()) {
         settingsStore.update((settings) => {
@@ -429,7 +427,6 @@
           if (category) {
             category.icon = editedCategoryName.trim();
             category.id = editedCategoryId.trim() || undefined;
-            category.isHelper = editedCategoryIsHelper;
           }
           return settings;
         });
@@ -438,14 +435,12 @@
     editingCategoryName = null;
     editedCategoryName = '';
     editedCategoryId = '';
-    editedCategoryIsHelper = false;
   }
 
   function cancelEditingCategory() {
     editingCategoryName = null;
     editedCategoryName = '';
     editedCategoryId = '';
-    editedCategoryIsHelper = false;
   }
 
   // Keyword Group handlers
@@ -1150,6 +1145,13 @@
   </button>
   <button
     class="tab-button"
+    class:active={activeTab === 'vword'}
+    on:click={() => activeTab = 'vword'}
+  >
+    🎨 VWord
+  </button>
+  <button
+    class="tab-button"
     class:active={activeTab === 'parser'}
     on:click={() => activeTab = 'parser'}
   >
@@ -1289,25 +1291,12 @@
                         placeholder="category-id (optional)"
                       />
                     </div>
-                    <div class="category-edit-field">
-                      <label class="category-edit-label">Helper:</label>
-                      <input
-                        type="checkbox"
-                        bind:checked={editedCategoryIsHelper}
-                        on:change={saveEditedCategory}
-                        on:click|stopPropagation
-                        class="category-helper-checkbox"
-                      />
-                    </div>
                   </div>
                 {:else}
                   <h3 on:dblclick|stopPropagation={() => startEditingCategory(category.icon)}>
                     {category.icon}
                     {#if category.id}
                       <span class="category-id-badge">:{category.id}</span>
-                    {/if}
-                    {#if category.isHelper}
-                      <span class="category-helper-badge">HELP</span>
                     {/if}
                     <span class="keyword-count">({filteredKeywords.length}{#if keywordSearchFilter.trim()}/{category.keywords.length}{/if})</span>
                     <span class="category-icons">
@@ -1604,6 +1593,78 @@
         >
           🔄 Auto-Parse from Vault
         </button>
+      </div>
+    </div>
+  {:else if activeTab === 'vword'}
+    <div class="vword-settings-section">
+      <h2>VWord (Visual Keywords)</h2>
+      <p class="description">
+        VWord keywords are special pattern-based keywords for controlling visual layout.
+        They are automatically recognized and don't need to be added individually.
+      </p>
+
+      <div class="vword-explanation">
+        <h3>📐 Available VWord Keywords</h3>
+
+        <div class="vword-type">
+          <h4>i-keywords (Image Column Control)</h4>
+          <p><strong>Pattern:</strong> <code>i10</code>, <code>i15</code>, <code>i20</code>, ..., <code>i90</code> (17 total)</p>
+          <p><strong>Purpose:</strong> Controls image column width percentage in reading view.</p>
+          <p><strong>Example:</strong> <code>def i67 :: My content</code> → Image takes 67% width, text takes 33%</p>
+          <p><strong>Note:</strong> Images will ONLY split into two columns when an i-keyword is present.</p>
+        </div>
+
+        <div class="vword-type">
+          <h4>h-keywords (Horizontal List Layouts)</h4>
+          <p><strong>Pattern:</strong> <code>h</code> + 2-5 digits (112 total combinations)</p>
+          <p><strong>Purpose:</strong> Controls horizontal list layout with custom width ratios.</p>
+          <p><strong>Examples:</strong></p>
+          <ul>
+            <li><code>h442</code> → 3 items with 40%/40%/20% widths (weights: 4+4+2=10)</li>
+            <li><code>h123</code> → 3 items with 16.66%/33.33%/50% widths (weights: 1+2+3=6)</li>
+            <li><code>h1234</code> → 4 items with custom ratios</li>
+          </ul>
+          <p><strong>Rules:</strong> 2-5 elements, sum of weights must be 2-7</p>
+        </div>
+      </div>
+
+      <div class="vword-color-settings">
+        <h3>🎨 VWord Styling</h3>
+        <p>All VWord keywords share the same color and background color:</p>
+
+        <div class="color-pickers">
+          <div class="color-picker-item">
+            <label for="vword-color">Text Color:</label>
+            <input
+              type="color"
+              id="vword-color"
+              bind:value={$vwordSettingsStore.color}
+              on:change={async () => await saveVWordSettings()}
+            />
+            <span class="color-value">{$vwordSettingsStore.color}</span>
+          </div>
+
+          <div class="color-picker-item">
+            <label for="vword-bg-color">Background Color:</label>
+            <input
+              type="color"
+              id="vword-bg-color"
+              bind:value={$vwordSettingsStore.backgroundColor}
+              on:change={async () => await saveVWordSettings()}
+            />
+            <span class="color-value">{$vwordSettingsStore.backgroundColor}</span>
+          </div>
+        </div>
+
+        <div class="vword-preview">
+          <p><strong>Preview:</strong></p>
+          <span
+            class="vword-preview-text"
+            style="color: {$vwordSettingsStore.color}; background-color: {$vwordSettingsStore.backgroundColor}; padding: 4px 8px; border-radius: 3px;"
+          >
+            VWord keyword
+          </span>
+        </div>
       </div>
     </div>
   {:else if activeTab === 'parser'}
@@ -6137,6 +6198,121 @@
 
   .kb-modal-btn-primary:hover {
     background: var(--interactive-accent-hover);
+  }
+
+  /* VWord Settings */
+  .vword-settings-section {
+    padding: 1rem;
+  }
+
+  .vword-settings-section h2 {
+    margin-bottom: 0.5rem;
+  }
+
+  .vword-settings-section .description {
+    color: var(--text-muted);
+    margin-bottom: 1.5rem;
+  }
+
+  .vword-explanation {
+    background: var(--background-secondary);
+    padding: 1rem;
+    border-radius: 6px;
+    margin-bottom: 2rem;
+  }
+
+  .vword-explanation h3 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+  }
+
+  .vword-type {
+    margin-bottom: 1.5rem;
+  }
+
+  .vword-type h4 {
+    margin-bottom: 0.5rem;
+    color: var(--text-accent);
+  }
+
+  .vword-type p {
+    margin: 0.3rem 0;
+  }
+
+  .vword-type code {
+    background: var(--background-primary);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: var(--font-monospace);
+  }
+
+  .vword-type ul {
+    margin: 0.5rem 0;
+    padding-left: 1.5rem;
+  }
+
+  .vword-type li {
+    margin: 0.3rem 0;
+  }
+
+  .vword-color-settings {
+    background: var(--background-secondary);
+    padding: 1rem;
+    border-radius: 6px;
+  }
+
+  .vword-color-settings h3 {
+    margin-top: 0;
+    margin-bottom: 0.5rem;
+  }
+
+  .vword-color-settings > p {
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+  }
+
+  .color-pickers {
+    display: flex;
+    gap: 2rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .color-picker-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .color-picker-item label {
+    font-weight: 500;
+  }
+
+  .color-picker-item input[type="color"] {
+    width: 50px;
+    height: 35px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .color-value {
+    font-family: var(--font-monospace);
+    font-size: 0.9em;
+    color: var(--text-muted);
+  }
+
+  .vword-preview {
+    padding-top: 1rem;
+    border-top: 1px solid var(--background-modifier-border);
+  }
+
+  .vword-preview p {
+    margin-bottom: 0.5rem;
+  }
+
+  .vword-preview-text {
+    display: inline-block;
+    font-family: var(--font-monospace);
   }
 
 </style>

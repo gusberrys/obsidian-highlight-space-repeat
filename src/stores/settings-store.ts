@@ -1,11 +1,11 @@
 import { App, MarkdownView } from 'obsidian';
 import type { HighlightSpaceRepeatPlugin } from 'src/highlight-space-repeat-plugin';
 import { generateInitialColors } from 'src/settings/generate-initial-colors';
-import type { KeywordStyle, Category, Settings, CodeBlockLanguage } from 'src/shared';
-import { KeywordType } from 'src/shared';
+import type { KeywordStyle, Category, Settings, CodeBlockLanguage, VWordSettings } from 'src/shared';
+import { DEFAULT_VWORD_SETTINGS } from 'src/shared';
 import { CollectingStatus } from 'src/shared/collecting-status';
 import { MainCombinePriority } from 'src/shared/combine-priority';
-import { injectKeywordCSS } from 'src/shared/dynamic-css';
+import { injectKeywordCSS, injectVWordCSS, injectAllCSS } from 'src/shared/dynamic-css';
 import { get, writable } from 'svelte/store';
 import type { ParserSettings } from 'src/interfaces/ParserSettings';
 import { DEFAULT_PARSER_SETTINGS } from 'src/interfaces/ParserSettings';
@@ -132,6 +132,7 @@ const DEFAULT_CODEBLOCKS: CodeBlockLanguage[] = [
 export const settingsStore = writable<PluginSettings>(DEFAULT_SETTINGS);
 export const settingsDataStore = writable<Settings>(DEFAULT_SETTINGS_DATA);
 export const codeBlocksStore = writable<CodeBlockLanguage[]>(DEFAULT_CODEBLOCKS);
+export const vwordSettingsStore = writable<VWordSettings>(DEFAULT_VWORD_SETTINGS);
 export const subjectsStore = writable<SubjectsData>({ subjects: [] });
 
 let plugin: HighlightSpaceRepeatPlugin | null = null;
@@ -143,6 +144,9 @@ export async function initStore(pluginInstance: HighlightSpaceRepeatPlugin): Pro
 
   // Wait for settings to load before plugin finishes initialization
   await loadStore();
+
+  // Load VWord settings and inject CSS (needs to complete before plugin fully loads)
+  await loadVWordSettings();
 
   // These can load in parallel with plugin initialization
   loadSettingsData();
@@ -177,7 +181,7 @@ export async function loadStore(): Promise<void> {
     });
   });
 
-  // Set default collectingStatus, keywordType, and combinePriority for keywords that don't have them set
+  // Set default collectingStatus and combinePriority for keywords that don't have them set
   settings.categories.forEach(category => {
     category.keywords.forEach(keyword => {
       // Only set if not already defined - default to PARSED for backward compatibility
@@ -185,26 +189,8 @@ export async function loadStore(): Promise<void> {
         keyword.collectingStatus = CollectingStatus.PARSED;
       }
 
-      // Migrate mainKeyword to keywordType
-      if (keyword.keywordType === undefined) {
-        // Check if this category is a helper category
-        if (category.isHelper) {
-          keyword.keywordType = KeywordType.HELP;
-        } else if (keyword.mainKeyword === true) {
-          keyword.keywordType = KeywordType.MAIN;
-        } else {
-          // Default to MAIN
-          keyword.keywordType = KeywordType.MAIN;
-        }
-      }
-
-      // Keep mainKeyword for backward compatibility but prefer keywordType
-      if (keyword.mainKeyword === undefined) {
-        keyword.mainKeyword = keyword.keywordType === KeywordType.MAIN;
-      }
-
-      // Set default combinePriority for MAIN keywords only
-      if (keyword.combinePriority === undefined && keyword.keywordType === KeywordType.MAIN) {
+      // Set default combinePriority
+      if (keyword.combinePriority === undefined) {
         keyword.combinePriority = MainCombinePriority.None;
       }
     });
@@ -217,7 +203,8 @@ export async function loadStore(): Promise<void> {
     (plugin.constructor as typeof HighlightSpaceRepeatPlugin).settings = settings;
   }
 
-  // Inject CSS after loading settings
+  // Inject keyword CSS after loading settings
+  // Note: VWord CSS will be injected separately by loadVWordSettings()
   injectKeywordCSS(settings.categories);
 
   // Save migrated settings back to file if migration occurred
@@ -241,8 +228,9 @@ export async function saveStore(): Promise<void> {
   // CRITICAL: Also update the static property used by the public API
   (plugin.constructor as typeof HighlightSpaceRepeatPlugin).settings = currentSettings;
 
-  // Update CSS after saving
-  injectKeywordCSS(currentSettings.categories);
+  // Update CSS after saving (inject both keyword and VWord CSS)
+  const vwordSettings = get(vwordSettingsStore);
+  injectAllCSS(currentSettings.categories, vwordSettings);
 
   refreshViews();
 }
@@ -291,19 +279,13 @@ export function addKeyword(value?: string, categoryName?: string, container?: HT
     }
 
     // Add the keyword to the category
-    // Determine keywordType based on category's isHelper flag
-    const keywordType = targetCategory.isHelper ? KeywordType.HELP : KeywordType.MAIN;
-    const mainKeyword = keywordType === KeywordType.MAIN;
-
     targetCategory.keywords.push({
       keyword: value ?? '',
       color: color,
       backgroundColor: backgroundColor,
       description: '',
-      keywordType: keywordType,
-      mainKeyword: mainKeyword,  // Backward compatibility
       collectingStatus: CollectingStatus.PARSED,  // Default to parsed
-      combinePriority: keywordType === KeywordType.MAIN ? MainCombinePriority.StyleAndIcon : undefined,
+      combinePriority: MainCombinePriority.StyleAndIcon,
     });
     return settings;
   });
@@ -382,6 +364,31 @@ export async function saveCodeBlocks(): Promise<void> {
 
   const currentCodeBlocks = get(codeBlocksStore);
   await plugin.saveCodeBlocks(currentCodeBlocks);
+}
+
+// VWord Settings functions
+export async function loadVWordSettings(): Promise<void> {
+  if (!plugin) return;
+
+  const loadedData = await plugin.loadVWordSettings();
+  const vwordSettings = Object.assign({}, DEFAULT_VWORD_SETTINGS, loadedData);
+  vwordSettingsStore.set(vwordSettings);
+
+  // Inject VWord CSS after loading
+  injectVWordCSS(vwordSettings);
+}
+
+export async function saveVWordSettings(): Promise<void> {
+  if (!plugin) return;
+
+  const currentSettings = get(vwordSettingsStore);
+  await plugin.saveVWordSettings(currentSettings);
+
+  // Re-inject all CSS after VWord settings change (keywords + VWord)
+  const keywordSettings = get(settingsStore);
+  injectAllCSS(keywordSettings.categories, currentSettings);
+
+  refreshViews();
 }
 
 // Subjects and Topics functions

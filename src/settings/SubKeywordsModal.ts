@@ -1,6 +1,5 @@
 import { App, Modal } from 'obsidian';
 import type { KeywordStyle, Category } from '../shared/keyword-style';
-import { KeywordType } from '../shared/keyword-style';
 import { settingsStore } from '../stores/settings-store';
 import { get } from 'svelte/store';
 
@@ -80,18 +79,6 @@ export class SubKeywordsModal extends Modal {
 
 		// Clear current selections
 		this.selectedSubKeywords.clear();
-
-		// Add all helper keywords from this category
-		for (const kw of category.keywords) {
-			// Skip self
-			if (kw.keyword === this.keyword.keyword) continue;
-
-			// Check if keyword is helper (not main)
-			const isMain = kw.keywordType === KeywordType.MAIN || kw.mainKeyword === true;
-			if (!isMain) {
-				this.selectedSubKeywords.add(kw.keyword);
-			}
-		}
 
 		// Save and refresh
 		this.saveSelections();

@@ -1,10 +1,11 @@
 import type { MarkdownPostProcessor } from 'obsidian';
 import { type KeywordStyle } from 'src/shared';
-import { KeywordType, getKeywordType } from 'src/shared/keyword-style';
 import { MainCombinePriority } from 'src/shared/combine-priority';
-import { settingsStore } from 'src/stores/settings-store';
+import { settingsStore, vwordSettingsStore } from 'src/stores/settings-store';
 import { get } from 'svelte/store';
 import { resolveIcon } from 'src/shared/priority-resolver';
+import { isVWordKeyword, parseVWordKeyword } from 'src/shared/vword';
+import { CollectingStatus } from 'src/shared/collecting-status';
 
 let keywordMap: Map<string, KeywordStyle>;
 
@@ -43,8 +44,9 @@ export const readerHighlighter: MarkdownPostProcessor = (el: HTMLElement) => {
 /**
  * Extract and match keywords using string-based approach
  * New syntax: "foo bar baz :: text content" or "# foo bar :: header"
+ * Returns: [matched keywords, VWord keywords, text content] or undefined
  */
-function extractAndMatch(textValue: string): [KeywordStyle[], string] | undefined {
+function extractAndMatch(textValue: string): [KeywordStyle[], string[], string] | undefined {
   // 1. Find :: separator (fastest)
   const colonIndex = textValue.indexOf('::');
   if (colonIndex === -1) return undefined;
@@ -64,19 +66,29 @@ function extractAndMatch(textValue: string): [KeywordStyle[], string] | undefine
   const keywordNames = beforeColon.split(/\s+/).filter(k => k.length > 0);
   if (keywordNames.length === 0) return undefined;
 
-  // 5. Look up each keyword in the map
+  // 5. Look up each keyword in the map (regular keywords only)
+  // VWords are handled separately - they don't affect colors, only layout
   const matchedKeywords: KeywordStyle[] = [];
+  const vwordKeywords: string[] = [];
+
   for (const name of keywordNames) {
+    // First, check if it's a regular keyword
     const kwData = keywordMap.get(name.toLowerCase());
     if (kwData) {
       matchedKeywords.push(kwData);
+      continue;
+    }
+
+    // Then, check if it's a VWord keyword (for layout only)
+    if (isVWordKeyword(name)) {
+      vwordKeywords.push(name);
     }
   }
 
-  // Must have at least one matched keyword
+  // Must have at least one REGULAR keyword (VWords alone are not enough)
   if (matchedKeywords.length === 0) return undefined;
 
-  return [matchedKeywords, afterColon];
+  return [matchedKeywords, vwordKeywords, afterColon];
 }
 
 function replaceWithHighlight(node: Node) {
@@ -100,14 +112,10 @@ function replaceWithHighlight(node: Node) {
 
     if (result) {
       const parent = node.parentNode!;
-      const [matchedKeywords, textContent] = result;
+      const [matchedKeywords, vwordKeywords, textContent] = result;
 
-      // Separate MAIN vs HELP keywords based on their keywordType
-      const mainKeywords = matchedKeywords.filter(k => getKeywordType(k) === KeywordType.MAIN);
-      const helperKeywords = matchedKeywords.filter(k => getKeywordType(k) === KeywordType.HELP);
-
-      // Use first MAIN keyword as primary, fallback to first helper, ultimate fallback to first matched
-      const primaryKeyword = mainKeywords[0] || helperKeywords[0] || matchedKeywords[0];
+      // All keywords are now MAIN type
+      const primaryKeyword = matchedKeywords[0];
 
       // Resolve icon based on priority (centralized)
       const iconToDisplay = resolveIcon(matchedKeywords);
@@ -117,9 +125,8 @@ function replaceWithHighlight(node: Node) {
         parent as HTMLElement,
         textContent,
         primaryKeyword,
-        mainKeywords,
-        helperKeywords,
-        matchedKeywords
+        matchedKeywords,
+        vwordKeywords
       );
 
       // Only insert icon if it exists
@@ -148,9 +155,8 @@ function getHighlightNode(
   parent: HTMLElement,
   textContent: string,
   primaryKeyword: KeywordStyle,
-  mainKeywords: KeywordStyle[],
-  helperKeywords: KeywordStyle[],
-  matchedKeywords: KeywordStyle[]
+  matchedKeywords: KeywordStyle[],
+  vwordKeywords: string[]
 ): Node {
   const highlight = parent.createSpan();
 
@@ -217,8 +223,13 @@ function getHighlightNode(
     parent.classList.add(cssClass);
   }
 
+  // Apply VWord keywords as classes (for layout control only, not styling)
+  for (const vword of vwordKeywords) {
+    parent.classList.add(vword);
+  }
+
   // Add data-keywords attribute with all matched keywords (for record badges)
-  const allKeywords = [...mainKeywords, ...helperKeywords].map(k => k.keyword);
+  const allKeywords = matchedKeywords.map(k => k.keyword);
   parent.setAttribute('data-keywords', allKeywords.join(' '));
 
   highlight.setText(textContent);
@@ -227,7 +238,8 @@ function getHighlightNode(
 
 /**
  * Restructure paragraphs with images into two-column layout
- * Detects highlighted paragraphs that contain images and reorganizes them
+ * ONLY applies when an i-keyword (i10-i90) is present
+ * Breaking change: No longer auto-restructures all images
  */
 function restructureImagesLayout(el: HTMLElement) {
   // Find all highlighted paragraphs
@@ -236,25 +248,15 @@ function restructureImagesLayout(el: HTMLElement) {
   highlightedElements.forEach((highlightedEl) => {
     const paragraph = highlightedEl as HTMLElement;
 
-    // Check if this paragraph has the 'img' keyword - skip image restructuring for full-width display
-    // Check both data-keywords attribute AND classList
-    const keywords = paragraph.getAttribute('data-keywords');
-    const hasImgInDataKeywords = keywords && keywords.split(',').map(k => k.trim()).includes('img');
-    const hasImgInClassList = paragraph.classList.contains('img');
+    // Check if this paragraph has an i-keyword (i10-i90)
+    // i-keywords control image column width
+    const iKeywordClass = Array.from(paragraph.classList).find(className => {
+      return className.match(/^i\d{2}$/); // Matches i10, i15, i20, ..., i90
+    });
 
-    if (hasImgInDataKeywords || hasImgInClassList) {
-      // Remove any existing restructuring if present
-      if (paragraph.classList.contains('kh-record-with-images')) {
-        paragraph.classList.remove('kh-record-with-images');
-        // Flatten back to original structure if it was restructured
-        const wrapper = paragraph.querySelector('.kh-record-with-images');
-        if (wrapper) {
-          const allChildren = Array.from(wrapper.querySelectorAll('.kh-record-text-column > *, .kh-record-image-column > *'));
-          paragraph.innerHTML = '';
-          allChildren.forEach(child => paragraph.appendChild(child));
-        }
-      }
-      return; // Skip restructuring - images will display at full width
+    // ONLY restructure if i-keyword is present
+    if (!iKeywordClass) {
+      return; // No i-keyword, skip restructuring
     }
 
     // Check if this paragraph contains any images
@@ -269,9 +271,9 @@ function restructureImagesLayout(el: HTMLElement) {
       return;
     }
 
-    // Create two-column wrapper
+    // Create two-column wrapper with i-keyword class for CSS targeting
     const wrapper = document.createElement('div');
-    wrapper.className = 'kh-record-with-images';
+    wrapper.className = `kh-record-with-images ${iKeywordClass}`;
 
     // Create text column (left)
     const textColumn = document.createElement('div');

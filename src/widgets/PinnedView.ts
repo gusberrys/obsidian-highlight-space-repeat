@@ -2,7 +2,6 @@ import { App, ItemView, WorkspaceLeaf, TFile, MarkdownView, Notice, MarkdownRend
 import type { ParsedFile, ParsedHeader, ParsedEntry } from '../interfaces/ParsedFile';
 import { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
 import { KHEntry } from '../components/KHEntry';
-import { KeywordType, getKeywordType } from '../shared/keyword-style';
 import { MainCombinePriority } from '../shared/combine-priority';
 import type { KeywordStyle } from '../shared/keyword-style';
 import { RecordParser } from '../services/RecordParser';

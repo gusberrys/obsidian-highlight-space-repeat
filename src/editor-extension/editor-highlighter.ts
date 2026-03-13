@@ -3,8 +3,9 @@ import { RangeSetBuilder } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, type PluginValue, ViewPlugin, ViewUpdate } from '@codemirror/view';
 import { highlightMark } from 'src/editor-extension';
 import type { KeywordStyle } from 'src/shared';
-import { settingsStore } from 'src/stores/settings-store';
+import { settingsStore, vwordSettingsStore } from 'src/stores/settings-store';
 import { get } from 'svelte/store';
+import { isVWordKeyword } from 'src/shared/vword';
 
 type NewDecoration = { from: number; to: number; decoration: Decoration };
 
@@ -145,7 +146,22 @@ export class EditorHighlighter implements PluginValue {
 
     for (const part of keywordNames) {
       if (part.trim().length > 0) {
-        const kwData = keywordMap.get(part.trim().toLowerCase());
+        const trimmedPart = part.trim();
+
+        // First, check if it's a regular keyword
+        let kwData = keywordMap.get(trimmedPart.toLowerCase());
+
+        // If not a regular keyword, check if it's a VWord
+        if (!kwData && isVWordKeyword(trimmedPart)) {
+          const vwordSettings = get(vwordSettingsStore);
+          // Create synthetic KeywordStyle for VWord highlighting
+          kwData = {
+            keyword: trimmedPart,
+            color: vwordSettings.color,
+            backgroundColor: vwordSettings.backgroundColor,
+          };
+        }
+
         if (kwData) {
           const keywordFrom = baseOffset + keywordsStartOffset + currentPos;
           const keywordTo = keywordFrom + part.length;

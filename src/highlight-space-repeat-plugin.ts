@@ -4,7 +4,7 @@ import { SettingTab } from 'src/settings/setting-tab';
 import { readerHighlighter, addRecordBadgesToReadingView, addGoalStatusBadges } from './reader-extension';
 import { createInsertKeywordCommand, createInsertSubKeywordCommand } from './commands';
 import { initStore, saveStore, type PluginSettings, type Settings } from './stores/settings-store';
-import { DATA_PATHS, type CodeBlockLanguage, type SubjectsData } from './shared';
+import { DATA_PATHS, type CodeBlockLanguage, type SubjectsData, type VWordSettings } from './shared';
 import type { HighlightSpaceRepeatAPI } from './public-api';
 import { CombinedKeywordSuggest } from './combined-keyword-suggest';
 import { SubKeywordSuggest } from './subkeyword-suggest';
@@ -723,6 +723,21 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     await this.app.vault.adapter.write(DATA_PATHS.CODEBLOCKS, JSON.stringify(data, null, 2));
   }
 
+  // Load VWord settings from vword-settings.json
+  async loadVWordSettings(): Promise<VWordSettings | null> {
+    try {
+      const data = await this.app.vault.adapter.read(DATA_PATHS.VWORD_SETTINGS);
+      return JSON.parse(data);
+    } catch (error) {
+      console.log('[Plugin] No VWord settings file found, using defaults');
+      return null;
+    }
+  }
+
+  // Save VWord settings to vword-settings.json
+  async saveVWordSettings(data: VWordSettings): Promise<void> {
+    await this.app.vault.adapter.write(DATA_PATHS.VWORD_SETTINGS, JSON.stringify(data, null, 2));
+  }
 
   // Load subjects and topics from subjects.json
   async loadSubjects(): Promise<SubjectsData | null> {
