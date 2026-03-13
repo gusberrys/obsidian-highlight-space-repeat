@@ -37,6 +37,8 @@ export class KHMatrixWidget extends ItemView {
 		primaryTopic: Topic | null;
 		includesSubjectTag: boolean;
 	} | null = null;
+	private widgetFilterText: string = ''; // Text filter for entries (file name, aliases, keywords, content)
+	private collapsedFiles: Set<string> = new Set(); // Track collapsed file groups in widget filter
 
 	// Track expanded headers (using unique header identifier)
 	private expandedHeaders: Set<string> = new Set();
@@ -205,86 +207,6 @@ export class KHMatrixWidget extends ItemView {
 	private renderHeader(container: HTMLElement): void {
 		const header = container.createDiv({ cls: 'kh-matrix-widget-header' });
 
-		// Filter input (always visible at top)
-		const filterDiv = header.createDiv({ cls: 'kh-widget-filter-input' });
-
-		const input = filterDiv.createEl('input', {
-			type: 'text',
-			cls: 'kh-widget-filter-expression',
-			value: this.widgetFilterExpression || '',
-			placeholder: 'Filter expression...'
-		});
-
-		const searchBtn = filterDiv.createEl('button', {
-			text: '🔍',
-			cls: 'kh-widget-filter-search-btn',
-			title: `Filter Syntax Guide:
-
-MATCHING:
-  .keyword - keyword match (e.g., .goa .def)
-  #tag - tag match (e.g., #kafka #strimzi)
-  \`language - code language (e.g., \`java \`python)
-  :category - category keywords (e.g., :boo)
-
-KEYWORD COMBINATION (within entry):
-  .kw1.kw2 - entry must have ALL (kw1 AND kw2)
-    Example: .goa.wor = entry with BOTH goa AND wor
-
-  [FUTURE] .goa|f1|f2 - goa with (f1 OR f2)
-    Current: .goa AND (.f1 OR .f2)
-
-  [FUTURE] .goa!f1!f2 - goa WITHOUT f1 or f2
-    Current: .goa AND !.f1 AND !.f2
-
-BOOLEAN OPERATORS (combine conditions):
-  AND - both true (e.g., .goa AND #kafka)
-  OR - either true (e.g., .goa OR .def)
-  ! - negate (e.g., !.wor)
-  ( ) - grouping (e.g., (.goa OR .def) AND #kafka)
-
-FLAGS (modifiers):
-  \\s - Slim: show only matching sub-items
-  \\t - Top: show only top-level matches
-  \\a - All: ignore SELECT, show all WHERE matches
-
-CLAUSES:
-  S: .keyword - SELECT what to show (default)
-  W: #tag - WHERE to search (filter files)
-
-Examples:
-  .goa.wor - entries with goa AND wor
-  .goa AND (.f1 OR .f2) - goa with f1 or f2
-  .goa AND !.f1 AND !.f2 - goa without f1 or f2
-  .goa \\t W: #kafka - top-level goa in #kafka files`
-		});
-
-		const performSearch = () => {
-			this.widgetFilterExpression = input.value;
-			this.widgetFilterType = 'R'; // Default to Record filter
-			// Set filter context
-			this.widgetFilterContext = {
-				subject: this.currentSubject!,
-				secondaryTopic: null,
-				primaryTopic: null,
-				includesSubjectTag: false
-			};
-			// Re-render entire view to apply filter to matrix
-			this.render();
-		};
-
-		// Sync button states as user types
-		input.addEventListener('input', () => {
-			this.widgetFilterExpression = input.value;
-			this.syncButtonsFromExpression();
-		});
-
-		input.addEventListener('keydown', (e) => {
-			if (e.key === 'Enter') {
-				performSearch();
-			}
-		});
-
-		searchBtn.addEventListener('click', performSearch);
 
 		// Controls container
 		const controlsDiv = header.createDiv({ cls: 'kh-matrix-controls' });
@@ -335,7 +257,89 @@ Examples:
 			});
 		}
 
-		// Buttons container
+    // Filter input (always visible at top)
+    const filterDiv = header.createDiv({ cls: 'kh-widget-filter-input' });
+
+    const input = filterDiv.createEl('input', {
+      type: 'text',
+      cls: 'kh-widget-filter-expression',
+      value: this.widgetFilterExpression || '',
+      placeholder: 'Filter expression...'
+    });
+
+    const searchBtn = filterDiv.createEl('button', {
+      text: '🔍',
+      cls: 'kh-widget-filter-search-btn',
+      title: `Filter Syntax Guide:
+
+MATCHING:
+  .keyword - keyword match (e.g., .goa .def)
+  #tag - tag match (e.g., #kafka #strimzi)
+  \`language - code language (e.g., \`java \`python)
+  :category - category keywords (e.g., :boo)
+
+KEYWORD COMBINATION (within entry):
+  .kw1.kw2 - entry must have ALL (kw1 AND kw2)
+    Example: .goa.wor = entry with BOTH goa AND wor
+
+  [FUTURE] .goa|f1|f2 - goa with (f1 OR f2)
+    Current: .goa AND (.f1 OR .f2)
+
+  [FUTURE] .goa!f1!f2 - goa WITHOUT f1 or f2
+    Current: .goa AND !.f1 AND !.f2
+
+BOOLEAN OPERATORS (combine conditions):
+  AND - both true (e.g., .goa AND #kafka)
+  OR - either true (e.g., .goa OR .def)
+  ! - negate (e.g., !.wor)
+  ( ) - grouping (e.g., (.goa OR .def) AND #kafka)
+
+FLAGS (modifiers):
+  \\s - Slim: show only matching sub-items
+  \\t - Top: show only top-level matches
+  \\a - All: ignore SELECT, show all WHERE matches
+
+CLAUSES:
+  S: .keyword - SELECT what to show (default)
+  W: #tag - WHERE to search (filter files)
+
+Examples:
+  .goa.wor - entries with goa AND wor
+  .goa AND (.f1 OR .f2) - goa with f1 or f2
+  .goa AND !.f1 AND !.f2 - goa without f1 or f2
+  .goa \\t W: #kafka - top-level goa in #kafka files`
+    });
+
+    const performSearch = () => {
+      this.widgetFilterExpression = input.value;
+      this.widgetFilterType = 'R'; // Default to Record filter
+      // Set filter context
+      this.widgetFilterContext = {
+        subject: this.currentSubject!,
+        secondaryTopic: null,
+        primaryTopic: null,
+        includesSubjectTag: false
+      };
+      // Re-render entire view to apply filter to matrix
+      this.render();
+    };
+
+    // Sync button states as user types
+    input.addEventListener('input', () => {
+      this.widgetFilterExpression = input.value;
+      this.syncButtonsFromExpression();
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        performSearch();
+      }
+    });
+
+    searchBtn.addEventListener('click', performSearch);
+
+
+    // Buttons container
 		const buttonsDiv = controlsDiv.createDiv({ cls: 'kh-matrix-buttons' });
 
 		// Edit button
@@ -674,7 +678,7 @@ Examples:
 	}
 
 	/**
-	 * Render widget filter component - just shows results, no duplicate controls
+	 * Render widget filter component - with text search input
 	 */
 	private async renderWidgetFilter(container: HTMLElement): Promise<void> {
 		if (!this.widgetFilterType || !this.widgetFilterExpression) {
@@ -683,7 +687,62 @@ Examples:
 
 		const filterSection = container.createDiv({ cls: 'kh-widget-filter' });
 
-		// Just show results directly - no duplicate header or input
+		// Add search input for text filtering
+		const searchContainer = filterSection.createDiv({
+			cls: 'kh-dashboard-file-search-container',
+			attr: {
+				style: 'display: flex; gap: 4px; align-items: center; margin-bottom: 8px;'
+			}
+		});
+
+		const searchInput = searchContainer.createEl('input', {
+			cls: 'kh-dashboard-file-search-input',
+			type: 'text',
+			placeholder: 'Filter results...',
+			value: this.widgetFilterText,
+			attr: {
+				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); min-width: 150px; flex: 1; background-color: var(--background-primary);'
+			}
+		});
+
+		// Search on Enter key
+		searchInput.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') {
+				this.widgetFilterText = searchInput.value.trim();
+				this.render();
+			}
+		});
+
+		const searchButton = searchContainer.createEl('button', {
+			cls: 'kh-dashboard-file-search-button',
+			title: 'Filter',
+			attr: {
+				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: pointer; background-color: var(--interactive-accent); color: white;'
+			}
+		});
+		setIcon(searchButton, 'search');
+
+		searchButton.addEventListener('click', () => {
+			this.widgetFilterText = searchInput.value.trim();
+			this.render();
+		});
+
+		const clearButton = searchContainer.createEl('button', {
+			cls: 'kh-dashboard-file-search-clear',
+			title: 'Clear filter',
+			attr: {
+				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: pointer; background-color: var(--background-primary);'
+			}
+		});
+		setIcon(clearButton, 'x');
+
+		clearButton.addEventListener('click', () => {
+			searchInput.value = '';
+			this.widgetFilterText = '';
+			this.render();
+		});
+
+		// Render results with text filter applied
 		await this.renderFilterResults(filterSection);
 	}
 
@@ -715,6 +774,72 @@ Examples:
 			// Record filter - show records matching expression
 			await this.renderRecordFilterResults(resultsContainer, parsedFiles);
 		}
+	}
+
+	/**
+	 * Check if a file matches the text filter (name, aliases, keywords, content)
+	 */
+	private fileMatchesTextFilter(file: ParsedFile, filterText: string): boolean {
+		if (!filterText) return true; // No filter, match everything
+
+		const lowerFilter = filterText.toLowerCase();
+
+		// Check file name
+		const fileName = getFileNameFromPath(file.filePath).toLowerCase();
+		if (fileName.includes(lowerFilter)) return true;
+
+		// Check aliases
+		if (file.aliases && file.aliases.some(alias => alias.toLowerCase().includes(lowerFilter))) {
+			return true;
+		}
+
+		// Check entries
+		for (const entry of file.entries) {
+			// Check keywords
+			if (entry.keywords && entry.keywords.some(kw => kw.toLowerCase().includes(lowerFilter))) {
+				return true;
+			}
+			// Check text content
+			if (entry.text && entry.text.toLowerCase().includes(lowerFilter)) {
+				return true;
+			}
+			// Check codeblocks
+			if (entry.type === 'codeblock' && entry.text && entry.text.toLowerCase().includes(lowerFilter)) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Check if an entry matches the text filter (keywords, content)
+	 */
+	private entryMatchesTextFilter(entry: FlatEntry, file: ParsedFile, filterText: string): boolean {
+		if (!filterText) return true; // No filter, match everything
+
+		const lowerFilter = filterText.toLowerCase();
+
+		// Check keywords
+		if (entry.keywords && entry.keywords.some(kw => kw.toLowerCase().includes(lowerFilter))) {
+			return true;
+		}
+
+		// Check text content
+		if (entry.text && entry.text.toLowerCase().includes(lowerFilter)) {
+			return true;
+		}
+
+		// Check file name
+		const fileName = getFileNameFromPath(file.filePath).toLowerCase();
+		if (fileName.includes(lowerFilter)) return true;
+
+		// Check file aliases
+		if (file.aliases && file.aliases.some(alias => alias.toLowerCase().includes(lowerFilter))) {
+			return true;
+		}
+
+		return false;
 	}
 
 	/**
@@ -779,6 +904,11 @@ Examples:
 				const fileTags = this.getFileLevelTags(file);  // Use file-level tags ONLY
 				return tags.every(tag => fileTags.includes(tag));
 			});
+		}
+
+		// Apply text filter
+		if (this.widgetFilterText) {
+			matchingFiles = matchingFiles.filter(file => this.fileMatchesTextFilter(file, this.widgetFilterText));
 		}
 
 		if (matchingFiles.length === 0) {
@@ -980,6 +1110,22 @@ Examples:
 					}
 				}
 			}
+		}
+
+		// Apply text filter to header groups
+		if (this.widgetFilterText) {
+			const filteredGroups = new Map<string, { file: ParsedFile; headerText: string; headerLevel: number; entries: FlatEntry[] }>();
+			for (const [key, group] of headerGroups.entries()) {
+				// Filter entries that match the text filter
+				const filteredEntries = group.entries.filter(entry =>
+					this.entryMatchesTextFilter(entry, group.file, this.widgetFilterText)
+				);
+				if (filteredEntries.length > 0) {
+					filteredGroups.set(key, { ...group, entries: filteredEntries });
+				}
+			}
+			headerGroups.clear();
+			filteredGroups.forEach((value, key) => headerGroups.set(key, value));
 		}
 
 		if (headerGroups.size === 0) {
@@ -1382,6 +1528,13 @@ for (const file of parsedFiles) {
 				});
 			}
 
+			// Apply text filter
+			if (this.widgetFilterText) {
+				limitedFiles = limitedFiles.filter(({ entry, file }) =>
+					this.entryMatchesTextFilter(entry, file, this.widgetFilterText)
+				);
+			}
+
 			// Group records by file
 			const recordsByFile = new Map<string, Array<{ entry: ParsedEntry; file: ParsedFile }>>();
 			limitedFiles.forEach(({ entry, file }) => {
@@ -1398,6 +1551,17 @@ for (const file of parsedFiles) {
 				const fileGroup = container.createDiv({ cls: 'kh-widget-filter-file-group' });
 				const fileHeader = fileGroup.createDiv({ cls: 'kh-widget-filter-file-header' });
 				fileHeader.style.cursor = 'pointer';
+
+				// Check if this file is collapsed
+				const isCollapsed = this.collapsedFiles.has(filePath);
+
+				// Add toggle icon
+				const toggleIcon = fileHeader.createEl('span', {
+					cls: 'kh-header-toggle',
+					text: isCollapsed ? '▸' : '▾'
+				});
+				toggleIcon.style.marginRight = '4px';
+
 				fileHeader.createEl('span', {
 					text: getFileNameFromPath(filePath).replace(/\.md$/, ''),
 					cls: 'kh-widget-filter-file-name'
@@ -1407,19 +1571,29 @@ for (const file of parsedFiles) {
 					cls: 'kh-widget-filter-file-count'
 				});
 
-				// Add click handler to open file
+				// Add click handler to toggle collapse/expand
 				fileHeader.addEventListener('click', async (e: MouseEvent) => {
-					// Only open file on Command/Ctrl + click
+					// Command/Ctrl + click: open file
 					if (e.metaKey || e.ctrlKey) {
 						const file = this.app.vault.getAbstractFileByPath(filePath);
 						if (file instanceof TFile) {
 							await this.app.workspace.getLeaf(false).openFile(file);
 						}
+					} else {
+						// Regular click: toggle collapse/expand
+						if (this.collapsedFiles.has(filePath)) {
+							this.collapsedFiles.delete(filePath);
+						} else {
+							this.collapsedFiles.add(filePath);
+						}
+						// Re-render to show/hide entries
+						await this.renderFilterResults(container.closest('.kh-widget-filter') as HTMLElement);
 					}
 				});
 
-				// Entries under this file - render in PARALLEL for performance
-				const entriesContainer = fileGroup.createDiv({ cls: 'kh-widget-filter-entries' });
+				// Entries under this file - only render if not collapsed
+				if (!isCollapsed) {
+					const entriesContainer = fileGroup.createDiv({ cls: 'kh-widget-filter-entries' });
 
 				// Render all entries in PARALLEL - NO async in map, return promises directly
 				await Promise.all(entries.map(({ entry, file }) => {
@@ -1520,6 +1694,7 @@ for (const file of parsedFiles) {
 					return Promise.resolve();
 					}
 				}));
+				}
 			}
 		} catch (error) {
 			container.createEl('div', {

@@ -1029,7 +1029,6 @@
    ======================================== */
 
 .kh-chips-section {
-  padding: 12px 16px;
   background: var(--background-secondary);
   border-bottom: 1px solid var(--background-modifier-border);
   display: flex;
