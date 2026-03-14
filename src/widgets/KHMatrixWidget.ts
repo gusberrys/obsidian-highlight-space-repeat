@@ -9,6 +9,7 @@ import { SubjectModal } from '../settings/SubjectModal';
 import type { ParsedFile, ParsedHeader, ParsedEntry, FlatEntry } from '../interfaces/ParsedFile';
 import { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
 import { FilterParser } from '../services/FilterParser';
+import { FilterExpressionService } from '../services/FilterExpressionService';
 import { KHEntry } from '../components/KHEntry';
 import type { ActiveChip } from '../interfaces/ActiveChip';
 import { MainCombinePriority } from '../shared/combine-priority';
@@ -18,7 +19,7 @@ import { resolveIconKeywordNames } from '../shared/priority-resolver';
 import { fileHasMatch } from '../utils/filter-helpers';
 import { getFileNameFromPath } from '../utils/file-helpers';
 import { getAllKeywords } from '../utils/parse-helpers';
-import { SubjectCell, PrimarySideCell, SecondaryHeaderCell, PrimarySecondaryCell, PrimaryPrimaryCell } from './cells';
+import { MatrixCell, SubjectCell, PrimarySideCell, SecondaryHeaderCell, PrimarySecondaryCell, PrimaryPrimaryCell } from './cells';
 
 export const KH_MATRIX_VIEW_TYPE = 'kh-matrix-view';
 
@@ -27,6 +28,9 @@ export class KHMatrixWidget extends ItemView {
 	private subjects: Subject[] = [];
 	private topics: Topic[] = [];
 	private plugin: HighlightSpaceRepeatPlugin;
+
+	// Cell instances cache - reused across matrix counting, column rendering, and widget filter
+	private cellInstances: Map<string, MatrixCell> = new Map();
 
 	// Widget filter state
 	private widgetFilterType: 'F' | 'H' | 'R' | null = null;
@@ -130,7 +134,8 @@ export class KHMatrixWidget extends ItemView {
 		const subject = this.subjects.find(s => s.id === subjectId);
 		if (subject) {
 			this.currentSubject = subject;
-			await this.scanMatrix();
+			// Just recalculate matrix for new subject (don't trigger full rescan)
+			await this.recalculateMatrixCounts();
 		} else {
 			console.warn(`[KHMatrixWidget] Subject not found: ${subjectId}`);
 		}
@@ -153,12 +158,8 @@ export class KHMatrixWidget extends ItemView {
 			this.render();
 		});
 
-		// Auto-scan on first open to ensure fresh data
-		if (this.currentSubject) {
-			await this.scanMatrix();
-		} else {
-			this.render();
-		}
+		// Render initial state
+		this.render();
 	}
 
 	async onClose(): Promise<void> {
@@ -263,9 +264,9 @@ export class KHMatrixWidget extends ItemView {
 					subjectBtn.title = `Open ${this.currentSubject.name} dashboard`;
 				}
 
-				// Auto-scan on subject change
+				// Recalculate matrix for new subject (don't trigger full rescan)
 				if (this.currentSubject) {
-					await this.scanMatrix();
+					await this.recalculateMatrixCounts();
 				} else {
 					this.render();
 				}
@@ -438,8 +439,9 @@ Examples:
 
 		// Add counts if available
 		if (cellData1x1?.fileCount !== undefined) {
+			const cellInstance = this.cellInstances.get(cellKey1x1);
 			this.addCountDisplay(cell1x1, cellData1x1.fileCount, cellData1x1.headerCount || 0,
-				cellData1x1.recordCount || 0, this.currentSubject, null, null, false, tooltipText1x1);
+				cellData1x1.recordCount || 0, this.currentSubject, null, null, false, tooltipText1x1, cellInstance);
 		}
 
 		// Set background color based on exclusions
@@ -490,8 +492,9 @@ Examples:
 
 			// Add counts if available
 			if (cellData?.fileCount !== undefined) {
+				const cellInstance = this.cellInstances.get(cellKey);
 				this.addCountDisplay(cell, cellData.fileCount, cellData.headerCount || 0,
-					cellData.recordCount || 0, this.currentSubject!, topic, null, andMode, tooltipText);
+					cellData.recordCount || 0, this.currentSubject!, topic, null, andMode, tooltipText, cellInstance);
 			}
 
 			// Set background color based on exclusions
@@ -550,8 +553,9 @@ Examples:
 
 			// Add counts if available
 			if (cellData?.fileCount !== undefined) {
+				const cellInstance = this.cellInstances.get(cellKey);
 				this.addCountDisplay(rowHeaderCell, cellData.fileCount, cellData.headerCount || 0,
-					cellData.recordCount || 0, this.currentSubject!, null, primaryTopic, andMode, tooltipText);
+					cellData.recordCount || 0, this.currentSubject!, null, primaryTopic, andMode, tooltipText, cellInstance);
 			}
 
 			// Set background color based on exclusions
@@ -616,8 +620,9 @@ Examples:
 
 				// Add counts if available
 				if (cellData?.fileCount !== undefined) {
+					const cellInstance = this.cellInstances.get(intersectionKey);
 					this.addCountDisplay(cell, cellData.fileCount, cellData.headerCount || 0,
-						cellData.recordCount || 0, this.currentSubject!, secondaryTopic, primaryTopic, includesSubjectTag, tooltipText);
+						cellData.recordCount || 0, this.currentSubject!, secondaryTopic, primaryTopic, includesSubjectTag, tooltipText, cellInstance);
 				}
 
 				// Set background color based on exclusions
@@ -681,8 +686,9 @@ Examples:
 
 					// Add counts if available
 					if (cellData?.fileCount !== undefined) {
+						const cellInstance = this.cellInstances.get(intersectionKey);
 						this.addCountDisplay(cell, cellData.fileCount, cellData.headerCount || 0,
-							cellData.recordCount || 0, this.currentSubject!, secondaryTopic, primaryTopic, includesSubjectTag, tooltipText);
+							cellData.recordCount || 0, this.currentSubject!, secondaryTopic, primaryTopic, includesSubjectTag, tooltipText, cellInstance);
 					}
 
 					// Set background color based on exclusions
@@ -1460,91 +1466,14 @@ Examples:
 	 */
 	private async renderRecordFilterResults(container: HTMLElement, parsedFiles: ParsedFile[]): Promise<void> {
 		try {
-
-			// Matrix expressions are already in FilterParser syntax (placeholders expanded)
-			// Only transform if expression doesn't look like FilterParser syntax (no dots for keywords, no # for tags)
-			// Check if expression already uses FilterParser syntax (has .keyword or #tag patterns)
-			const hasExplicitOperators = /\b(AND|OR)\b/.test(this.widgetFilterExpression);
-			const expr = hasExplicitOperators
-				? this.widgetFilterExpression  // Already has operators - use as-is
-				: this.transformFilterExpression(this.widgetFilterExpression); // No operators - transform it
-
-
-			// Split on W: to separate SELECT and WHERE clauses
-			const hasWhere = expr.includes('W:');
-			let selectExpr = expr;
-			let whereExpr = '';
-
-			if (hasWhere) {
-				const parts = expr.split(/W:/);
-				selectExpr = parts[0].trim();
-				whereExpr = parts[1]?.trim() || '';
-			}
-
-
-			// Add subject tag to WHERE clause if this is a green cell (AND mode enabled)
-			if (this.widgetFilterContext?.includesSubjectTag && this.widgetFilterContext.subject.mainTag) {
-				// Normalize: strip leading # if present, then add it back
-				const subjectTag = this.widgetFilterContext.subject.mainTag.replace(/^#/, '');
-				if (whereExpr) {
-					// Add to existing WHERE clause (wrap in parentheses for correct precedence)
-					whereExpr = `#${subjectTag} AND (${whereExpr})`;
-				} else {
-					// Create new WHERE clause with just the subject tag
-					whereExpr = `#${subjectTag}`;
-				}
-			}
-
-
-			// Compile expressions
-			const selectCompiled = FilterParser.compile(selectExpr);
-			const whereCompiled = whereExpr ? FilterParser.compile(whereExpr) : null;
-
-			const matchingFiles: { entry: FlatEntry; file: ParsedFile }[] = [];
-
-			let totalEntriesChecked = 0;
-			let rejectedByWhere = 0;
-			let matchedBySelect = 0;
-
-for (const file of parsedFiles) {
-			for (const entry of file.entries) {
-				totalEntriesChecked++;
-
-				// Debug specific entry that should match
-				const isKroxyFile = file.filePath.includes('Kroxy ST.md');
-				const entryKeywords = getAllKeywords(entry);
-				const hasDefRep = entryKeywords.includes('def') && entryKeywords.includes('rep');
-
-				if (isKroxyFile && hasDefRep) {
-				}
-
-				// First apply WHERE clause (if present)
-				if (whereCompiled) {
-					const whereMatches = FilterParser.evaluateFlatEntry(whereCompiled.ast, entry, HighlightSpaceRepeatPlugin.settings.categories, whereCompiled.modifiers);
-
-					if (!whereMatches) {
-						rejectedByWhere++;
-						continue; // Doesn't match WHERE clause, skip
-					}
-				}
-
-				// If showAll is active, ignore SELECT clause and show all matching WHERE
-				if (this.showAll && whereCompiled) {
-					matchingFiles.push({ entry, file });
-					continue;
-				}
-
-				// Then apply SELECT clause
-				const selectMatches = FilterParser.evaluateFlatEntry(selectCompiled.ast, entry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers);
-
-
-				if (selectMatches) {
-					matchingFiles.push({ entry, file });
-					matchedBySelect++;
-				}
-			}
-		}
-
+			// Use FilterExpressionService.getMatchingRecords() - SINGLE SOURCE OF TRUTH
+			const matchingFiles = FilterExpressionService.getMatchingRecords(
+				parsedFiles,
+				this.widgetFilterExpression,
+				this.widgetFilterContext?.primaryTopic || null,
+				this.widgetFilterContext?.subject,
+				this.widgetFilterContext?.includesSubjectTag || false
+			);
 
 			if (matchingFiles.length === 0) {
 				container.createEl('div', {
@@ -1557,8 +1486,27 @@ for (const file of parsedFiles) {
 			// No limit on results - show all matching entries
 			let limitedFiles = matchingFiles;
 
+			// Compile SELECT expression for UI-level filtering (topRecordOnly, trimSubItems)
+			// We need this because those features filter AFTER getting the base matching records
+			let selectCompiled: import('../interfaces/FilterInterfaces').CompiledFilter | undefined;
+			if ((this.topRecordOnly || this.trimSubItems) && this.widgetFilterExpression) {
+				try {
+					// Transform and extract SELECT clause
+					const hasExplicitOperators = /\b(AND|OR)\b/.test(this.widgetFilterExpression);
+					const expr = hasExplicitOperators
+						? this.widgetFilterExpression
+						: FilterExpressionService.transformFilterExpression(this.widgetFilterExpression);
+
+					const hasWhere = /\s+[Ww]:\s+/.test(expr);
+					const selectExpr = hasWhere ? expr.split(/\s+[Ww]:\s+/)[0].trim() : expr;
+					selectCompiled = FilterParser.compile(selectExpr);
+				} catch (error) {
+					console.error('[renderRecordFilterResults] Failed to compile SELECT for UI filtering:', error);
+				}
+			}
+
 			// Apply topRecordOnly filter if enabled - remove records where match is only in sub-items
-			if (this.topRecordOnly && this.widgetFilterExpression) {
+			if (this.topRecordOnly && this.widgetFilterExpression && selectCompiled) {
 				limitedFiles = limitedFiles.filter(({ entry, file }) => {
 					// Keep codeblocks - they are always top-level entries
 					if (entry.type === 'codeblock') {
@@ -1577,7 +1525,7 @@ for (const file of parsedFiles) {
 			}
 
 			// Apply trim filter if enabled - filter sub-items to only those matching SELECT clause
-			if (this.trimSubItems) {
+			if (this.trimSubItems && selectCompiled) {
 				limitedFiles = limitedFiles.map(({ entry, file }) => {
 					if (entry.subItems && entry.subItems.length > 0) {
 						// Filter sub-items to only those matching the SELECT clause
@@ -1898,7 +1846,8 @@ for (const file of parsedFiles) {
 		secondaryTopic: Topic | null,
 		primaryTopic: Topic | null,
 		includesSubjectTag: boolean,
-		tooltip?: string
+		tooltip?: string,
+		cellInstance?: MatrixCell
 	): void {
 		const countsDiv = cell.createDiv({ cls: 'kh-matrix-counts' });
 
@@ -2015,65 +1964,12 @@ for (const file of parsedFiles) {
 			recordCountSpan.addEventListener('click', (e) => {
 				e.stopPropagation();
 
-
-				// Set widget filter to show record filter
-				let topic: Topic | null = null;
-				let expansionContext: Topic | null = null;
-
-				// Get the appropriate filter expression based on cell type
-				let expr: string | undefined;
-
-				if (secondaryTopic && primaryTopic) {
-					// Intersection: use secondary's intersection expression (BLUE)
-					expr = secondaryTopic.appliedFilterExpIntersection;
-					topic = secondaryTopic;
-					expansionContext = primaryTopic;
-				} else if (secondaryTopic) {
-					// Secondary own cell: use header expression (GREEN)
-					expr = secondaryTopic.FilterExpHeader;
-					topic = secondaryTopic;
-					expansionContext = null;
-				} else if (primaryTopic) {
-					// Primary own cell: use side expression (RED)
-					expr = primaryTopic.matrixOnlyFilterExpSide;
-					topic = primaryTopic;
-					expansionContext = primaryTopic;
-				} else {
-					// Subject cell (1x1): use matrixOnlyFilterExp (primary), keyword (fallback), or expression (legacy)
-					expr = subject.matrixOnlyFilterExp || subject.expression;
-					if (!expr && subject.keyword) {
-						// Fallback to keyword if no filter expression
-						expr = `.${subject.keyword}`;
-					}
-					topic = null;
-					expansionContext = null;
-				}
+				// Use cellInstance if provided (SINGLE SOURCE OF TRUTH)
+				const expr = cellInstance ? cellInstance.getFilterExpression() : undefined;
 
 				if (expr) {
 					this.widgetFilterType = 'R';
-
-					// For single secondary: expand with subject
-					// For single primary: remove placeholders (they reference non-existent secondary)
-					if (secondaryTopic && !primaryTopic) {
-						// Single secondary: expand with subject
-						this.widgetFilterExpression = this.expandPlaceholders(expr, expansionContext, subject);
-					} else if (primaryTopic && !secondaryTopic) {
-						// Single primary: remove placeholders
-						expr = expr.replace(/\s*(AND|OR)\s*#\?/gi, '');
-						expr = expr.replace(/#\?\s*(AND|OR)\s*/gi, '');
-						expr = expr.replace(/#\?/g, '');
-						expr = expr.replace(/\s*(AND|OR)\s*\.\?/gi, '');
-						expr = expr.replace(/\.\?\s*(AND|OR)\s*/gi, '');
-						expr = expr.replace(/\.\?/g, '');
-						expr = expr.replace(/\s*(AND|OR)\s*`\?/gi, '');
-						expr = expr.replace(/`\?\s*(AND|OR)\s*/gi, '');
-						expr = expr.replace(/`\?/g, '');
-						this.widgetFilterExpression = this.expandPlaceholders(expr, expansionContext, subject);
-					} else {
-						// Intersection: expand with primary topic
-						this.widgetFilterExpression = this.expandPlaceholders(expr, expansionContext, subject);
-					}
-
+					this.widgetFilterExpression = expr;
 					this.widgetFilterContext = { subject, secondaryTopic, primaryTopic, includesSubjectTag };
 					this.render();
 				}
@@ -2358,7 +2254,7 @@ for (const file of parsedFiles) {
 		const parsedFiles = await this.loadParsedRecords();
 
 		// Use countRecordsWithExpression helper to get matching records
-		const expandedExpr = this.expandPlaceholders(expr, expansionContext, subject);
+		const expandedExpr = FilterExpressionService.expandPlaceholders(expr, expansionContext, subject);
 
 		let compiled;
 		try {
@@ -2547,7 +2443,7 @@ for (const file of parsedFiles) {
 				// For single primary: expand with itself (remove placeholders since they reference non-existent secondary)
 				if (secondaryTopic && !primaryTopic) {
 					// Single secondary topic: expand placeholders with subject's values
-					R = this.expandPlaceholders(expr, expansionContext, subject);
+					R = FilterExpressionService.expandPlaceholders(expr, expansionContext, subject);
 				} else if (primaryTopic && !secondaryTopic) {
 					// Single primary topic: remove placeholders (they reference non-existent secondary)
 					expr = expr.replace(/\s*(AND|OR)\s*#\?/gi, '');
@@ -2559,10 +2455,10 @@ for (const file of parsedFiles) {
 					expr = expr.replace(/\s*(AND|OR)\s*`\?/gi, '');
 					expr = expr.replace(/`\?\s*(AND|OR)\s*/gi, '');
 					expr = expr.replace(/`\?/g, '');
-					R = this.expandPlaceholders(expr, expansionContext, subject);
+					R = FilterExpressionService.expandPlaceholders(expr, expansionContext, subject);
 				} else {
 					// Intersection: expand with primary topic
-					R = this.expandPlaceholders(expr, expansionContext, subject);
+					R = FilterExpressionService.expandPlaceholders(expr, expansionContext, subject);
 				}
 
 				// Add subject tag as WHERE clause if AND mode enabled
@@ -2769,12 +2665,18 @@ for (const file of parsedFiles) {
 	private async renderSubjectColumn(columnsContainer: HTMLElement, allRecords: ParsedFile[]): Promise<void> {
 		if (!this.currentSubject) return;
 
-		// Create SubjectCell - SINGLE source of truth for subject cell
-		const cell = new SubjectCell(
-			this.currentSubject,
-			this.getFileLevelTags.bind(this),
-			this.getRecordTags.bind(this)
-		);
+		// Get cached SubjectCell (created in recalculateMatrixCounts)
+		const cellKey = '1x1';
+		let cell = this.cellInstances.get(cellKey) as SubjectCell | undefined;
+		if (!cell) {
+			// Fallback: create cell if not cached (shouldn't happen if recalculate was called)
+			cell = new SubjectCell(
+				this.currentSubject,
+				this.getFileLevelTags.bind(this),
+				this.getRecordTags.bind(this)
+			);
+			this.cellInstances.set(cellKey, cell);
+		}
 
 		// Use cell for all counting
 		const fileCount = cell.countFiles(allRecords);
@@ -2897,13 +2799,21 @@ for (const file of parsedFiles) {
 		const primaryTopic = this.currentSubject.primaryTopics?.find(t => t.id === primaryTopicId);
 		if (!primaryTopic || !primaryTopic.topicTag) return;
 
-		// Create PrimarySideCell - SINGLE source of truth for primary side cell
-		const cell = new PrimarySideCell(
-			this.currentSubject,
-			primaryTopic,
-			this.getFileLevelTags.bind(this),
-			this.getRecordTags.bind(this)
-		);
+		// Get cached PrimarySideCell (created in recalculateMatrixCounts)
+		const primaryIndex = this.currentSubject.primaryTopics?.findIndex(t => t.id === primaryTopicId) ?? -1;
+		if (primaryIndex === -1) return;
+		const cellKey = `${primaryIndex + 2}x1`;
+		let cell = this.cellInstances.get(cellKey) as PrimarySideCell | undefined;
+		if (!cell) {
+			// Fallback: create cell if not cached (shouldn't happen if recalculate was called)
+			cell = new PrimarySideCell(
+				this.currentSubject,
+				primaryTopic,
+				this.getFileLevelTags.bind(this),
+				this.getRecordTags.bind(this)
+			);
+			this.cellInstances.set(cellKey, cell);
+		}
 
 		// Use cell for all counting
 		const fileCount = cell.countFiles(allRecords);
@@ -3022,31 +2932,55 @@ for (const file of parsedFiles) {
 	private renderSecondaryColumn(columnsContainer: HTMLElement, topic: Topic, filteredRecords: ParsedFile[], allRecords: ParsedFile[]): void {
 		if (!this.currentSubject) return;
 
-		// Determine cell type and create appropriate cell
-		let cell;
+		// Find column position for cellKey
+		const allSecondaryTopics = this.currentSubject.secondaryTopics || [];
+		const secondaryIndex = allSecondaryTopics.findIndex(t => t.id === topic.id);
+		if (secondaryIndex === -1) return;
+		const col = secondaryIndex + 2;
+
+		// Determine cell type and get cached cell
+		let cell: MatrixCell;
 		let topicFiles: ParsedFile[] = [];
 
 		if (this.selectedRowId === 'orphans') {
 			// SECONDARY_HEADER cell (1x2, 1x3)
-			cell = new SecondaryHeaderCell(
-				this.currentSubject,
-				topic,
-				this.getFileLevelTags.bind(this),
-				this.getRecordTags.bind(this)
-			);
+			const cellKey = `1x${col}`;
+			let cachedCell = this.cellInstances.get(cellKey) as SecondaryHeaderCell | undefined;
+			if (!cachedCell) {
+				// Fallback: create cell if not cached
+				cachedCell = new SecondaryHeaderCell(
+					this.currentSubject,
+					topic,
+					this.getFileLevelTags.bind(this),
+					this.getRecordTags.bind(this)
+				);
+				this.cellInstances.set(cellKey, cachedCell);
+			}
+			cell = cachedCell;
 			topicFiles = cell.collectFiles(allRecords);
 		} else {
 			// PRIMARY_SECONDARY cell (2x2, 2x3)
 			const primaryTopic = this.currentSubject.primaryTopics?.find(t => t.id === this.selectedRowId);
 			if (!primaryTopic) return;
 
-			cell = new PrimarySecondaryCell(
-				this.currentSubject,
-				primaryTopic,
-				topic,
-				this.getFileLevelTags.bind(this),
-				this.getRecordTags.bind(this)
-			);
+			const primaryIndex = this.currentSubject.primaryTopics?.findIndex(t => t.id === this.selectedRowId) ?? -1;
+			if (primaryIndex === -1) return;
+			const rowNum = primaryIndex + 2;
+			const cellKey = `${rowNum}x${col}`;
+
+			let cachedCell = this.cellInstances.get(cellKey) as PrimarySecondaryCell | undefined;
+			if (!cachedCell) {
+				// Fallback: create cell if not cached
+				cachedCell = new PrimarySecondaryCell(
+					this.currentSubject,
+					primaryTopic,
+					topic,
+					this.getFileLevelTags.bind(this),
+					this.getRecordTags.bind(this)
+				);
+				this.cellInstances.set(cellKey, cachedCell);
+			}
+			cell = cachedCell;
 			topicFiles = cell.collectFiles(allRecords);
 		}
 
@@ -3121,14 +3055,16 @@ for (const file of parsedFiles) {
 		filesCount.addEventListener('click', async (e) => {
 			e.stopPropagation();
 			const primaryTopic = this.currentSubject?.primaryTopics?.find(t => t.id === this.selectedRowId);
-			const tags = this.getTags(this.currentSubject!, topic, primaryTopic || null, this.selectedRowId === 'orphans');
+			// For intersections: use primary topic's AND mode; for secondary headers: false
+			const includesSubjectTag = primaryTopic ? (primaryTopic.andMode || false) : false;
+			const tags = this.getTags(this.currentSubject!, topic, primaryTopic || null, includesSubjectTag);
 			this.widgetFilterType = 'F';
 			this.widgetFilterExpression = tags.join(' AND ');
 			this.widgetFilterContext = {
 				subject: this.currentSubject!,
 				secondaryTopic: topic,
 				primaryTopic: primaryTopic || null,
-				includesSubjectTag: this.selectedRowId === 'orphans'
+				includesSubjectTag
 			};
 			await this.render();
 		});
@@ -3173,7 +3109,8 @@ for (const file of parsedFiles) {
 				subject: this.currentSubject!,
 				secondaryTopic: topic,
 				primaryTopic: primaryTopic || null,
-				includesSubjectTag: this.selectedRowId === 'orphans'
+				// For intersections: use primary topic's AND mode; for secondary headers: false
+				includesSubjectTag: primaryTopic ? (primaryTopic.andMode || false) : false
 			};
 			await this.render();
 		});
@@ -3195,7 +3132,8 @@ for (const file of parsedFiles) {
 				subject: this.currentSubject!,
 				secondaryTopic: topic,
 				primaryTopic: primaryTopic || null,
-				includesSubjectTag: this.selectedRowId === 'orphans'
+				// For intersections: use primary topic's AND mode; for secondary headers: false
+				includesSubjectTag: primaryTopic ? (primaryTopic.andMode || false) : false
 			};
 			await this.render();
 		});
@@ -3574,101 +3512,51 @@ for (const file of parsedFiles) {
 			this.currentSubject.matrix = { cells: {} };
 		}
 
-		// Scan subject cell (1x1) - store counts in memory only
+		// Clear and recreate cell instances
+		this.cellInstances.clear();
+
+		// Create and use SubjectCell for 1x1
 		if (this.currentSubject.mainTag) {
-			const cellKey1x1 = '1x1';
+			const cellKey = '1x1';
+			const cell = new SubjectCell(
+				this.currentSubject,
+				this.getFileLevelTags.bind(this),
+				this.getRecordTags.bind(this)
+			);
+			this.cellInstances.set(cellKey, cell);
 
-			// Files: Has subject tag BUT NOT any primary or secondary topic tags
-			const primaryTopicTags = primaryTopics.map(t => t.topicTag).filter(Boolean);
-			const secondaryTopicTags = secondaryTopics.map(t => t.topicTag).filter(Boolean);
-			const fileCount = parsedFiles.filter(record => {
-				const fileTags = this.getFileLevelTags(record);  // Use file-level tags ONLY
-				// Must have subject tag
-				const hasSubjectTag = fileTags.includes(this.currentSubject.mainTag!);
-				// Must NOT have any primary topic tags
-				const hasPrimaryTag = primaryTopicTags.some(tag => fileTags.includes(tag));
-				// Must NOT have any secondary topic tags
-				const hasSecondaryTag = secondaryTopicTags.some(tag => fileTags.includes(tag));
-				return hasSubjectTag && !hasPrimaryTag && !hasSecondaryTag;
-			}).length;
+			// Use cell to get counts
+			const fileCount = cell.countFiles(parsedFiles);
+			const headerCount = cell.countHeaders(parsedFiles);
+			const recordCount = cell.countRecords(parsedFiles);
 
-			// Headers: Count headers with subject keyword OR tag
-			let headerCount = 0;
-			if (this.currentSubject.keyword) {
-				// Create a temporary topic object for subject
-				const subjectTopic: Topic = {
-					id: 'subject',
-					name: this.currentSubject.name,
-					topicKeyword: this.currentSubject.keyword,
-					topicTag: this.currentSubject.mainTag
-				};
-				headerCount = this.countHeadersForSingleTopic(parsedFiles, [], subjectTopic);
+			// Store counts in matrix
+			if (!this.currentSubject.matrix.cells[cellKey]) {
+				this.currentSubject.matrix.cells[cellKey] = {};
 			}
-
-			// Records: Use matrixOnlyFilterExp (primary), keyword (fallback), or expression (legacy)
-			let recordCount = 0;
-			const matrixExpr = this.currentSubject.matrixOnlyFilterExp || this.currentSubject.expression;
-			if (matrixExpr) {
-				// Use matrixOnlyFilterExp or legacy expression
-				recordCount = this.countRecordsWithExpression(parsedFiles, matrixExpr, null, this.currentSubject, false);
-			} else if (this.currentSubject.keyword) {
-				// Fallback to keyword if no filter expression
-				for (const record of parsedFiles) {
-					for (const entry of record.entries) {
-						// Check main entry keywords (includes inline keywords)
-						if (getAllKeywords(entry).includes(this.currentSubject.keyword)) {
-							recordCount++;
-						} else if (entry.subItems) {
-							// Check subitem keywords (includes inline keywords)
-							for (const subItem of entry.subItems) {
-								if (getAllKeywords(subItem).includes(this.currentSubject.keyword)) {
-									recordCount++;
-									break; // Count entry only once even if multiple subitems match
-								}
-							}
-						}
-					}
-				}
-			}
-
-			// Store counts in cell (in-memory only, not persisted)
-			if (!this.currentSubject.matrix.cells[cellKey1x1]) {
-				this.currentSubject.matrix.cells[cellKey1x1] = {};
-			}
-			this.currentSubject.matrix.cells[cellKey1x1].fileCount = fileCount;
-			this.currentSubject.matrix.cells[cellKey1x1].headerCount = headerCount;
-			this.currentSubject.matrix.cells[cellKey1x1].recordCount = recordCount;
+			this.currentSubject.matrix.cells[cellKey].fileCount = fileCount;
+			this.currentSubject.matrix.cells[cellKey].headerCount = headerCount;
+			this.currentSubject.matrix.cells[cellKey].recordCount = recordCount;
 		}
 
-		// Scan secondary topic cells (1x2, 1x3, etc.)
+		// Create and use SecondaryHeaderCell for 1x2, 1x3, etc.
 		secondaryTopics.forEach((topic, index) => {
 			const col = index + 2;
 			const cellKey = `1x${col}`;
-			const andMode = topic.andMode || false;
-			const tags = this.getTagsForTopicCell(topic, andMode);
+			const cell = new SecondaryHeaderCell(
+				this.currentSubject!,
+				topic,
+				this.getFileLevelTags.bind(this),
+				this.getRecordTags.bind(this)
+			);
+			this.cellInstances.set(cellKey, cell);
 
-			// Files: Count files that have secondary topic's tag BUT NONE of the primary topic tags
-			const primaryTopicTags = primaryTopics.map(t => t.topicTag).filter(Boolean);
-			const fileCount = parsedFiles.filter(record => {
-				const fileTags = this.getFileLevelTags(record);  // Use file-level tags ONLY
-				// Must have the secondary topic's tag
-				const hasSecondaryTag = tags.every(tag => fileTags.includes(tag));
-				// Must NOT have any primary topic tags
-				const hasPrimaryTag = primaryTopicTags.some(tag => fileTags.includes(tag));
-				return hasSecondaryTag && !hasPrimaryTag;
-			}).length;
+			// Use cell to get counts
+			const fileCount = cell.countFiles(parsedFiles);
+			const headerCount = cell.countHeaders(parsedFiles);
+			const recordCount = cell.countRecords(parsedFiles);
 
-			// Headers: Count headers if header has tag OR keyword (checked across ALL files)
-			const headerCount = this.countHeadersForSingleTopic(parsedFiles, tags, topic);
-
-		// For secondary topic's OWN cell (HEADER cells 1x2, 1x3):
-		// - Uses FilterExpHeader (GREEN) - standalone expression, no variables
-		// - If no FilterExpHeader, no record count
-		let recordCount = 0;
-		if (topic.FilterExpHeader) {
-			recordCount = this.countRecordsWithExpression(parsedFiles, topic.FilterExpHeader, null, this.currentSubject ?? undefined, andMode);
-		}
-
+			// Store counts in matrix
 			if (!this.currentSubject!.matrix!.cells[cellKey]) {
 				this.currentSubject!.matrix!.cells[cellKey] = {};
 			}
@@ -3677,32 +3565,24 @@ for (const file of parsedFiles) {
 			this.currentSubject!.matrix!.cells[cellKey].recordCount = recordCount;
 		});
 
-		// Scan primary topic cells (2x1, 3x1, etc.)
+		// Create and use PrimarySideCell for 2x1, 3x1, etc.
 		primaryTopics.forEach((topic, index) => {
 			const rowNum = index + 2;
 			const cellKey = `${rowNum}x1`;
-			const andMode = topic.andMode || false;
-			const tags = this.getTagsForTopicCell(topic, andMode);
+			const cell = new PrimarySideCell(
+				this.currentSubject!,
+				topic,
+				this.getFileLevelTags.bind(this),
+				this.getRecordTags.bind(this)
+			);
+			this.cellInstances.set(cellKey, cell);
 
-			// Primary topic cell: has primary tag BUT NOT any secondary topic tags
-			const secondaryTopicTags = secondaryTopics.map(t => t.topicTag).filter(Boolean);
-			const fileCount = parsedFiles.filter(file => {
-				const fileTags = this.getFileLevelTags(file);  // Use file-level tags ONLY
-				// Must have all required tags (primary topic)
-				const hasRequiredTags = tags.every(tag => fileTags.includes(tag));
-				// Must NOT have any secondary topic tags
-				const hasSecondaryTag = secondaryTopicTags.some(tag => fileTags.includes(tag!));
-				return hasRequiredTags && !hasSecondaryTag;
-			}).length;
-			const headerCount = this.countHeadersForSingleTopic(parsedFiles, tags, topic);
+			// Use cell to get counts
+			const fileCount = cell.countFiles(parsedFiles);
+			const headerCount = cell.countHeaders(parsedFiles);
+			const recordCount = cell.countRecords(parsedFiles);
 
-			// For primary topic's OWN cell (SIDE cells 2x1, 3x1):
-			// - Uses matrixOnlyFilterExpSide (RED) - standalone expression, no placeholders
-			let recordCount = 0;
-			if (topic.matrixOnlyFilterExpSide) {
-				recordCount = this.countRecordsWithExpression(parsedFiles, topic.matrixOnlyFilterExpSide, topic, this.currentSubject ?? undefined, andMode);
-			}
-
+			// Store counts in matrix
 			if (!this.currentSubject!.matrix!.cells[cellKey]) {
 				this.currentSubject!.matrix!.cells[cellKey] = {};
 			}
@@ -3719,63 +3599,67 @@ for (const file of parsedFiles) {
 			t.primaryTopicIds && t.primaryTopicIds.length > 0
 		);
 
-		// Scan intersection cells (2x2, 2x3, 3x2, 3x3, etc.)
+		// Create and use PrimarySecondaryCell for intersection cells (2x2, 2x3, 3x2, 3x3, etc.)
 		primaryTopics.forEach((primaryTopic, rowIndex) => {
 			const rowNum = rowIndex + 2;
 
-			// Scan common secondaries (main table columns)
+			// Common secondaries (main table columns)
 			commonSecondaries.forEach((secondaryTopic, colIndex) => {
-				const col = colIndex + 2;  // Use index from commonSecondaries, not full array
-				const intersectionKey = `${rowNum}x${col}`;
+				const col = colIndex + 2;
+				const cellKey = `${rowNum}x${col}`;
+				const cell = new PrimarySecondaryCell(
+					this.currentSubject!,
+					primaryTopic,
+					secondaryTopic,
+					this.getFileLevelTags.bind(this),
+					this.getRecordTags.bind(this)
+				);
+				this.cellInstances.set(cellKey, cell);
 
-				// For intersections: ONLY use primary topic's AND mode (inherited from row)
-				// Secondary topic's AND mode does NOT apply to intersections
-				const includesSubjectTag = primaryTopic.andMode || false;
+				// Use cell to get counts
+				const fileCount = cell.countFiles(parsedFiles);
+				const headerCount = cell.countHeaders(parsedFiles);
+				const recordCount = cell.countRecords(parsedFiles);
 
-				// Get tags for this intersection
-				const tags = this.getTags(this.currentSubject!, secondaryTopic, primaryTopic, includesSubjectTag);
-				const fileCount = this.countFilesWithTags(parsedFiles, tags);
-				const headerCount = this.countHeadersForIntersection(parsedFiles, tags, primaryTopic, secondaryTopic);
-				// For INTERSECTION cells (2x2, 2x3, 3x2, 3x3):
-				// - Uses appliedFilterExpIntersection (BLUE) - with variables/placeholders
-				// - Variables get replaced by PRIMARY topic's values
-				const recordCount = secondaryTopic.appliedFilterExpIntersection
-					? this.countRecordsWithExpression(parsedFiles, secondaryTopic.appliedFilterExpIntersection, primaryTopic, this.currentSubject ?? undefined, includesSubjectTag)
-					: 0;
-
-				if (!this.currentSubject!.matrix!.cells[intersectionKey]) {
-					this.currentSubject!.matrix!.cells[intersectionKey] = {};
+				// Store counts in matrix
+				if (!this.currentSubject!.matrix!.cells[cellKey]) {
+					this.currentSubject!.matrix!.cells[cellKey] = {};
 				}
-				this.currentSubject!.matrix!.cells[intersectionKey].fileCount = fileCount;
-				this.currentSubject!.matrix!.cells[intersectionKey].headerCount = headerCount;
-				this.currentSubject!.matrix!.cells[intersectionKey].recordCount = recordCount;
-
+				this.currentSubject!.matrix!.cells[cellKey].fileCount = fileCount;
+				this.currentSubject!.matrix!.cells[cellKey].headerCount = headerCount;
+				this.currentSubject!.matrix!.cells[cellKey].recordCount = recordCount;
 			});
 
-			// Scan specific secondaries for this primary (dynamic columns)
+			// Specific secondaries for this primary (dynamic columns)
 			const primarySpecificSecondaries = specificSecondaries.filter(sec =>
 				sec.primaryTopicIds?.includes(primaryTopic.id)
 			);
-			primarySpecificSecondaries.forEach((secondaryTopic, specIndex) => {
+			primarySpecificSecondaries.forEach((secondaryTopic) => {
 				// Find the ORIGINAL index in the full secondaryTopics array for correct cell key
 				const originalIndex = secondaryTopics.indexOf(secondaryTopic);
 				const col = originalIndex + 2;
-				const intersectionKey = `${rowNum}x${col}`;
+				const cellKey = `${rowNum}x${col}`;
+				const cell = new PrimarySecondaryCell(
+					this.currentSubject!,
+					primaryTopic,
+					secondaryTopic,
+					this.getFileLevelTags.bind(this),
+					this.getRecordTags.bind(this)
+				);
+				this.cellInstances.set(cellKey, cell);
 
-				const includesSubjectTag = primaryTopic.andMode || false;
-				const tags = this.getTags(this.currentSubject!, secondaryTopic, primaryTopic, includesSubjectTag);
-				const fileCount = this.countFilesWithTags(parsedFiles, tags);
-				const headerCount = this.countHeadersForIntersection(parsedFiles, tags, primaryTopic, secondaryTopic);
-				const recordCount = secondaryTopic.appliedFilterExpIntersection
-					? this.countRecordsWithExpression(parsedFiles, secondaryTopic.appliedFilterExpIntersection, primaryTopic, this.currentSubject ?? undefined, includesSubjectTag)
-					: 0;
+				// Use cell to get counts
+				const fileCount = cell.countFiles(parsedFiles);
+				const headerCount = cell.countHeaders(parsedFiles);
+				const recordCount = cell.countRecords(parsedFiles);
 
-				if (!this.currentSubject!.matrix!.cells[intersectionKey]) {
-					this.currentSubject!.matrix!.cells[intersectionKey] = {};
+				// Store counts in matrix
+				if (!this.currentSubject!.matrix!.cells[cellKey]) {
+					this.currentSubject!.matrix!.cells[cellKey] = {};
 				}
-				this.currentSubject!.matrix!.cells[intersectionKey].fileCount = fileCount;
-				this.currentSubject!.matrix!.cells[intersectionKey].headerCount = headerCount;
-				this.currentSubject!.matrix!.cells[intersectionKey].recordCount = recordCount;
+				this.currentSubject!.matrix!.cells[cellKey].fileCount = fileCount;
+				this.currentSubject!.matrix!.cells[cellKey].headerCount = headerCount;
+				this.currentSubject!.matrix!.cells[cellKey].recordCount = recordCount;
 			});
 		});
 
@@ -3951,7 +3835,7 @@ for (const file of parsedFiles) {
 			const hasExplicitOperators = /\b(AND|OR)\b/.test(filterExpression);
 			const expr = hasExplicitOperators
 				? filterExpression
-				: this.transformFilterExpression(filterExpression);
+				: FilterExpressionService.transformFilterExpression(filterExpression);
 
 			// Split on W: to separate SELECT and WHERE clauses
 			const hasWhere = expr.includes('W:');
@@ -4287,376 +4171,6 @@ for (const file of parsedFiles) {
 
 		console.log(`[COUNT HEADERS] TOTAL COUNT: ${countedHeaders.size}`);
 		return countedHeaders.size;
-	}
-
-	/**
-	 * Transform filter expression to add OR operators between keywords
-	 * Example: ".def .inc :boo W: #tag" → ".def OR .inc OR :boo W: #tag"
-	 */
-	private transformFilterExpression(expression: string): string {
-		// Remove modifiers from ENTIRE expression first (before splitting on W:)
-		expression = expression.replace(/\\[hast]/g, '').trim();
-
-		// Extract SELECT and WHERE clauses
-		const hasWhere = expression.includes('W:');
-		let selectExpr = expression;
-		let whereExpr = '';
-
-		if (hasWhere) {
-			const parts = expression.split(/W:/);
-			selectExpr = parts[0].trim();
-			whereExpr = parts[1]?.trim() || '';
-		}
-
-		// Parse SELECT expression to find individual filter terms
-		const transformedItems: string[] = [];
-		let i = 0;
-
-		while (i < selectExpr.length) {
-			const char = selectExpr[i];
-
-			// Skip whitespace
-			if (/\s/.test(char)) {
-				i++;
-				continue;
-			}
-
-			// Check for existing AND/OR operators - keep them
-			if (selectExpr.substring(i).match(/^(AND|OR)\b/)) {
-				const opMatch = selectExpr.substring(i).match(/^(AND|OR)\b/);
-				if (opMatch) {
-					transformedItems.push(opMatch[0]);
-					i += opMatch[0].length;
-					continue;
-				}
-			}
-
-			// Parentheses - preserve as-is
-			if (char === '(' || char === ')') {
-				transformedItems.push(char);
-				i++;
-				continue;
-			}
-
-			// Negation
-			if (char === '!' || char === '-') {
-				const negation = char;
-				i++;
-				// Skip whitespace after negation
-				while (i < selectExpr.length && /\s/.test(selectExpr[i])) {
-					i++;
-				}
-				// Get the next term
-				const term = this.extractNextTerm(selectExpr, i);
-				if (term) {
-					transformedItems.push(negation + term.value);
-					i = term.endPos;
-				}
-				continue;
-			}
-
-			// Extract next term (keyword, tag, category, language, etc.)
-			const term = this.extractNextTerm(selectExpr, i);
-			if (term) {
-				transformedItems.push(term.value);
-				i = term.endPos;
-			} else {
-				i++;
-			}
-		}
-
-		// Join items with OR if they don't already have operators between them
-		let transformedSelect = '';
-		for (let j = 0; j < transformedItems.length; j++) {
-			const item = transformedItems[j];
-			const nextItem = transformedItems[j + 1];
-
-			transformedSelect += item;
-
-			// Add OR between items if:
-			// - Not the last item
-			// - Current item is not an operator
-			// - Next item is not an operator
-			// - Current item is not an opening paren
-			// - Next item is not a closing paren
-			if (nextItem !== undefined &&
-				item !== 'AND' && item !== 'OR' &&
-				nextItem !== 'AND' && nextItem !== 'OR' &&
-				item !== '(' && nextItem !== ')') {
-				transformedSelect += ' OR ';
-			} else if (nextItem !== undefined) {
-				transformedSelect += ' ';
-			}
-		}
-
-		// Reconstruct expression
-		return whereExpr ? `${transformedSelect} W: ${whereExpr}` : transformedSelect;
-	}
-
-	/**
-	 * Extract next filter term from expression (keyword, tag, category, language, etc.)
-	 */
-	private extractNextTerm(expr: string, startPos: number): { value: string; endPos: number } | null {
-		let i = startPos;
-		if (i >= expr.length) return null;
-
-		const char = expr[i];
-
-		// Keyword (.foo or .foo.bar)
-		if (char === '.') {
-			let value = '.';
-			i++;
-			while (i < expr.length && /[a-zA-Z0-9_.-]/.test(expr[i])) {
-				value += expr[i];
-				i++;
-			}
-			return { value, endPos: i };
-		}
-
-		// Tag (#foo)
-		if (char === '#') {
-			let value = '#';
-			i++;
-			while (i < expr.length && /[a-zA-Z0-9_-]/.test(expr[i])) {
-				value += expr[i];
-				i++;
-			}
-			return { value, endPos: i };
-		}
-
-		// Category (:foo)
-		if (char === ':') {
-			let value = ':';
-			i++;
-			while (i < expr.length && /[a-zA-Z0-9_-]/.test(expr[i])) {
-				value += expr[i];
-				i++;
-			}
-			return { value, endPos: i };
-		}
-
-		// Language (`java)
-		if (char === '`') {
-			let value = '`';
-			i++;
-			while (i < expr.length && /[a-zA-Z0-9_-]/.test(expr[i])) {
-				value += expr[i];
-				i++;
-			}
-			return { value, endPos: i };
-		}
-
-		// Path (/foo/bar)
-		if (char === '/') {
-			let value = '';
-			while (i < expr.length && /[a-zA-Z0-9_\-\/.]/.test(expr[i])) {
-				value += expr[i];
-				i++;
-			}
-			return { value, endPos: i };
-		}
-
-		// File name (f"filename")
-		if (char === 'f' && i + 1 < expr.length && expr[i + 1] === '"') {
-			let value = 'f"';
-			i += 2;
-			while (i < expr.length && expr[i] !== '"') {
-				value += expr[i];
-				i++;
-			}
-			value += '"';
-			i++;
-			return { value, endPos: i };
-		}
-
-		// Quoted text ("plaintext")
-		if (char === '"') {
-			let value = '"';
-			i++;
-			while (i < expr.length && expr[i] !== '"') {
-				value += expr[i];
-				i++;
-			}
-			value += '"';
-			i++;
-			return { value, endPos: i };
-		}
-
-		// Bare keyword (no prefix) - treat as .keyword
-		if (/[a-zA-Z0-9_]/.test(char)) {
-			let bareWord = '';
-			while (i < expr.length && /[a-zA-Z0-9_-]/.test(expr[i])) {
-				bareWord += expr[i];
-				i++;
-			}
-			// Don't prefix AND/OR
-			if (bareWord === 'AND' || bareWord === 'OR') {
-				return { value: bareWord, endPos: i };
-			}
-			// Add . prefix for keywords
-			return { value: '.' + bareWord, endPos: i };
-		}
-
-		return null;
-	}
-
-	/**
-	 * UNIFIED METHOD: Evaluate filter expression and return matching entries
-	 * SINGLE SOURCE OF TRUTH - used by both counting and displaying
-	 *
-	 * @param showAll - If true, ignore SELECT and return all entries matching WHERE clause
-	 */
-	private evaluateFilterExpression(
-		parsedFiles: ParsedFile[],
-		filterExpression: string,
-		primaryTopic: Topic | null,
-		subject?: Subject,
-		includesSubjectTag: boolean = false,
-		showAll: boolean = false
-	): Array<{ entry: FlatEntry; file: ParsedFile }> {
-		if (!filterExpression || !filterExpression.trim()) {
-			return [];
-		}
-
-		// 1. Expand placeholders in expression (only if primaryTopic provided, otherwise already expanded)
-		const expandedExpr = this.expandPlaceholders(filterExpression, primaryTopic, subject);
-
-		// 2. Transform expression ONLY if it doesn't have explicit operators
-		const hasExplicitOperators = /\b(AND|OR)\b/.test(expandedExpr);
-		const transformedExpr = hasExplicitOperators
-			? expandedExpr  // Already has operators - use as-is
-			: this.transformFilterExpression(expandedExpr); // No operators - transform it
-
-		// 3. Split on W: to separate SELECT and WHERE clauses
-		const hasWhere = transformedExpr.includes('W:');
-		let selectExpr = transformedExpr;
-		let whereExpr = '';
-
-		if (hasWhere) {
-			const parts = transformedExpr.split(/W:/);
-			selectExpr = parts[0].trim();
-			whereExpr = parts[1]?.trim() || '';
-		}
-
-		// 4. Add subject tag to WHERE clause if this is a green cell (AND mode enabled)
-		// ONLY add if the WHERE clause doesn't already contain it
-		if (includesSubjectTag && subject?.mainTag) {
-			const subjectTag = subject.mainTag.replace(/^#/, '');
-			const normalizedTag = `#${subjectTag}`;
-
-			if (whereExpr) {
-				// Only add if not already present in WHERE clause
-				if (!whereExpr.includes(normalizedTag)) {
-					whereExpr = `${normalizedTag} AND (${whereExpr})`;
-				}
-			} else {
-				// Create new WHERE clause with just the subject tag
-				whereExpr = normalizedTag;
-			}
-		}
-
-
-		// 5. Compile expressions
-		let selectCompiled: import('../interfaces/FilterInterfaces').CompiledFilter;
-		let whereCompiled: import('../interfaces/FilterInterfaces').CompiledFilter | null = null;
-
-		try {
-			selectCompiled = FilterParser.compile(selectExpr);
-			if (whereExpr) {
-				whereCompiled = FilterParser.compile(whereExpr);
-			}
-		} catch (error) {
-			console.error(`[KHMatrixWidget] Failed to compile expression: ${transformedExpr}`, error);
-			return [];
-		}
-
-		// 6. Evaluate and collect matching entries
-		const matchingEntries: Array<{ entry: FlatEntry; file: ParsedFile }> = [];
-
-		for (const file of parsedFiles) {
-			for (const entry of file.entries) {
-				// First apply WHERE clause (if present)
-				if (whereCompiled) {
-					if (!FilterParser.evaluateFlatEntry(whereCompiled.ast, entry, HighlightSpaceRepeatPlugin.settings.categories, whereCompiled.modifiers)) {
-						continue; // Doesn't match WHERE clause, skip
-					}
-				}
-
-				// If showAll mode: return all entries that passed WHERE clause
-				if (showAll && whereCompiled) {
-					matchingEntries.push({ entry, file });
-					continue;
-				}
-
-				// Then apply SELECT clause
-				if (FilterParser.evaluateFlatEntry(selectCompiled.ast, entry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers)) {
-					matchingEntries.push({ entry, file });
-				}
-			}
-		}
-
-		return matchingEntries;
-	}
-
-	/**
-	 * Count records matching a filter expression
-	 * Uses unified evaluation method
-	 */
-	private countRecordsWithExpression(
-		parsedFiles: ParsedFile[],
-		filterExpression: string,
-		primaryTopic: Topic | null,
-		subject?: Subject,
-		includesSubjectTag: boolean = false
-	): number {
-		const matches = this.evaluateFilterExpression(parsedFiles, filterExpression, primaryTopic, subject, includesSubjectTag);
-		return matches.length;
-	}
-
-	/**
-	 * Expand placeholders in filter expression
-	 * For secondary topics: use topic's own values (or subject's if no topic)
-	 * For intersections: use primary topic's values
-	 *
-	 * New placeholder syntax:
-	 * - $TAG → topicTag (e.g., #java)
-	 * - $KEY → topicKeyword (e.g., .jav)
-	 * - $BLOCK or $CODE → code block language (e.g., `java)
-	 * - $TEXT → topicText (e.g., "java")
-	 */
-	private expandPlaceholders(expression: string, primaryTopic: Topic | null, subject?: Subject): string {
-		if (!primaryTopic && !subject) {
-			return expression;
-		}
-
-		let result = expression;
-
-		// Expand $TAG with topicTag (or subject mainTag)
-		const tagSource = primaryTopic?.topicTag || subject?.mainTag;
-		if (tagSource) {
-			// NORMALIZE: Strip leading # from tag if present (works regardless of storage format)
-			const tagValue = tagSource.replace(/^#/, '');
-			result = result.replace(/\$TAG/g, `#${tagValue}`);
-		}
-
-		// Expand $KEY with topicKeyword (or subject keyword)
-		const keywordSource = primaryTopic?.topicKeyword || subject?.keyword;
-		if (keywordSource) {
-			result = result.replace(/\$KEY/g, `.${keywordSource}`);
-		}
-
-		// Expand $BLOCK and $CODE with topicText (language/code block)
-		if (primaryTopic?.topicText) {
-			result = result.replace(/\$BLOCK/g, `\`${primaryTopic.topicText}`);
-			result = result.replace(/\$CODE/g, `\`${primaryTopic.topicText}`);
-		}
-
-		// Expand $TEXT with topicText
-		if (primaryTopic?.topicText) {
-			result = result.replace(/\$TEXT/g, `"${primaryTopic.topicText}"`);
-		}
-
-		return result;
 	}
 
 	/**

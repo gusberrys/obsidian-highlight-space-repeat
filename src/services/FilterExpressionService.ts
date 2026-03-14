@@ -119,8 +119,6 @@ export class FilterExpressionService {
 	 * - $KEY → topicKeyword (e.g., .jav)
 	 * - $BLOCK or $CODE → code block language (e.g., `java)
 	 * - $TEXT → topicText (e.g., "java")
-	 * - #? → topicTag (legacy)
-	 * - .? → topicKeyword (legacy)
 	 */
 	static expandPlaceholders(expression: string, primaryTopic: Topic | null, subject?: Subject): string {
 		if (!primaryTopic && !subject) {
@@ -152,17 +150,6 @@ export class FilterExpressionService {
 		// Expand $TEXT with topicText
 		if (primaryTopic?.topicText) {
 			result = result.replace(/\$TEXT/g, `"${primaryTopic.topicText}"`);
-		}
-
-		// Expand #? with topicTag (legacy placeholder)
-		if (tagSource) {
-			const tagValue = tagSource.replace(/^#/, '');
-			result = result.replace(/#\?/g, `#${tagValue}`);
-		}
-
-		// Expand .? with topicKeyword (legacy placeholder)
-		if (keywordSource) {
-			result = result.replace(/\.\?/g, `.${keywordSource}`);
 		}
 
 		return result;
