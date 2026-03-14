@@ -182,22 +182,16 @@ export class KHMatrixWidget extends ItemView {
 			container.style.border = '3px solid rgba(0, 0, 255, 0.3)';
 			container.style.borderRadius = '4px';
 
-			// Header with subject selector
-			this.renderHeader(container);
+			// ========================================
+			// PART 1: MATRIX HEADER
+			// ========================================
+			this.renderMatrixHeader(container);
 
-			// Chips and flag buttons container
-			const chipsSection = container.createDiv({ cls: 'kh-chips-section' });
-			chipsSection.id = 'kh-chips-container';
-			this.renderChipsAndFlags();
-
-			// Matrix table
+			// ========================================
+			// PART 2: MATRIX TABLE
+			// ========================================
 			if (this.currentSubject) {
-				await this.renderMatrix(container);
-
-				// Columns container (for subject/primary topic columns)
-				if (this.selectedRowId) {
-					await this.renderMatrixColumns(container);
-				}
+				await this.renderMatrixTable(container);
 			} else {
 				container.createEl('p', {
 					text: 'No subjects available',
@@ -205,13 +199,42 @@ export class KHMatrixWidget extends ItemView {
 				});
 			}
 
-			// Show filter results if filter is active
+			// ========================================
+			// PART 3: COLUMNS (when row selected)
+			// ========================================
+			if (this.currentSubject && this.selectedRowId) {
+				await this.renderMatrixColumns(container);
+			}
+
+			// ========================================
+			// PART 4: RECORDS (when filter active)
+			// ========================================
 			if (this.widgetFilterType && this.widgetFilterContext) {
 				await this.renderWidgetFilter(container);
 			}
 		} finally {
 			this.isRendering = false;
 		}
+	}
+
+	/**
+	 * PART 1: Render matrix header (subject selector + chips/flags)
+	 */
+	private renderMatrixHeader(container: HTMLElement): void {
+		// Header with subject selector
+		this.renderHeader(container);
+
+		// Chips and flag buttons container
+		const chipsSection = container.createDiv({ cls: 'kh-chips-section' });
+		chipsSection.id = 'kh-chips-container';
+		this.renderChipsAndFlags();
+	}
+
+	/**
+	 * PART 2: Render matrix table (the main matrix grid)
+	 */
+	private async renderMatrixTable(container: HTMLElement): Promise<void> {
+		await this.renderMatrix(container);
 	}
 
 	private renderHeader(container: HTMLElement): void {
@@ -706,7 +729,7 @@ Examples:
 	}
 
 	/**
-	 * Render widget filter component - with text search input
+	 * PART 4: Render widget filter (individual records display with search)
 	 */
 	private async renderWidgetFilter(container: HTMLElement): Promise<void> {
 		if (!this.widgetFilterType) {
@@ -2573,12 +2596,15 @@ Examples:
 	}
 
 	/**
-	 * Render matrix columns (similar to dashboard columns)
+	 * PART 3: Render matrix columns (dashboard columns for selected row)
 	 */
 	private async renderMatrixColumns(container: HTMLElement): Promise<void> {
 		if (!this.selectedRowId || !this.currentSubject) return;
 
 		const columnsContainer = container.createDiv({ cls: 'kh-dashboard-columns kh-matrix-columns' });
+
+		// Track files already shown in previous columns (for styling duplicates)
+		const shownFiles = new Set<string>();
 
 		// Load parsed records
 		const parsedRecords = await this.loadParsedRecords();
@@ -2589,10 +2615,10 @@ Examples:
 		// Render totals column based on selected row
 		if (this.selectedRowId === 'orphans') {
 			// Subject row selected - render subject totals column
-			await this.renderSubjectColumn(columnsContainer, parsedRecords);
+			await this.renderSubjectColumn(columnsContainer, parsedRecords, shownFiles);
 		} else {
 			// Primary topic row selected - render primary totals column
-			await this.renderPrimaryColumn(columnsContainer, parsedRecords, this.selectedRowId);
+			await this.renderPrimaryColumn(columnsContainer, parsedRecords, this.selectedRowId, shownFiles);
 		}
 
 		// Render secondary topic columns
@@ -2641,7 +2667,7 @@ Examples:
 			// Only show common secondaries OR specific secondaries for the current primary
 			if (!isCommon && !isSpecificForCurrentPrimary) return;
 
-			this.renderSecondaryColumn(columnsContainer, topic, filteredRecords, parsedRecords);
+			this.renderSecondaryColumn(columnsContainer, topic, filteredRecords, parsedRecords, shownFiles);
 		});
 
 		// Render other primary topic columns (primary×primary intersections)
@@ -2654,7 +2680,7 @@ Examples:
 				if (!otherPrimaryTopic.topicTag) return;
 
 				// Render intersection column
-				this.renderPrimaryIntersectionColumn(columnsContainer, selectedPrimaryTopic, otherPrimaryTopic, parsedRecords);
+				this.renderPrimaryIntersectionColumn(columnsContainer, selectedPrimaryTopic, otherPrimaryTopic, parsedRecords, shownFiles);
 			});
 		}
 	}
@@ -2662,7 +2688,7 @@ Examples:
 	/**
 	 * Render subject column (1x1 cell) in matrix columns
 	 */
-	private async renderSubjectColumn(columnsContainer: HTMLElement, allRecords: ParsedFile[]): Promise<void> {
+	private async renderSubjectColumn(columnsContainer: HTMLElement, allRecords: ParsedFile[], shownFiles: Set<string>): Promise<void> {
 		if (!this.currentSubject) return;
 
 		// Get cached SubjectCell (created in recalculateMatrixCounts)
@@ -2776,10 +2802,25 @@ Examples:
 
 		sortedRecords.forEach(record => {
 			const fileItem = content.createDiv({ cls: 'kh-dashboard-file-item' });
-			fileItem.createEl('span', {
+
+			// Check if this file was already shown in a previous column
+			const isDuplicate = shownFiles.has(record.filePath);
+
+			// Style duplicates differently (green background, gray text)
+			if (isDuplicate) {
+				fileItem.style.backgroundColor = 'rgba(0, 255, 0, 0.1)';
+			}
+
+			const fileNameSpan = fileItem.createEl('span', {
 				text: getFileNameFromPath(record.filePath).replace('.md', ''),
 				cls: 'kh-dashboard-file-name'
 			});
+
+			// Gray out duplicate file names
+			if (isDuplicate) {
+				fileNameSpan.style.color = 'var(--text-muted)';
+			}
+
 			fileItem.style.cursor = 'pointer';
 			fileItem.addEventListener('click', async () => {
 				const file = this.app.vault.getAbstractFileByPath(record.filePath);
@@ -2787,13 +2828,16 @@ Examples:
 					await this.app.workspace.getLeaf(false).openFile(file);
 				}
 			});
+
+			// Add to shown files set
+			shownFiles.add(record.filePath);
 		});
 	}
 
 	/**
 	 * Render primary topic column in matrix columns
 	 */
-	private async renderPrimaryColumn(columnsContainer: HTMLElement, allRecords: ParsedFile[], primaryTopicId: string): Promise<void> {
+	private async renderPrimaryColumn(columnsContainer: HTMLElement, allRecords: ParsedFile[], primaryTopicId: string, shownFiles: Set<string>): Promise<void> {
 		if (!this.currentSubject) return;
 
 		const primaryTopic = this.currentSubject.primaryTopics?.find(t => t.id === primaryTopicId);
@@ -2912,10 +2956,25 @@ Examples:
 
 		sortedRecords.forEach(record => {
 			const fileItem = content.createDiv({ cls: 'kh-dashboard-file-item' });
-			fileItem.createEl('span', {
+
+			// Check if this file was already shown in a previous column
+			const isDuplicate = shownFiles.has(record.filePath);
+
+			// Style duplicates differently (green background, gray text)
+			if (isDuplicate) {
+				fileItem.style.backgroundColor = 'rgba(0, 255, 0, 0.1)';
+			}
+
+			const fileNameSpan = fileItem.createEl('span', {
 				text: getFileNameFromPath(record.filePath).replace('.md', ''),
 				cls: 'kh-dashboard-file-name'
 			});
+
+			// Gray out duplicate file names
+			if (isDuplicate) {
+				fileNameSpan.style.color = 'var(--text-muted)';
+			}
+
 			fileItem.style.cursor = 'pointer';
 			fileItem.addEventListener('click', async () => {
 				const file = this.app.vault.getAbstractFileByPath(record.filePath);
@@ -2923,13 +2982,16 @@ Examples:
 					await this.app.workspace.getLeaf(false).openFile(file);
 				}
 			});
+
+			// Add to shown files set
+			shownFiles.add(record.filePath);
 		});
 	}
 
 	/**
 	 * Render secondary topic column in matrix columns
 	 */
-	private renderSecondaryColumn(columnsContainer: HTMLElement, topic: Topic, filteredRecords: ParsedFile[], allRecords: ParsedFile[]): void {
+	private renderSecondaryColumn(columnsContainer: HTMLElement, topic: Topic, filteredRecords: ParsedFile[], allRecords: ParsedFile[], shownFiles: Set<string>): void {
 		if (!this.currentSubject) return;
 
 		// Find column position for cellKey
@@ -2989,46 +3051,8 @@ Examples:
 		let recordCount = cell.countRecords(allRecords);
 
 		// Override counts with pre-calculated matrix data (if exists)
-		if (this.currentSubject?.matrix?.cells) {
-			const allSecondaryTopics = this.currentSubject.secondaryTopics || [];
-			const commonSecondaries = allSecondaryTopics.filter(t =>
-				!t.primaryTopicIds || t.primaryTopicIds.length === 0
-			);
-
-			// Find column position
-			let col: number;
-			const commonIndex = commonSecondaries.findIndex(t => t.id === topic.id);
-			if (commonIndex >= 0) {
-				col = commonIndex + 2;
-			} else {
-				const specificSecondaries = allSecondaryTopics.filter(t =>
-					t.primaryTopicIds && t.primaryTopicIds.length > 0
-				);
-				const specificIndex = specificSecondaries.findIndex(t => t.id === topic.id);
-				col = commonSecondaries.length + 2 + specificIndex;
-			}
-
-			let cellKey: string;
-			if (this.selectedRowId === 'orphans') {
-				cellKey = `1x${col}`;
-			} else {
-				const primaryTopics = this.currentSubject.primaryTopics || [];
-				const primaryTopicIndex = primaryTopics.findIndex(t => t.id === this.selectedRowId);
-				if (primaryTopicIndex >= 0) {
-					const rowNum = primaryTopicIndex + 2;
-					cellKey = `${rowNum}x${col}`;
-				}
-			}
-
-			if (cellKey) {
-				const cell = this.currentSubject.matrix.cells[cellKey];
-				if (cell) {
-					fileCount = cell.fileCount || 0;
-					headerCount = cell.headerCount || 0;
-					recordCount = cell.recordCount || 0;
-				}
-			}
-		}
+		// NOTE: We already have the cached cell instance, so we can just use it directly
+		// The cellKey was already calculated correctly when we got/created the cell above
 
 		// Only render if there are counts
 		if (fileCount === 0 && headerCount === 0 && recordCount === 0) return;
@@ -3148,10 +3172,25 @@ Examples:
 
 		sortedRecords.forEach(record => {
 			const fileItem = content.createDiv({ cls: 'kh-dashboard-file-item' });
-			fileItem.createEl('span', {
+
+			// Check if this file was already shown in a previous column
+			const isDuplicate = shownFiles.has(record.filePath);
+
+			// Style duplicates differently (green background, gray text)
+			if (isDuplicate) {
+				fileItem.style.backgroundColor = 'rgba(0, 255, 0, 0.1)';
+			}
+
+			const fileNameSpan = fileItem.createEl('span', {
 				text: getFileNameFromPath(record.filePath).replace('.md', ''),
 				cls: 'kh-dashboard-file-name'
 			});
+
+			// Gray out duplicate file names
+			if (isDuplicate) {
+				fileNameSpan.style.color = 'var(--text-muted)';
+			}
+
 			fileItem.style.cursor = 'pointer';
 			fileItem.addEventListener('click', async () => {
 				const file = this.app.vault.getAbstractFileByPath(record.filePath);
@@ -3159,6 +3198,9 @@ Examples:
 					await this.app.workspace.getLeaf(false).openFile(file);
 				}
 			});
+
+			// Add to shown files set
+			shownFiles.add(record.filePath);
 		});
 	}
 
@@ -3169,7 +3211,8 @@ Examples:
 		columnsContainer: HTMLElement,
 		clickedPrimary: Topic,
 		otherPrimary: Topic,
-		allRecords: ParsedFile[]
+		allRecords: ParsedFile[],
+		shownFiles: Set<string>
 	): void {
 		if (!this.currentSubject) return;
 
@@ -3287,10 +3330,25 @@ Examples:
 
 		sortedRecords.forEach(record => {
 			const fileItem = content.createDiv({ cls: 'kh-dashboard-file-item' });
-			fileItem.createEl('span', {
+
+			// Check if this file was already shown in a previous column
+			const isDuplicate = shownFiles.has(record.filePath);
+
+			// Style duplicates differently (green background, gray text)
+			if (isDuplicate) {
+				fileItem.style.backgroundColor = 'rgba(0, 255, 0, 0.1)';
+			}
+
+			const fileNameSpan = fileItem.createEl('span', {
 				text: getFileNameFromPath(record.filePath).replace('.md', ''),
 				cls: 'kh-dashboard-file-name'
 			});
+
+			// Gray out duplicate file names
+			if (isDuplicate) {
+				fileNameSpan.style.color = 'var(--text-muted)';
+			}
+
 			fileItem.style.cursor = 'pointer';
 			fileItem.addEventListener('click', async () => {
 				const file = this.app.vault.getAbstractFileByPath(record.filePath);
@@ -3298,6 +3356,9 @@ Examples:
 					await this.app.workspace.getLeaf(false).openFile(file);
 				}
 			});
+
+			// Add to shown files set
+			shownFiles.add(record.filePath);
 		});
 	}
 
