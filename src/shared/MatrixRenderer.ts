@@ -56,17 +56,12 @@ export class MatrixRenderer {
 
 		// Cell 1x1: Subject
 		const cell1x1 = headerRow.createEl('th', { cls: 'kh-matrix-cell kh-matrix-header-cell' });
-		const cellData1x1 = subject.matrix?.cells['1x1'];
 
 		cell1x1.textContent = subject.icon || '📁';
 		const tooltipText1x1 = `Subject: ${subject.name}`;
 		cell1x1.setAttribute('title', tooltipText1x1);
 
-		// Add counts if available
-		if (cellData1x1?.fileCount !== undefined) {
-			this.addCountDisplay(cell1x1, cellData1x1.fileCount, cellData1x1.headerCount || 0,
-				cellData1x1.recordCount || 0, tooltipText1x1, null, null);
-		}
+		// Counts no longer stored in JSON - removed count display
 
 		// Cells 1x2, 1x3, ...: Secondary topics
 		secondaryTopics.forEach((topic, index) => {
@@ -74,7 +69,6 @@ export class MatrixRenderer {
 			const cellKey = `1x${col}`;
 			const cell = headerRow.createEl('th', { cls: 'kh-matrix-cell kh-matrix-header-cell' });
 
-			const cellData = subject.matrix?.cells[cellKey];
 			const andMode = topic.andMode || false;
 
 			// Apply white border to column header if AND mode is enabled
@@ -112,11 +106,7 @@ export class MatrixRenderer {
 			}
 			cell.setAttribute('title', tooltipText);
 
-			// Add counts if available
-			if (cellData?.fileCount !== undefined) {
-				this.addCountDisplay(cell, cellData.fileCount, cellData.headerCount || 0,
-					cellData.recordCount || 0, tooltipText, topic, null);
-			}
+			// Counts no longer stored in JSON - removed count display
 
 			// Set background color based on exclusions
 			if (options.getCellBackgroundColor) {
@@ -140,7 +130,6 @@ export class MatrixRenderer {
 			const row = tbody.createEl('tr');
 			const rowNum = rowIndex + 2;
 			const primaryCellKey = `${rowNum}x1`;
-			const primaryCellData = subject.matrix?.cells[primaryCellKey];
 			const andMode = primaryTopic.andMode || false;
 
 			// Cell 2x1, 3x1, ...: Primary topics (row headers)
@@ -170,11 +159,7 @@ export class MatrixRenderer {
 			}
 			rowHeaderCell.setAttribute('title', tooltipText);
 
-			// Add counts if available
-			if (primaryCellData?.fileCount !== undefined) {
-				this.addCountDisplay(rowHeaderCell, primaryCellData.fileCount, primaryCellData.headerCount || 0,
-					primaryCellData.recordCount || 0, tooltipText, null, primaryTopic);
-			}
+			// Counts no longer stored in JSON - removed count display
 
 			// Set background color
 			if (options.getCellBackgroundColor) {
@@ -215,8 +200,6 @@ export class MatrixRenderer {
 					cell.classList.add('kh-matrix-and-mode-row');
 				}
 
-				const cellData = subject.matrix?.cells[intersectionKey];
-
 				// For intersections: ONLY use primary topic's AND mode (inherited from row)
 				// Secondary topic's AND mode does NOT apply to intersections
 				const includesSubjectTag = andMode;
@@ -231,8 +214,7 @@ export class MatrixRenderer {
 					cell.classList.add('kb-matrix-fh-disabled');
 				}
 
-				const displayIcon = cellData?.icon || '·';
-				cell.textContent = displayIcon;
+				cell.textContent = '·';
 
 				// Set tooltip with F/H/R expressions
 				let tooltipText = `${primaryTopic.name} × ${secondaryTopic.name}`;
@@ -248,11 +230,7 @@ export class MatrixRenderer {
 				}
 				cell.setAttribute('title', tooltipText);
 
-				// Add counts if available
-				if (cellData?.fileCount !== undefined) {
-					this.addCountDisplay(cell, cellData.fileCount, cellData.headerCount || 0,
-						cellData.recordCount || 0, tooltipText, secondaryTopic, primaryTopic);
-				}
+				// Counts no longer stored in JSON - removed count display
 
 				// Make clickable if handler provided
 				if (options.onCellClick) {
@@ -270,63 +248,4 @@ export class MatrixRenderer {
 	/**
 	 * Add count display to a cell (files, headers, records)
 	 */
-	private static addCountDisplay(
-		cell: HTMLElement,
-		fileCount: number,
-		headerCount: number,
-		recordCount: number,
-		tooltipText: string,
-		secondaryTopic: Topic | null = null,
-		primaryTopic: Topic | null = null
-	): void {
-		const countsDiv = cell.createDiv({ cls: 'kh-matrix-counts' });
-		countsDiv.setAttribute('title', tooltipText);
-
-		// Determine which counts to show based on topic flags
-		// For intersection cells: BOTH topics must allow showing
-		// For single topic cells: check that topic's flags
-		const showFileRecords = (() => {
-			if (secondaryTopic && primaryTopic) {
-				return !secondaryTopic.fhDisabled && !primaryTopic.fhDisabled;
-			} else if (secondaryTopic) {
-				return !secondaryTopic.fhDisabled;
-			} else if (primaryTopic) {
-				return !primaryTopic.fhDisabled;
-			}
-			return true; // Subject cell (1x1) always shows
-		})();
-
-		const showHeaderRecords = (() => {
-			if (secondaryTopic && primaryTopic) {
-				return !secondaryTopic.fhDisabled && !primaryTopic.fhDisabled;
-			} else if (secondaryTopic) {
-				return !secondaryTopic.fhDisabled;
-			} else if (primaryTopic) {
-				return !primaryTopic.fhDisabled;
-			}
-			return true; // Subject cell (1x1) always shows
-		})();
-
-		// Only show counts if enabled by topic flags
-		if (fileCount > 0 && showFileRecords) {
-			countsDiv.createEl('span', {
-				cls: 'kh-count-file',
-				text: `/${fileCount}`
-			});
-		}
-
-		if (headerCount > 0 && showHeaderRecords) {
-			countsDiv.createEl('span', {
-				cls: 'kh-count-header',
-				text: `+${headerCount}`
-			});
-		}
-
-		if (recordCount > 0) {
-			countsDiv.createEl('span', {
-				cls: 'kh-count-record',
-				text: `-${Math.abs(recordCount)}`
-			});
-		}
-	}
 }
