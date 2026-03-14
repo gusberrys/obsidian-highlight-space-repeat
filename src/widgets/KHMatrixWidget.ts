@@ -329,16 +329,7 @@ export class KHMatrixWidget extends ItemView {
 			return true; // Subject cell always shows
 		})();
 
-		const showR = (() => {
-			if (secondaryTopic && primaryTopic) {
-				return true && true;
-			} else if (secondaryTopic) {
-				return true;
-			} else if (primaryTopic) {
-				return true;
-			}
-			return true; // Subject cell always shows
-		})();
+		const showR = true; // Record filter always available
 
 		// F: File filter (tags)
 		const tags = this.getTags(subject, secondaryTopic, primaryTopic, includesSubjectTag);
@@ -717,11 +708,6 @@ export class KHMatrixWidget extends ItemView {
 		// Load freshly parsed records
 		const parsedFiles = await this.loadParsedRecords();
 
-		// Initialize matrix if it doesn't exist
-		if (!this.currentSubject.matrix) {
-			this.currentSubject.matrix = { cells: {} };
-		}
-
 		// Clear and recreate cell instances
 		this.cellInstances.clear();
 
@@ -838,10 +824,6 @@ export class KHMatrixWidget extends ItemView {
 				this.cellInstances.set(cellKey, cell);
 			});
 		});
-
-		// DON'T update the store - counts are in-memory only for display
-		// The matrix with counts exists only in this.currentSubject (local state)
-		// and will be cleared by migration on next load
 
 		// Re-render to show counts
 		this.render();
