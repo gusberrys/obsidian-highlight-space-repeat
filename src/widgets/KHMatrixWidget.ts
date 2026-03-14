@@ -18,6 +18,7 @@ import { resolveIconKeywordNames } from '../shared/priority-resolver';
 import { fileHasMatch } from '../utils/filter-helpers';
 import { getFileNameFromPath } from '../utils/file-helpers';
 import { getAllKeywords } from '../utils/parse-helpers';
+import { MatrixCell, MatrixCellType } from './MatrixCell';
 
 export const KH_MATRIX_VIEW_TYPE = 'kh-matrix-view';
 
@@ -2831,7 +2832,7 @@ for (const file of parsedFiles) {
 		// Column header
 		const header = column.createDiv({ cls: 'kh-dashboard-column-header' });
 		header.createEl('span', {
-			text: `${this.currentSubject.icon || '📁'} ${this.currentSubject.name}`,
+			text: `${this.currentSubject.icon || '📁'} ${this.currentSubject.name.slice(0, 3)}`,
 			cls: 'kh-dashboard-column-title'
 		});
 
@@ -2989,7 +2990,7 @@ for (const file of parsedFiles) {
 		// Column header
 		const header = column.createDiv({ cls: 'kh-dashboard-column-header' });
 		header.createEl('span', {
-			text: `${primaryTopic.icon || '📌'} ${primaryTopic.name}`,
+			text: `${primaryTopic.icon || '📌'} ${primaryTopic.name.slice(0, 3)}`,
 			cls: 'kh-dashboard-column-title'
 		});
 
@@ -3191,7 +3192,7 @@ for (const file of parsedFiles) {
 		// Column header
 		const header = column.createDiv({ cls: 'kh-dashboard-column-header' });
 		header.createEl('span', {
-			text: `${topic.icon || '📌'} ${topic.name}`,
+			text: `${topic.icon || '📌'} ${topic.name.slice(0, 3)}`,
 			cls: 'kh-dashboard-column-title'
 		});
 
@@ -3321,49 +3322,20 @@ for (const file of parsedFiles) {
 	): void {
 		if (!this.currentSubject) return;
 
-		// Count files with BOTH tags
-		let fileCount = 0;
-		if (clickedPrimary.topicTag && otherPrimary.topicTag) {
-			fileCount = allRecords.filter(record => {
-				const tags = this.getFileLevelTags(record);
-				return tags.includes(clickedPrimary.topicTag!) && tags.includes(otherPrimary.topicTag!);
-			}).length;
-		}
+		// Create MatrixCell - SINGLE source of truth for primary×primary intersection
+		const cell = new MatrixCell(
+			MatrixCellType.PRIMARY_PRIMARY,
+			this.currentSubject,
+			this.getFileLevelTags.bind(this),
+			this.getRecordTags.bind(this),
+			clickedPrimary,
+			otherPrimary
+		);
 
-		// Count headers using intersection logic (use file-level tags only for primary×primary)
-		const headerCount = this.countHeadersForIntersection(allRecords, [], clickedPrimary, otherPrimary, true);
-
-		// Count records: files with BOTH tags, entries with EITHER keyword
-		let recordCount = 0;
-		if (clickedPrimary.topicTag && otherPrimary.topicTag) {
-			const filesWithBothTags = allRecords.filter(record => {
-				const tags = this.getFileLevelTags(record);
-				return tags.includes(clickedPrimary.topicTag!) && tags.includes(otherPrimary.topicTag!);
-			});
-
-			for (const record of filesWithBothTags) {
-				for (const entry of record.entries) {
-					const entryKeywords = getAllKeywords(entry);
-
-					// Count if entry has EITHER keyword
-					if ((clickedPrimary.topicKeyword && entryKeywords.includes(clickedPrimary.topicKeyword)) ||
-						(otherPrimary.topicKeyword && entryKeywords.includes(otherPrimary.topicKeyword))) {
-						recordCount++;
-					}
-
-					// Also check subItems
-					if (entry.subItems && entry.subItems.length > 0) {
-						for (const subItem of entry.subItems) {
-							const subItemKeywords = getAllKeywords(subItem);
-							if ((clickedPrimary.topicKeyword && subItemKeywords.includes(clickedPrimary.topicKeyword)) ||
-								(otherPrimary.topicKeyword && subItemKeywords.includes(otherPrimary.topicKeyword))) {
-								recordCount++;
-							}
-						}
-					}
-				}
-			}
-		}
+		// Use MatrixCell for all counting (ensures consistency with rendering)
+		const fileCount = cell.countFiles(allRecords);
+		const headerCount = cell.countHeaders(allRecords);
+		const recordCount = cell.countRecords(allRecords);
 
 		// Only render if there are counts
 		if (fileCount === 0 && headerCount === 0 && recordCount === 0) return;
@@ -3374,7 +3346,7 @@ for (const file of parsedFiles) {
 		// Column header
 		const header = column.createDiv({ cls: 'kh-dashboard-column-header' });
 		header.createEl('span', {
-			text: `${otherPrimary.icon || '📌'} ${otherPrimary.name}`,
+			text: `${otherPrimary.icon || '📌'} ${otherPrimary.name.slice(0, 3)}`,
 			cls: 'kh-dashboard-column-title'
 		});
 
@@ -3439,23 +3411,8 @@ for (const file of parsedFiles) {
 		recordsCount.style.cursor = 'pointer';
 		recordsCount.addEventListener('click', async (e) => {
 			e.stopPropagation();
-			// Build intersection expression: (keyword1 OR keyword2) W: tag1 AND tag2
-			const selectParts = [];
-			if (clickedPrimary.topicKeyword) selectParts.push(`.${clickedPrimary.topicKeyword}`);
-			if (otherPrimary.topicKeyword) selectParts.push(`.${otherPrimary.topicKeyword}`);
-
-			const whereParts = [];
-			if (clickedPrimary.topicTag) whereParts.push(clickedPrimary.topicTag);
-			if (otherPrimary.topicTag) whereParts.push(otherPrimary.topicTag);
-
-			let expr = '';
-			if (selectParts.length > 0) {
-				expr = selectParts.length > 1 ? `(${selectParts.join(' OR ')})` : selectParts[0];
-			}
-			if (whereParts.length > 0) {
-				const whereClause = whereParts.join(' AND ');
-				expr = expr ? `${expr} W: ${whereClause}` : `W: ${whereClause}`;
-			}
+			// Use MatrixCell to get the filter expression (same as used for counting)
+			const expr = cell.getFilterExpression();
 
 			this.widgetFilterExpression = expr;
 			this.widgetFilterType = 'R';
@@ -3468,13 +3425,9 @@ for (const file of parsedFiles) {
 			await this.render();
 		});
 
-		// Content area - show files with both tags
+		// Content area - show files using MatrixCell collected data
 		const content = column.createDiv({ cls: 'kh-dashboard-files-list' });
-		const topicFiles = allRecords.filter(record => {
-			const tags = this.getFileLevelTags(record);
-			return clickedPrimary.topicTag && otherPrimary.topicTag &&
-				tags.includes(clickedPrimary.topicTag) && tags.includes(otherPrimary.topicTag);
-		});
+		const topicFiles = cell.collectFiles(allRecords);
 
 		const sortedRecords = topicFiles.slice().sort((a, b) => {
 			const nameA = getFileNameFromPath(a.filePath).toLowerCase();
