@@ -50,3 +50,6 @@ src/widgets/__tests__/
 *.test.ts
 *.test.js
 node_modules.broken/
+
+# style
+styles.css
