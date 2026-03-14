@@ -2,6 +2,7 @@ import type { Subject } from '../../interfaces/Subject';
 import type { Topic } from '../../interfaces/Topic';
 import type { ParsedFile } from '../../interfaces/ParsedFile';
 import type { MatrixCell } from '../cells';
+import { renderFHRCountLinkBadges } from './render-helpers';
 
 /**
  * MatrixRenderer - Handles rendering of the matrix table
@@ -16,18 +17,6 @@ export class MatrixRenderer {
 	private onCellClick: (cellKey: string, cellType: 'subject' | 'primary' | 'secondary' | 'intersection', event: MouseEvent) => void;
 	private onCountClick: (type: 'F' | 'H' | 'R', cellKey: string) => void;
 	private computeCellExpressions: (subject: Subject, secondaryTopic: Topic | null, primaryTopic: Topic | null, includesSubjectTag: boolean) => any;
-	private addCountDisplay: (
-		cell: HTMLElement,
-		fileCount: number,
-		headerCount: number,
-		recordCount: number,
-		subject: Subject,
-		secondaryTopic: Topic | null,
-		primaryTopic: Topic | null,
-		includesSubjectTag: boolean,
-		tooltip?: string,
-		cellInstance?: MatrixCell
-	) => void;
 
 	constructor(
 		subject: Subject,
@@ -37,18 +26,6 @@ export class MatrixRenderer {
 			onCellClick: (cellKey: string, cellType: 'subject' | 'primary' | 'secondary' | 'intersection', event: MouseEvent) => void;
 			onCountClick: (type: 'F' | 'H' | 'R', cellKey: string) => void;
 			computeCellExpressions: (subject: Subject, secondaryTopic: Topic | null, primaryTopic: Topic | null, includesSubjectTag: boolean) => any;
-			addCountDisplay: (
-				cell: HTMLElement,
-				fileCount: number,
-				headerCount: number,
-				recordCount: number,
-				subject: Subject,
-				secondaryTopic: Topic | null,
-				primaryTopic: Topic | null,
-				includesSubjectTag: boolean,
-				tooltip?: string,
-				cellInstance?: MatrixCell
-			) => void;
 		}
 	) {
 		this.subject = subject;
@@ -57,7 +34,6 @@ export class MatrixRenderer {
 		this.onCellClick = callbacks.onCellClick;
 		this.onCountClick = callbacks.onCountClick;
 		this.computeCellExpressions = callbacks.computeCellExpressions;
-		this.addCountDisplay = callbacks.addCountDisplay;
 	}
 
 	/**
@@ -146,11 +122,10 @@ export class MatrixRenderer {
 		const tooltipText = `Click: Open subject column\n\nSubject: ${this.subject.name}`;
 		cell.setAttribute('title', tooltipText);
 
-		// Add counts if available
-		if (cellData?.fileCount !== undefined) {
-			const cellInstance = this.cellInstances.get(cellKey);
-			this.addCountDisplay(cell, cellData.fileCount, cellData.headerCount || 0,
-				cellData.recordCount || 0, this.subject, null, null, false, tooltipText, cellInstance);
+		// Add counts
+		const cellInstance = this.cellInstances.get(cellKey);
+		if (cellInstance) {
+			renderFHRCountLinkBadges(cell, cellInstance, cellKey, this.parsedRecords, this.onCountClick);
 		}
 
 		// Set background color
@@ -205,10 +180,9 @@ export class MatrixRenderer {
 		cell.setAttribute('title', tooltipText);
 
 		// Add counts
-		if (cellData?.fileCount !== undefined) {
-			const cellInstance = this.cellInstances.get(cellKey);
-			this.addCountDisplay(cell, cellData.fileCount, cellData.headerCount || 0,
-				cellData.recordCount || 0, this.subject, topic, null, andMode, tooltipText, cellInstance);
+		const cellInstance = this.cellInstances.get(cellKey);
+		if (cellInstance) {
+			renderFHRCountLinkBadges(cell, cellInstance, cellKey, this.parsedRecords, this.onCountClick);
 		}
 
 		// Set background color
@@ -282,10 +256,9 @@ export class MatrixRenderer {
 		rowHeaderCell.setAttribute('title', tooltipText);
 
 		// Add counts
-		if (cellData?.fileCount !== undefined) {
-			const cellInstance = this.cellInstances.get(cellKey);
-			this.addCountDisplay(rowHeaderCell, cellData.fileCount, cellData.headerCount || 0,
-				cellData.recordCount || 0, this.subject, null, primaryTopic, andMode, tooltipText, cellInstance);
+		const cellInstance = this.cellInstances.get(cellKey);
+		if (cellInstance) {
+			renderFHRCountLinkBadges(rowHeaderCell, cellInstance, cellKey, this.parsedRecords, this.onCountClick);
 		}
 
 		// Set background color
@@ -347,10 +320,9 @@ export class MatrixRenderer {
 		cell.style.cursor = 'pointer';
 
 		// Add counts
-		if (cellData?.fileCount !== undefined) {
-			const cellInstance = this.cellInstances.get(intersectionKey);
-			this.addCountDisplay(cell, cellData.fileCount, cellData.headerCount || 0,
-				cellData.recordCount || 0, this.subject, secondaryTopic, primaryTopic, includesSubjectTag, tooltipText, cellInstance);
+		const cellInstance = this.cellInstances.get(intersectionKey);
+		if (cellInstance) {
+			renderFHRCountLinkBadges(cell, cellInstance, intersectionKey, this.parsedRecords, this.onCountClick);
 		}
 
 		// Set background color
@@ -416,10 +388,9 @@ export class MatrixRenderer {
 				cell.style.cursor = 'pointer';
 
 				// Add counts
-				if (cellData?.fileCount !== undefined) {
-					const cellInstance = this.cellInstances.get(intersectionKey);
-					this.addCountDisplay(cell, cellData.fileCount, cellData.headerCount || 0,
-						cellData.recordCount || 0, this.subject, secondaryTopic, primaryTopic, includesSubjectTag, tooltipText, cellInstance);
+				const cellInstance = this.cellInstances.get(intersectionKey);
+				if (cellInstance) {
+					renderFHRCountLinkBadges(cell, cellInstance, intersectionKey, this.parsedRecords, this.onCountClick);
 				}
 
 				// Set background color

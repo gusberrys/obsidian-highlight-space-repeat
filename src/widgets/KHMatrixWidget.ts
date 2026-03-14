@@ -299,149 +299,6 @@ export class KHMatrixWidget extends ItemView {
 
 
 	/**
-	 * Add clickable count display to a cell
-	 */
-	private addCountDisplay(
-		cell: HTMLElement,
-		fileCount: number,
-		headerCount: number,
-		recordCount: number,
-		subject: Subject,
-		secondaryTopic: Topic | null,
-		primaryTopic: Topic | null,
-		includesSubjectTag: boolean,
-		tooltip?: string,
-		cellInstance?: MatrixCell
-	): void {
-		const countsDiv = cell.createDiv({ cls: 'kh-matrix-counts' });
-
-		// Set tooltip on counts div so it shows regardless of hover location
-		if (tooltip) {
-			countsDiv.setAttribute('title', tooltip);
-		}
-
-		// Determine which topic's visibility flags to check
-		// For intersection cells: BOTH topics must allow showing
-		// For single topic cells: check that topic's flags
-		const showFileRecords = (() => {
-			if (secondaryTopic && primaryTopic) {
-				return !secondaryTopic.fhDisabled && !primaryTopic.fhDisabled;
-			} else if (secondaryTopic) {
-				return !secondaryTopic.fhDisabled;
-			} else if (primaryTopic) {
-				return !primaryTopic.fhDisabled;
-			}
-			return true; // Subject cell (1x1) always shows
-		})();
-
-		const showHeaderRecords = (() => {
-			if (secondaryTopic && primaryTopic) {
-				return !secondaryTopic.fhDisabled && !primaryTopic.fhDisabled;
-			} else if (secondaryTopic) {
-				return !secondaryTopic.fhDisabled;
-			} else if (primaryTopic) {
-				return !primaryTopic.fhDisabled;
-			}
-			return true; // Subject cell (1x1) always shows
-		})();
-
-		const showRecordRecords = (() => {
-			if (secondaryTopic && primaryTopic) {
-				return true && true;
-			} else if (secondaryTopic) {
-				return true;
-			} else if (primaryTopic) {
-				return true;
-			}
-			return true; // Subject cell (1x1) always shows
-		})();
-
-		// File count (clickable) - only show if enabled
-		if (fileCount > 0 && showFileRecords) {
-			const fileCountSpan = countsDiv.createEl('span', {
-				text: `/${fileCount}`,
-				cls: 'kh-count-file'
-			});
-			fileCountSpan.addEventListener('click', (e) => {
-				e.stopPropagation();
-				// Set widget filter to show file filter
-				const tags = this.getTags(subject, secondaryTopic, primaryTopic, includesSubjectTag);
-				this.widgetFilterType = 'F';
-				this.widgetFilterExpression = tags.join(' AND ');
-				this.widgetFilterContext = { subject, secondaryTopic, primaryTopic, includesSubjectTag };
-				this.renderRecordsOnly();
-			});
-		}
-
-		// Header count (clickable) - only show if enabled
-		if (headerCount > 0 && showHeaderRecords) {
-			const headerCountSpan = countsDiv.createEl('span', {
-				text: `+${headerCount}`,
-				cls: 'kh-count-header'
-			});
-			headerCountSpan.addEventListener('click', (e) => {
-				e.stopPropagation();
-
-				// For intersection cells, build filter with BOTH topics
-				if (secondaryTopic && primaryTopic) {
-					const parts1 = [];
-					if (primaryTopic.topicKeyword) parts1.push(`.${primaryTopic.topicKeyword}`);
-					if (primaryTopic.topicTag) parts1.push(primaryTopic.topicTag);
-
-					const parts2 = [];
-					if (secondaryTopic.topicKeyword) parts2.push(`.${secondaryTopic.topicKeyword}`);
-					if (secondaryTopic.topicTag) parts2.push(secondaryTopic.topicTag);
-
-					const expr1 = parts1.length > 1 ? `(${parts1.join(' OR ')})` : parts1[0];
-					const expr2 = parts2.length > 1 ? `(${parts2.join(' OR ')})` : parts2[0];
-
-					this.widgetFilterExpression = expr1 && expr2 ? `${expr1} AND ${expr2}` : (expr1 || expr2);
-				} else {
-					// Single topic cell OR subject cell
-					const topic = secondaryTopic || primaryTopic;
-					if (topic) {
-						const parts = [];
-						if (topic.topicKeyword) parts.push(`.${topic.topicKeyword}`);
-						if (topic.topicTag) parts.push(topic.topicTag);
-						this.widgetFilterExpression = parts.join(' OR ');
-					} else {
-						// Subject cell: use subject's keyword OR tag
-						const parts = [];
-						if (subject.keyword) parts.push(`.${subject.keyword}`);
-						if (subject.mainTag) parts.push(subject.mainTag);
-						this.widgetFilterExpression = parts.join(' OR ');
-					}
-				}
-
-				this.widgetFilterType = 'H';
-				this.widgetFilterContext = { subject, secondaryTopic, primaryTopic, includesSubjectTag };
-				this.renderRecordsOnly();
-			});
-		}
-
-		// Record count (clickable) - only show if enabled
-		if (recordCount > 0 && showRecordRecords) {
-			const recordCountSpan = countsDiv.createEl('span', {
-				text: `-${recordCount}`,
-				cls: 'kh-count-record'
-			});
-			recordCountSpan.addEventListener('click', (e) => {
-				e.stopPropagation();
-
-				// Use cellInstance if provided (SINGLE SOURCE OF TRUTH)
-				const expr = cellInstance ? cellInstance.getFilterExpression() : undefined;
-
-				if (expr) {
-					this.widgetFilterType = 'R';
-					this.widgetFilterExpression = expr;
-					this.widgetFilterContext = { subject, secondaryTopic, primaryTopic, includesSubjectTag };
-					this.renderRecordsOnly();
-				}
-			});
-		}
-	}
-
-	/**
 	 * Show list of files matching the criteria
 	 */
 	private async showFileList(
@@ -1145,7 +1002,6 @@ export class KHMatrixWidget extends ItemView {
 					this.renderRecordsOnly();
 				},
 				computeCellExpressions: this.computeCellExpressions.bind(this),
-				addCountDisplay: this.addCountDisplay.bind(this)
 			}
 		);
 
@@ -1173,14 +1029,57 @@ export class KHMatrixWidget extends ItemView {
 						await this.app.workspace.getLeaf(false).openFile(file);
 					}
 				},
-				onCountClick: (type: 'F' | 'H' | 'R', context) => {
+				onCountClick: (type: 'F' | 'H' | 'R', cellKey: string) => {
+					const cellInstance = this.cellInstances.get(cellKey);
+					if (!cellInstance) return;
+
+					// Parse cellKey to determine topics
+					let primaryTopic: Topic | null = null;
+					let secondaryTopic: Topic | null = null;
+					let includesSubjectTag = false;
+
+					if (cellKey.startsWith('PRIMARY:')) {
+						// PRIMARY×PRIMARY intersection format: "PRIMARY:id1:id2"
+						const [, clickedId, otherId] = cellKey.split(':');
+						const primaryTopics = this.currentSubject!.primaryTopics || [];
+						primaryTopic = primaryTopics.find(t => t.id === clickedId) || null;
+						secondaryTopic = primaryTopics.find(t => t.id === otherId) || null;
+						includesSubjectTag = false;
+					} else {
+						// Standard matrix cellKey format: "rowxcol"
+						const [row, col] = cellKey.split('x').map(Number);
+						const primaryTopics = this.currentSubject!.primaryTopics || [];
+						const secondaryTopics = this.currentSubject!.secondaryTopics || [];
+
+						if (row === 1 && col === 1) {
+							// Subject cell (1x1)
+							includesSubjectTag = false;
+						} else if (row === 1) {
+							// Secondary header cell (1x2, 1x3, etc.)
+							secondaryTopic = secondaryTopics[col - 2] || null;
+							includesSubjectTag = false;
+						} else if (col === 1) {
+							// Primary side cell (2x1, 3x1, etc.)
+							primaryTopic = primaryTopics[row - 2] || null;
+							includesSubjectTag = primaryTopic?.andMode || false;
+						} else {
+							// Intersection cell (2x2, 2x3, etc.)
+							primaryTopic = primaryTopics[row - 2] || null;
+							secondaryTopic = secondaryTopics[col - 2] || null;
+							includesSubjectTag = primaryTopic?.andMode || false;
+						}
+					}
+
+					// Get expression from cell instance
+					const expression = cellInstance.getFilterExpression();
+
 					this.widgetFilterType = type;
-					this.widgetFilterExpression = context.expression || '';
+					this.widgetFilterExpression = expression;
 					this.widgetFilterContext = {
-						subject: context.subject,
-						secondaryTopic: context.secondaryTopic,
-						primaryTopic: context.primaryTopic,
-						includesSubjectTag: context.includesSubjectTag
+						subject: this.currentSubject!,
+						secondaryTopic,
+						primaryTopic,
+						includesSubjectTag
 					};
 					this.renderRecordsOnly();
 				},
