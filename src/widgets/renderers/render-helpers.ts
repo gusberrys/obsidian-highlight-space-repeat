@@ -2,7 +2,7 @@ import type { MatrixCell } from '../cells/MatrixCell';
 import type { ParsedFile } from '../../interfaces/ParsedFile';
 
 /**
- * Render F/H/R count link badges for a cell
+ * Render F/H/R/D count link badges for a cell
  * All data comes from the cell instance - no manual parameter passing needed
  */
 export function renderFHRCountLinkBadges(
@@ -10,7 +10,7 @@ export function renderFHRCountLinkBadges(
 	cell: MatrixCell,
 	cellKey: string,
 	parsedRecords: ParsedFile[],
-	onCountClick: (type: 'F' | 'H' | 'R', cellKey: string) => void
+	onCountClick: (type: 'F' | 'H' | 'R' | 'D', cellKey: string) => void
 ): void {
 	const countsDiv = container.createDiv({ cls: 'kh-matrix-counts' });
 
@@ -58,5 +58,21 @@ export function renderFHRCountLinkBadges(
 			e.stopPropagation();
 			onCountClick('R', cellKey);
 		});
+	}
+
+	// Dashboard count badge (light blue) - only for primary topics with dashOnlyFilterExpSide
+	if (cell.shouldShowDashRecords()) {
+		const dashCount = cell.countDashRecords(parsedRecords);
+		if (dashCount > 0) {
+			const dashCountSpan = countsDiv.createEl('span', {
+				text: `~${dashCount}`,
+				cls: 'kh-count-dash'
+			});
+			dashCountSpan.style.cursor = 'pointer';
+			dashCountSpan.addEventListener('click', (e) => {
+				e.stopPropagation();
+				onCountClick('D', cellKey);
+			});
+		}
 	}
 }

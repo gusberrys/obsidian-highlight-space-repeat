@@ -12,6 +12,7 @@ import { KHEntry } from '../../components/KHEntry';
 import { getFileNameFromPath } from '../../utils/file-helpers';
 import { getAllKeywords } from '../../utils/parse-helpers';
 import { resolveIconKeywordNames } from '../../shared/priority-resolver';
+import { RecordsControlRenderer } from './RecordsControlRenderer';
 
 /**
  * RecordsRenderer - Handles rendering of widget filter (records section)
@@ -24,7 +25,7 @@ export class RecordsRenderer {
 	private currentSubject: Subject | null;
 
 	// Filter state
-	private filterType: 'F' | 'H' | 'R' | null;
+	private filterType: 'F' | 'H' | 'R' | 'D' | null;
 	private filterCell: MatrixCell | null;
 	private filterExpression: string;
 	private filterText: string;
@@ -41,6 +42,12 @@ export class RecordsRenderer {
 
 	// Callbacks
 	private onFilterTextChange: (text: string) => void;
+	private onExpressionSearch: (expression: string) => void;
+	private onExpressionInput: (expression: string) => void;
+	private onTrimToggle: () => void;
+	private onTopToggle: () => void;
+	private onShowAllToggle: () => void;
+	private onLegendToggle: () => void;
 
 	constructor(
 		app: App,
@@ -48,7 +55,7 @@ export class RecordsRenderer {
 		parsedRecords: ParsedFile[],
 		currentSubject: Subject | null,
 		filterState: {
-			filterType: 'F' | 'H' | 'R' | null;
+			filterType: 'F' | 'H' | 'R' | 'D' | null;
 			filterCell: MatrixCell | null;
 			filterExpression: string;
 			filterText: string;
@@ -65,6 +72,12 @@ export class RecordsRenderer {
 		},
 		callbacks: {
 			onFilterTextChange: (text: string) => void;
+			onExpressionSearch: (expression: string) => void;
+			onExpressionInput: (expression: string) => void;
+			onTrimToggle: () => void;
+			onTopToggle: () => void;
+			onShowAllToggle: () => void;
+			onLegendToggle: () => void;
 		}
 	) {
 		this.app = app;
@@ -86,6 +99,12 @@ export class RecordsRenderer {
 		this.expandedHeaders = uiState.expandedHeaders;
 
 		this.onFilterTextChange = callbacks.onFilterTextChange;
+		this.onExpressionSearch = callbacks.onExpressionSearch;
+		this.onExpressionInput = callbacks.onExpressionInput;
+		this.onTrimToggle = callbacks.onTrimToggle;
+		this.onTopToggle = callbacks.onTopToggle;
+		this.onShowAllToggle = callbacks.onShowAllToggle;
+		this.onLegendToggle = callbacks.onLegendToggle;
 	}
 
 	/**
@@ -98,98 +117,27 @@ export class RecordsRenderer {
 
 		const filterSection = container.createDiv({ cls: 'kh-widget-filter' });
 
-		// Add search input for text filtering
-		const searchContainer = filterSection.createDiv({
-			cls: 'kh-dashboard-file-search-container',
-			attr: {
-				style: 'display: flex; gap: 4px; align-items: center; margin-bottom: 8px;'
+		// Render controls (expression filter, flags, text search)
+		const controlRenderer = new RecordsControlRenderer(
+			{
+				filterExpression: this.filterExpression,
+				filterText: this.filterText
+			},
+			{
+				trimSubItems: this.trimSubItems,
+				topRecordOnly: this.topRecordOnly,
+				showAll: this.showAll
+			},
+			{
+				onExpressionSearch: this.onExpressionSearch,
+				onExpressionInput: this.onExpressionInput,
+				onFilterTextChange: this.onFilterTextChange,
+				onTrimToggle: this.onTrimToggle,
+				onTopToggle: this.onTopToggle,
+				onShowAllToggle: this.onShowAllToggle
 			}
-		});
-
-		const searchInput = searchContainer.createEl('input', {
-			cls: 'kh-dashboard-file-search-input',
-			type: 'text',
-			placeholder: 'Filter results...',
-			value: this.filterText,
-			attr: {
-				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); min-width: 150px; flex: 1; background-color: var(--background-primary);'
-			}
-		});
-
-		// Search on Enter key
-		searchInput.addEventListener('keydown', (e) => {
-			if (e.key === 'Enter') {
-				this.onFilterTextChange(searchInput.value.trim());
-			}
-		});
-
-		const searchButton = searchContainer.createEl('button', {
-			cls: 'kh-dashboard-file-search-button',
-			title: 'Filter',
-			attr: {
-				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: pointer; background-color: var(--interactive-accent); color: white;'
-			}
-		});
-		setIcon(searchButton, 'search');
-
-		searchButton.addEventListener('click', () => {
-			this.onFilterTextChange(searchInput.value.trim());
-		});
-
-		const clearButton = searchContainer.createEl('button', {
-			cls: 'kh-dashboard-file-search-clear',
-			title: 'Clear filter',
-			attr: {
-				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: pointer; background-color: var(--background-primary);'
-			}
-		});
-		setIcon(clearButton, 'x');
-
-		clearButton.addEventListener('click', () => {
-			searchInput.value = '';
-			this.onFilterTextChange('');
-		});
-
-		// Flag toggle buttons (disabled for now, moved from header)
-		const trimToggle = searchContainer.createEl('button', {
-			cls: 'kh-filter-toggle',
-			text: '💇',
-			attr: {
-				disabled: 'true',
-				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: not-allowed; opacity: 0.5;'
-			}
-		});
-		trimToggle.title = 'Slim Records (disabled - moved from header)';
-
-		const topToggle = searchContainer.createEl('button', {
-			cls: 'kh-filter-toggle',
-			text: '👑',
-			attr: {
-				disabled: 'true',
-				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: not-allowed; opacity: 0.5;'
-			}
-		});
-		topToggle.title = 'Top Only (disabled - moved from header)';
-
-		const showAllToggle = searchContainer.createEl('button', {
-			cls: 'kh-filter-toggle',
-			text: '🅰️',
-			attr: {
-				disabled: 'true',
-				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: not-allowed; opacity: 0.5;'
-			}
-		});
-		showAllToggle.title = 'Show All (disabled - moved from header)';
-
-		const legendToggle = searchContainer.createEl('button', {
-			cls: 'kh-filter-toggle',
-			text: 'ℹ️',
-			attr: {
-				disabled: 'true',
-				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: not-allowed; opacity: 0.5;'
-			}
-		});
-		legendToggle.title = 'Legend (disabled - moved from header)';
+		);
+		controlRenderer.render(filterSection);
 
 		// Render results with text filter applied
 		await this.renderFilterResults(filterSection);
@@ -218,6 +166,8 @@ export class RecordsRenderer {
 				await this.renderHeaderFilterResults(resultsContainer);
 			} else if (this.filterType === 'R') {
 				await this.renderRecordFilterResults(resultsContainer);
+			} else if (this.filterType === 'D') {
+				await this.renderDashFilterResults(resultsContainer);
 			}
 		} else if (this.filterExpression) {
 			// Expression-based filtering - use FilterExpressionService
@@ -644,6 +594,35 @@ export class RecordsRenderer {
 		if (matchingRecords.length === 0) {
 			container.createEl('div', {
 				text: 'No records found',
+				cls: 'kh-widget-filter-empty'
+			});
+			return;
+		}
+
+		// Use shared rendering logic
+		await this.renderRecordsByFile(container, matchingRecords);
+	}
+
+	/**
+	 * Render dashboard filter results (D) for primary topics
+	 * Uses dashOnlyFilterExpSide expression
+	 */
+	private async renderDashFilterResults(container: HTMLElement): Promise<void> {
+		if (!this.filterCell) return;
+
+		// Get dashboard records from cell
+		let matchingRecords = this.filterCell.collectDashRecords(this.parsedRecords);
+
+		// Apply text filter
+		if (this.filterText) {
+			matchingRecords = matchingRecords.filter(({ entry, file }) =>
+				this.entryMatchesTextFilter(entry, file, this.filterText)
+			);
+		}
+
+		if (matchingRecords.length === 0) {
+			container.createEl('div', {
+				text: 'No dashboard records found',
 				cls: 'kh-widget-filter-empty'
 			});
 			return;
