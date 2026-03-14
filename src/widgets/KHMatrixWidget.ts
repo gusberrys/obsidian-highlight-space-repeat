@@ -18,7 +18,7 @@ import { resolveIconKeywordNames } from '../shared/priority-resolver';
 import { fileHasMatch } from '../utils/filter-helpers';
 import { getFileNameFromPath } from '../utils/file-helpers';
 import { getAllKeywords } from '../utils/parse-helpers';
-import { MatrixCell, MatrixCellType } from './MatrixCell';
+import { SubjectCell, PrimarySideCell, SecondaryHeaderCell, PrimarySecondaryCell, PrimaryPrimaryCell } from './cells';
 
 export const KH_MATRIX_VIEW_TYPE = 'kh-matrix-view';
 
@@ -2769,62 +2769,20 @@ for (const file of parsedFiles) {
 	private async renderSubjectColumn(columnsContainer: HTMLElement, allRecords: ParsedFile[]): Promise<void> {
 		if (!this.currentSubject) return;
 
-		// Filter files: Has subject tag BUT NOT any primary or secondary topic tags
-		const primaryTopics = this.currentSubject.primaryTopics || [];
-		const secondaryTopics = this.currentSubject.secondaryTopics || [];
-		const primaryTopicTags = primaryTopics.map(t => t.topicTag).filter(Boolean);
-		const secondaryTopicTags = secondaryTopics.map(t => t.topicTag).filter(Boolean);
+		// Create SubjectCell - SINGLE source of truth for subject cell
+		const cell = new SubjectCell(
+			this.currentSubject,
+			this.getFileLevelTags.bind(this),
+			this.getRecordTags.bind(this)
+		);
 
-		const filteredRecords = allRecords.filter(record => {
-			const tags = this.getFileLevelTags(record);
-			const hasSubjectTag = this.currentSubject?.mainTag ? tags.includes(this.currentSubject.mainTag) : false;
-			const hasPrimaryTag = primaryTopicTags.some(tag => tags.includes(tag!));
-			const hasSecondaryTag = secondaryTopicTags.some(tag => tags.includes(tag!));
-			return hasSubjectTag && !hasPrimaryTag && !hasSecondaryTag;
-		});
+		// Use cell for all counting
+		const fileCount = cell.countFiles(allRecords);
+		const headerCount = cell.countHeaders(allRecords);
+		const recordCount = cell.countRecords(allRecords);
 
-		const fileCount = filteredRecords.length;
-
-		// Count headers matching subject keyword OR tag (check ALL files, deduplicate)
-		let headerCount = 0;
-		if (this.currentSubject.keyword || this.currentSubject.mainTag) {
-			const subjectTopic: Topic = {
-				id: 'subject',
-				name: this.currentSubject.name,
-				topicKeyword: this.currentSubject.keyword,
-				topicTag: this.currentSubject.mainTag
-			};
-			headerCount = this.countHeadersForSingleTopic(allRecords, [], subjectTopic);
-		}
-
-		// Count entries matching subject's matrixOnlyFilterExp or keyword
-		let recordCount = 0;
-		const matrixExpr = this.currentSubject.matrixOnlyFilterExp || this.currentSubject.expression;
-		if (matrixExpr) {
-			const { FilterExpressionService } = await import('../services/FilterExpressionService');
-			recordCount = FilterExpressionService.countRecordsWithExpression(
-				allRecords,
-				matrixExpr,
-				null,
-				this.currentSubject,
-				false
-			);
-		} else if (this.currentSubject.keyword) {
-			for (const record of allRecords) {
-				for (const entry of record.entries) {
-					if (getAllKeywords(entry).includes(this.currentSubject.keyword!)) {
-						recordCount++;
-					}
-					if (entry.subItems && entry.subItems.length > 0) {
-						for (const subItem of entry.subItems) {
-							if (getAllKeywords(subItem).includes(this.currentSubject.keyword!)) {
-								recordCount++;
-							}
-						}
-					}
-				}
-			}
-		}
+		// Get filter expression from cell
+		const matrixExpr = cell.getFilterExpression();
 
 		// Create column
 		const column = columnsContainer.createDiv({ cls: 'kh-dashboard-column kh-dashboard-totals-column' });
@@ -2905,9 +2863,10 @@ for (const file of parsedFiles) {
 			await this.render();
 		});
 
-		// Content area - show files
+		// Content area - show files using MatrixCell collected data
 		const content = column.createDiv({ cls: 'kh-dashboard-files-list' });
-		const sortedRecords = filteredRecords.slice().sort((a, b) => {
+		const files = cell.collectFiles(allRecords);
+		const sortedRecords = files.slice().sort((a, b) => {
 			const nameA = getFileNameFromPath(a.filePath).toLowerCase();
 			const nameB = getFileNameFromPath(b.filePath).toLowerCase();
 			return nameA.localeCompare(nameB);
@@ -2938,51 +2897,18 @@ for (const file of parsedFiles) {
 		const primaryTopic = this.currentSubject.primaryTopics?.find(t => t.id === primaryTopicId);
 		if (!primaryTopic || !primaryTopic.topicTag) return;
 
-		// Filter files with primary topic tag
-		let filteredRecords: ParsedFile[] = [];
-		if (primaryTopic.andMode && this.currentSubject.mainTag) {
-			filteredRecords = allRecords.filter(record => {
-				const tags = this.getFileLevelTags(record);
-				return tags.includes(primaryTopic.topicTag!) && tags.includes(this.currentSubject.mainTag!);
-			});
-		} else {
-			filteredRecords = allRecords.filter(record => {
-				const tags = this.getFileLevelTags(record);
-				return tags.includes(primaryTopic.topicTag!);
-			});
-		}
+		// Create PrimarySideCell - SINGLE source of truth for primary side cell
+		const cell = new PrimarySideCell(
+			this.currentSubject,
+			primaryTopic,
+			this.getFileLevelTags.bind(this),
+			this.getRecordTags.bind(this)
+		);
 
-		// Filter out files that have any secondary topic tags
-		const secondaryTopics = this.currentSubject.secondaryTopics || [];
-		const secondaryTopicTags = secondaryTopics.map(t => t.topicTag).filter(Boolean);
-		const filteredRecordsWithoutSecondary = filteredRecords.filter(record => {
-			const tags = this.getFileLevelTags(record);
-			return !secondaryTopicTags.some(tag => tags.includes(tag!));
-		});
-
-		const fileCount = filteredRecordsWithoutSecondary.length;
-
-		// Count headers matching topic keyword/tag (check ALL files, deduplicate)
-		const headerCount = this.countHeadersForSingleTopic(allRecords, [], primaryTopic);
-
-		// Count entries matching topic keyword
-		let recordCount = 0;
-		if (primaryTopic.topicKeyword) {
-			for (const record of allRecords) {
-				for (const entry of record.entries) {
-					if (getAllKeywords(entry).includes(primaryTopic.topicKeyword!)) {
-						recordCount++;
-					}
-					if (entry.subItems && entry.subItems.length > 0) {
-						for (const subItem of entry.subItems) {
-							if (getAllKeywords(subItem).includes(primaryTopic.topicKeyword!)) {
-								recordCount++;
-							}
-						}
-					}
-				}
-			}
-		}
+		// Use cell for all counting
+		const fileCount = cell.countFiles(allRecords);
+		const headerCount = cell.countHeaders(allRecords);
+		const recordCount = cell.countRecords(allRecords);
 
 		// Create column
 		const column = columnsContainer.createDiv({ cls: 'kh-dashboard-column kh-dashboard-totals-column' });
@@ -3052,8 +2978,8 @@ for (const file of parsedFiles) {
 		recordsCount.style.cursor = 'pointer';
 		recordsCount.addEventListener('click', async (e) => {
 			e.stopPropagation();
-			// Primary own cell: use side expression (RED)
-			const expr = primaryTopic.matrixOnlyFilterExpSide;
+			// Use cell to get the filter expression
+			const expr = cell.getFilterExpression();
 			this.widgetFilterType = 'R';
 			this.widgetFilterExpression = expr || '';
 			this.widgetFilterContext = {
@@ -3065,9 +2991,10 @@ for (const file of parsedFiles) {
 			await this.render();
 		});
 
-		// Content area - show files
+		// Content area - show files using cell collected data
 		const content = column.createDiv({ cls: 'kh-dashboard-files-list' });
-		const sortedRecords = filteredRecordsWithoutSecondary.slice().sort((a, b) => {
+		const files = cell.collectFiles(allRecords);
+		const sortedRecords = files.slice().sort((a, b) => {
 			const nameA = getFileNameFromPath(a.filePath).toLowerCase();
 			const nameB = getFileNameFromPath(b.filePath).toLowerCase();
 			return nameA.localeCompare(nameB);
@@ -3095,53 +3022,39 @@ for (const file of parsedFiles) {
 	private renderSecondaryColumn(columnsContainer: HTMLElement, topic: Topic, filteredRecords: ParsedFile[], allRecords: ParsedFile[]): void {
 		if (!this.currentSubject) return;
 
-		// Count files with topic tag
+		// Determine cell type and create appropriate cell
+		let cell;
 		let topicFiles: ParsedFile[] = [];
-		if (topic.topicTag) {
-			if (this.selectedRowId === 'orphans') {
-				// Subject row: secondary topics should exclude primary tags
-				const primaryTopics = this.currentSubject.primaryTopics || [];
-				const primaryTopicTags = primaryTopics.map(t => t.topicTag).filter(Boolean);
 
-				topicFiles = allRecords.filter(record => {
-					const tags = this.getRecordTags(record);
-					const hasSecondaryTag = tags.includes(topic.topicTag!);
-					const hasPrimaryTag = primaryTopicTags.some(tag => tags.includes(tag!));
-					return hasSecondaryTag && !hasPrimaryTag;
-				});
-			} else {
-				// Primary topic row: use intersection (from filteredRecords)
-				topicFiles = filteredRecords.filter(record => {
-					const tags = this.getRecordTags(record);
-					return tags.includes(topic.topicTag!);
-				});
-			}
-		}
-		let fileCount = topicFiles.length;
+		if (this.selectedRowId === 'orphans') {
+			// SECONDARY_HEADER cell (1x2, 1x3)
+			cell = new SecondaryHeaderCell(
+				this.currentSubject,
+				topic,
+				this.getFileLevelTags.bind(this),
+				this.getRecordTags.bind(this)
+			);
+			topicFiles = cell.collectFiles(allRecords);
+		} else {
+			// PRIMARY_SECONDARY cell (2x2, 2x3)
+			const primaryTopic = this.currentSubject.primaryTopics?.find(t => t.id === this.selectedRowId);
+			if (!primaryTopic) return;
 
-		// Count headers matching topic keyword/tag (check ALL files, deduplicate)
-		let headerCount = this.countHeadersForSingleTopic(allRecords, [], topic);
-
-		// Count entries matching topic keyword
-		let recordCount = 0;
-		if (topic.topicKeyword) {
-			for (const record of allRecords) {
-				for (const entry of record.entries) {
-					if (getAllKeywords(entry).includes(topic.topicKeyword!)) {
-						recordCount++;
-					}
-					if (entry.subItems && entry.subItems.length > 0) {
-						for (const subItem of entry.subItems) {
-							if (getAllKeywords(subItem).includes(topic.topicKeyword!)) {
-								recordCount++;
-							}
-						}
-					}
-				}
-			}
+			cell = new PrimarySecondaryCell(
+				this.currentSubject,
+				primaryTopic,
+				topic,
+				this.getFileLevelTags.bind(this),
+				this.getRecordTags.bind(this)
+			);
+			topicFiles = cell.collectFiles(allRecords);
 		}
 
-		// Override counts with pre-calculated matrix data
+		let fileCount = cell.countFiles(allRecords);
+		let headerCount = cell.countHeaders(allRecords);
+		let recordCount = cell.countRecords(allRecords);
+
+		// Override counts with pre-calculated matrix data (if exists)
 		if (this.currentSubject?.matrix?.cells) {
 			const allSecondaryTopics = this.currentSubject.secondaryTopics || [];
 			const commonSecondaries = allSecondaryTopics.filter(t =>
@@ -3277,7 +3190,7 @@ for (const file of parsedFiles) {
 			e.stopPropagation();
 			const primaryTopic = this.currentSubject?.primaryTopics?.find(t => t.id === this.selectedRowId);
 			this.widgetFilterType = 'R';
-			this.widgetFilterExpression = topic.appliedFilterExpIntersection || '';
+			this.widgetFilterExpression = cell.getFilterExpression();
 			this.widgetFilterContext = {
 				subject: this.currentSubject!,
 				secondaryTopic: topic,
@@ -3287,7 +3200,7 @@ for (const file of parsedFiles) {
 			await this.render();
 		});
 
-		// Content area - show files
+		// Content area - show files using cell collected data
 		const content = column.createDiv({ cls: 'kh-dashboard-files-list' });
 		const sortedRecords = topicFiles.slice().sort((a, b) => {
 			const nameA = getFileNameFromPath(a.filePath).toLowerCase();
@@ -3322,17 +3235,16 @@ for (const file of parsedFiles) {
 	): void {
 		if (!this.currentSubject) return;
 
-		// Create MatrixCell - SINGLE source of truth for primary×primary intersection
-		const cell = new MatrixCell(
-			MatrixCellType.PRIMARY_PRIMARY,
+		// Create PrimaryPrimaryCell - SINGLE source of truth for primary×primary intersection
+		const cell = new PrimaryPrimaryCell(
 			this.currentSubject,
-			this.getFileLevelTags.bind(this),
-			this.getRecordTags.bind(this),
 			clickedPrimary,
-			otherPrimary
+			otherPrimary,
+			this.getFileLevelTags.bind(this),
+			this.getRecordTags.bind(this)
 		);
 
-		// Use MatrixCell for all counting (ensures consistency with rendering)
+		// Use cell for all counting (ensures consistency with rendering)
 		const fileCount = cell.countFiles(allRecords);
 		const headerCount = cell.countHeaders(allRecords);
 		const recordCount = cell.countRecords(allRecords);

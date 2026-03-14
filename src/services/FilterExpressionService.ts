@@ -10,18 +10,19 @@ import { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
  */
 export class FilterExpressionService {
 	/**
-	 * Count records matching a filter expression (with placeholder expansion)
+	 * Get matching records (with placeholder expansion)
+	 * SINGLE SOURCE OF TRUTH - returns actual matching entries
 	 * Supports W: syntax for WHERE clause (file filtering)
 	 */
-	static countRecordsWithExpression(
+	static getMatchingRecords(
 		parsedFiles: ParsedFile[],
 		filterExpression: string,
 		primaryTopic: Topic | null,
 		subject?: Subject,
 		includesSubjectTag: boolean = false
-	): number {
+	): Array<{ entry: import('../interfaces/ParsedFile').FlatEntry; file: ParsedFile }> {
 		if (!filterExpression || !filterExpression.trim()) {
-			return 0;
+			return [];
 		}
 
 		// Expand placeholders in expression
@@ -45,12 +46,16 @@ export class FilterExpressionService {
 		if (includesSubjectTag && subject?.mainTag) {
 			// Normalize: strip leading # if present, then add it back
 			const subjectTag = subject.mainTag.replace(/^#/, '');
+			const normalizedTag = `#${subjectTag}`;
+
 			if (whereExpr) {
-				// Add to existing WHERE clause (wrap in parentheses for correct precedence)
-				whereExpr = `#${subjectTag} AND (${whereExpr})`;
+				// Only add if not already present in WHERE clause
+				if (!whereExpr.includes(normalizedTag)) {
+					whereExpr = `${normalizedTag} AND (${whereExpr})`;
+				}
 			} else {
 				// Create new WHERE clause with just the subject tag
-				whereExpr = `#${subjectTag}`;
+				whereExpr = normalizedTag;
 			}
 		}
 
@@ -65,11 +70,11 @@ export class FilterExpressionService {
 			}
 		} catch (error) {
 			console.error(`[FilterExpressionService] Failed to compile expression: ${transformedExpr}`, error);
-			return 0;
+			return [];
 		}
 
-		// Count matching entries using FlatEntry
-		let matchCount = 0;
+		// Collect matching entries using FlatEntry
+		const matchingEntries: Array<{ entry: import('../interfaces/ParsedFile').FlatEntry; file: ParsedFile }> = [];
 
 		for (const file of parsedFiles) {
 			for (const entry of file.entries) {
@@ -82,12 +87,26 @@ export class FilterExpressionService {
 
 				// Then apply SELECT clause
 				if (FilterParser.evaluateFlatEntry(selectCompiled.ast, entry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers)) {
-					matchCount++;
+					matchingEntries.push({ entry, file });
 				}
 			}
 		}
 
-		return matchCount;
+		return matchingEntries;
+	}
+
+	/**
+	 * Count records matching a filter expression (with placeholder expansion)
+	 * Uses getMatchingRecords() - ensures count and display use same logic
+	 */
+	static countRecordsWithExpression(
+		parsedFiles: ParsedFile[],
+		filterExpression: string,
+		primaryTopic: Topic | null,
+		subject?: Subject,
+		includesSubjectTag: boolean = false
+	): number {
+		return this.getMatchingRecords(parsedFiles, filterExpression, primaryTopic, subject, includesSubjectTag).length;
 	}
 
 	/**
