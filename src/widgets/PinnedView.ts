@@ -2,11 +2,11 @@ import { App, ItemView, WorkspaceLeaf, TFile, MarkdownView, Notice, MarkdownRend
 import type { ParsedFile, ParsedHeader, ParsedEntry } from '../interfaces/ParsedFile';
 import { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
 import { KHEntry } from '../components/KHEntry';
-import { KeywordType, getKeywordType } from '../shared/keyword-style';
 import { MainCombinePriority } from '../shared/combine-priority';
 import type { KeywordStyle } from '../shared/keyword-style';
 import { RecordParser } from '../services/RecordParser';
 import { resolveIconKeywordNames } from '../shared/priority-resolver';
+import { getAllKeywords } from '../utils/parse-helpers';
 
 export const PINNED_VIEW_TYPE = 'kh-pinned-view';
 
@@ -22,7 +22,10 @@ export class PinnedView extends ItemView {
 	constructor(leaf: WorkspaceLeaf, plugin: HighlightSpaceRepeatPlugin) {
 		super(leaf);
 		this.plugin = plugin;
-		this.parser = new RecordParser(this.app);
+		const { get } = require('svelte/store');
+		const { settingsStore } = require('../stores/settings-store');
+		const settings = get(settingsStore);
+		this.parser = new RecordParser(this.app, settings.parserSettings);
 	}
 
 	/**
@@ -530,8 +533,10 @@ export class PinnedView extends ItemView {
 
 			for (const headerLevel of headerLevels) {
 				const header = headerLevel!.info;
-				if (header.text) {
-					const headerKey = `${headerLevel!.level}:${header.text}`;
+				if (header.text || header.keywords || header.inlineKeywords) {
+					// Use text if available, otherwise use keywords joined with space
+					const headerIdentifier = header.text || (header.keywords ? header.keywords.join(' ') : '');
+					const headerKey = `${headerLevel!.level}:${headerIdentifier}`;
 					if (!headerMap.has(headerKey)) {
 						headerMap.set(headerKey, {
 							text: header.text,
@@ -573,9 +578,10 @@ export class PinnedView extends ItemView {
 
 			for (const headerLevel of headerLevels) {
 				const header = headerLevel!.info;
-				if (header.text) {
-					// Check if header keywords contain "pin"
-					const headerContainsPinKeyword = header.keywords?.some(kw =>
+				if (header.text || header.keywords || header.inlineKeywords) {
+					// Check if header keywords contain "pin" (includes inline keywords)
+					const headerKeywords = getAllKeywords(header);
+					const headerContainsPinKeyword = headerKeywords.some(kw =>
 						kw.toLowerCase().includes('pin')
 					);
 

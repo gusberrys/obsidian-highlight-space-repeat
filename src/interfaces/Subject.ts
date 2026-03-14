@@ -1,3 +1,5 @@
+import type { Topic } from './Topic';
+
 export interface Subject {
 	/** Unique identifier */
 	id: string;
@@ -5,7 +7,22 @@ export interface Subject {
 	/** Display name */
 	name: string;
 
-	/** Filter expression for subject-level filtering */
+	/**
+	 * DashFilter (Dark Blue) - Dashboard chips and SubjectDashboard evaluations
+	 * Used when subject (orphans) is selected in Dashboard View
+	 * Example: "S: .keyword :category `language W: #tag"
+	 */
+	dashOnlyFilterExp?: string;
+
+	/**
+	 * MatrixFilter (RED) - Matrix record counting for 1x1 cell
+	 * Used for counting records in subject cell (1x1)
+	 * Fallback if no keyword defined
+	 * Example: "S: .def .ima .pos W: #kafka OR .kaf OR `java"
+	 */
+	matrixOnlyFilterExp?: string;
+
+	/** @deprecated Legacy - use dashOnlyFilterExp/matrixOnlyFilterExp instead */
 	expression?: string;
 
 	/** Description (optional) */
@@ -29,22 +46,11 @@ export interface Subject {
 	/** Matrix data - stores icons for subject/primary/secondary intersections */
 	matrix?: SubjectMatrix;
 
-	/** Favorite filters for quick access */
-	favoriteFilters?: FavoriteFilter[];
-}
+	/** Primary topics for this subject (array order = display order) */
+	primaryTopics?: Topic[];
 
-/**
- * Favorite filter for quick access
- */
-export interface FavoriteFilter {
-	/** Unique identifier */
-	id: string;
-
-	/** Icon/emoji for the button */
-	icon: string;
-
-	/** Filter expression (e.g., ":boo `java W: #foo \t") */
-	expression: string;
+	/** Secondary topics for this subject (array order = display order) */
+	secondaryTopics?: Topic[];
 }
 
 /**
@@ -69,9 +75,6 @@ export interface MatrixCell {
 
 	/** Optional label/name */
 	label?: string;
-
-	/** Whether this cell uses AND mode (subject tag AND topic tag) */
-	andMode?: boolean;
 
 	/** File count for this tag combination */
 	fileCount?: number;

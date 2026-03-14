@@ -2,7 +2,6 @@ import HighlightSpaceRepeatPlugin from 'main';
 import { App, PluginSettingTab } from 'obsidian';
 import SettingTabComponent from './SettingTab.svelte';
 import { saveStore, settingsStore, saveSettingsData } from 'src/stores/settings-store';
-import { addSRSSettings } from './SRSSettings';
 
 export class SettingTab extends PluginSettingTab {
   plugin: HighlightSpaceRepeatPlugin;
@@ -24,10 +23,6 @@ export class SettingTab extends PluginSettingTab {
         plugin: this.plugin,
       },
     });
-
-    // Add SRS settings section after Svelte component
-    const srsContainer = containerEl.createDiv({ cls: 'srs-settings-container' });
-    addSRSSettings(srsContainer, this.plugin);
   }
 
   async hide(): Promise<void> {

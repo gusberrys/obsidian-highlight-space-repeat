@@ -184,15 +184,9 @@ export async function renderSubjectDashboard(
 		return;
 	}
 
-	const subjectsData: SubjectsData = get(subjectsStore);
-	const allTopics: Topic[] = subjectsData.topics;
-	// Filter topics - ensure we only show topics with valid subjectId (exclude global topics)
-	const primaryTopics: Topic[] = allTopics.filter(
-		(t: Topic) => t.subjectId && t.subjectId === matchingSubject.id && t.type === 'primary'
-	);
-	const secondaryTopics: Topic[] = allTopics.filter(
-		(t: Topic) => t.subjectId && t.subjectId === matchingSubject.id && t.type === 'secondary'
-	);
+	// Get topics from nested structure
+	const primaryTopics: Topic[] = matchingSubject.primaryTopics || [];
+	const secondaryTopics: Topic[] = matchingSubject.secondaryTopics || [];
 
 	// Render title row with select
 	const titleRow = dashboardContainer.createDiv({ cls: 'kh-dashboard-title-row' });

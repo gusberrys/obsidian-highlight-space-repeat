@@ -1,17 +1,17 @@
 import { App, MarkdownView } from 'obsidian';
 import type { HighlightSpaceRepeatPlugin } from 'src/highlight-space-repeat-plugin';
 import { generateInitialColors } from 'src/settings/generate-initial-colors';
-import type { KeywordStyle, Category, Settings, AuxiliaryKeyword, AuxiliaryCategory, CodeBlockLanguage } from 'src/shared';
-import { KeywordType } from 'src/shared';
+import type { KeywordStyle, Category, Settings, CodeBlockLanguage, VWordSettings } from 'src/shared';
+import { DEFAULT_VWORD_SETTINGS } from 'src/shared';
 import { CollectingStatus } from 'src/shared/collecting-status';
 import { MainCombinePriority } from 'src/shared/combine-priority';
-import { injectKeywordCSS } from 'src/shared/dynamic-css';
+import { injectKeywordCSS, injectVWordCSS, injectAllCSS } from 'src/shared/dynamic-css';
 import { get, writable } from 'svelte/store';
 import type { ParserSettings } from 'src/interfaces/ParserSettings';
 import { DEFAULT_PARSER_SETTINGS } from 'src/interfaces/ParserSettings';
 import type { Subject } from 'src/interfaces/Subject';
 import type { Topic } from 'src/interfaces/Topic';
-import type { SubjectsData, GlobalTopic } from 'src/shared/subjects-data';
+import type { SubjectsData } from 'src/shared/subjects-data';
 
 export interface PluginSettings {
   categories: Category[];
@@ -122,33 +122,6 @@ const DEFAULT_SETTINGS_DATA: Settings = {
   pathToSubjects: '',
 };
 
-const DEFAULT_AUXILIARY_KEYWORDS: AuxiliaryCategory[] = [
-  {
-    icon: 'Metadata',
-    id: 'metadata-category',
-    auxiliaryKeywords: [
-      { icon: '👶', keyword: 'baby', description: 'Baby/beginner level', class: 'baby' },
-      { icon: '🐍', keyword: 'python', description: 'Python related', class: 'python' },
-      { icon: '⚡', keyword: 'fast', description: 'Fast/quick tip', class: 'fast' },
-    ]
-  },
-  {
-    icon: 'Layout',
-    id: 'layout-category',
-    auxiliaryKeywords: [
-      { icon: '-', keyword: 'h', description: 'Horizontal list layout (flexible)', class: 'horizontal' },
-      { icon: '1-4', keyword: '1-4', description: 'Ratio 20% / 80% for 2 items', class: 'ratio-1-4' },
-      { icon: '4-1', keyword: '4-1', description: 'Ratio 80% / 20% for 2 items', class: 'ratio-4-1' },
-      { icon: '2-3', keyword: '2-3', description: 'Ratio 40% / 60% for 2 items', class: 'ratio-2-3' },
-      { icon: '3-2', keyword: '3-2', description: 'Ratio 60% / 40% for 2 items', class: 'ratio-3-2' },
-      { icon: '1-3', keyword: '1-3', description: 'Ratio 25% / 75% for 2 items', class: 'ratio-1-3' },
-      { icon: '3-1', keyword: '3-1', description: 'Ratio 75% / 25% for 2 items', class: 'ratio-3-1' },
-      { icon: '2-1', keyword: '2-1', description: 'Ratio 66.666% / 33.333% for 2 items', class: 'ratio-2-1' },
-      { icon: '1-2', keyword: '1-2', description: 'Ratio 33.333% / 66.666% for 2 items', class: 'ratio-1-2' },
-    ]
-  }
-];
-
 const DEFAULT_CODEBLOCKS: CodeBlockLanguage[] = [
   { id: 'java', icon: '☕' },
   { id: 'python', icon: '🐍' },
@@ -158,44 +131,39 @@ const DEFAULT_CODEBLOCKS: CodeBlockLanguage[] = [
 
 export const settingsStore = writable<PluginSettings>(DEFAULT_SETTINGS);
 export const settingsDataStore = writable<Settings>(DEFAULT_SETTINGS_DATA);
-export const auxiliaryKeywordsStore = writable<AuxiliaryCategory[]>(DEFAULT_AUXILIARY_KEYWORDS);
 export const codeBlocksStore = writable<CodeBlockLanguage[]>(DEFAULT_CODEBLOCKS);
-export const subjectsStore = writable<SubjectsData>({ subjects: [], topics: [], globalTopics: [] });
+export const vwordSettingsStore = writable<VWordSettings>(DEFAULT_VWORD_SETTINGS);
+export const subjectsStore = writable<SubjectsData>({ subjects: [] });
 
 let plugin: HighlightSpaceRepeatPlugin | null = null;
 let appInstance: App | null = null;
 
 export async function initStore(pluginInstance: HighlightSpaceRepeatPlugin): Promise<void> {
-  console.log('[Settings Store] Initializing store...');
   plugin = pluginInstance;
   appInstance = plugin.app;
 
   // Wait for settings to load before plugin finishes initialization
   await loadStore();
-  console.log('[Settings Store] Main settings loaded');
+
+  // Load VWord settings and inject CSS (needs to complete before plugin fully loads)
+  await loadVWordSettings();
 
   // These can load in parallel with plugin initialization
   loadSettingsData();
-  loadAuxiliaryKeywords();
   loadCodeBlocks();
   loadSubjects();
 
-  console.log('[Settings Store] Store initialization complete');
 }
 
 export async function loadStore(): Promise<void> {
   if (!plugin) return;
 
-  console.log('[Settings Store] Loading settings from keyword.json...');
   const loadedDate = await plugin.loadData();
-  console.log('[Settings Store] Loaded data:', !!loadedDate);
   const settings = Object.assign({}, DEFAULT_SETTINGS, loadedDate);
-  console.log('[Settings Store] Settings categories count:', settings.categories?.length || 0);
 
   // Ensure parserSettings exists (migration for existing settings files)
   let needsMigration = false;
   if (!settings.parserSettings) {
-    console.log('[Settings Store] Migrating: Adding parserSettings');
     settings.parserSettings = DEFAULT_PARSER_SETTINGS;
     needsMigration = true;
   }
@@ -213,7 +181,7 @@ export async function loadStore(): Promise<void> {
     });
   });
 
-  // Set default collectingStatus, keywordType, and combinePriority for keywords that don't have them set
+  // Set default collectingStatus and combinePriority for keywords that don't have them set
   settings.categories.forEach(category => {
     category.keywords.forEach(keyword => {
       // Only set if not already defined - default to PARSED for backward compatibility
@@ -221,25 +189,8 @@ export async function loadStore(): Promise<void> {
         keyword.collectingStatus = CollectingStatus.PARSED;
       }
 
-      // Migrate mainKeyword to keywordType
-      if (keyword.keywordType === undefined) {
-        if (keyword.mainKeyword === true) {
-          keyword.keywordType = KeywordType.MAIN;
-        } else if (keyword.mainKeyword === false) {
-          keyword.keywordType = KeywordType.AUXILIARY;
-        } else {
-          // Default to AUXILIARY for backward compatibility
-          keyword.keywordType = KeywordType.AUXILIARY;
-        }
-      }
-
-      // Keep mainKeyword for backward compatibility but prefer keywordType
-      if (keyword.mainKeyword === undefined) {
-        keyword.mainKeyword = keyword.keywordType === KeywordType.MAIN;
-      }
-
-      // Set default combinePriority for MAIN keywords only
-      if (keyword.combinePriority === undefined && keyword.keywordType === KeywordType.MAIN) {
+      // Set default combinePriority
+      if (keyword.combinePriority === undefined) {
         keyword.combinePriority = MainCombinePriority.None;
       }
     });
@@ -250,17 +201,14 @@ export async function loadStore(): Promise<void> {
   // CRITICAL: Also set the static property used by the public API
   if (plugin) {
     (plugin.constructor as typeof HighlightSpaceRepeatPlugin).settings = settings;
-    console.log('[Settings Store] Set static HighlightSpaceRepeatPlugin.settings');
-    console.log('[Settings Store] Static settings categories:', (plugin.constructor as typeof HighlightSpaceRepeatPlugin).settings?.categories?.length || 0);
   }
 
-  // Inject CSS after loading settings
+  // Inject keyword CSS after loading settings
+  // Note: VWord CSS will be injected separately by loadVWordSettings()
   injectKeywordCSS(settings.categories);
-  console.log('[Settings Store] Settings loaded successfully');
 
   // Save migrated settings back to file if migration occurred
   if (needsMigration) {
-    console.log('[Settings Store] Saving migrated settings to keyword.json...');
     await saveStore();
   }
 }
@@ -279,10 +227,10 @@ export async function saveStore(): Promise<void> {
 
   // CRITICAL: Also update the static property used by the public API
   (plugin.constructor as typeof HighlightSpaceRepeatPlugin).settings = currentSettings;
-  console.log('[Settings Store] Updated static settings after save');
 
-  // Update CSS after saving
-  injectKeywordCSS(currentSettings.categories);
+  // Update CSS after saving (inject both keyword and VWord CSS)
+  const vwordSettings = get(vwordSettingsStore);
+  injectAllCSS(currentSettings.categories, vwordSettings);
 
   refreshViews();
 }
@@ -336,9 +284,8 @@ export function addKeyword(value?: string, categoryName?: string, container?: HT
       color: color,
       backgroundColor: backgroundColor,
       description: '',
-      keywordType: KeywordType.AUXILIARY,  // Default to auxiliary keyword
-      mainKeyword: false,  // Backward compatibility
       collectingStatus: CollectingStatus.PARSED,  // Default to parsed
+      combinePriority: MainCombinePriority.StyleAndIcon,
     });
     return settings;
   });
@@ -403,81 +350,6 @@ export async function saveSettingsData(): Promise<void> {
   await plugin.saveSettingsData(currentSettings);
 }
 
-// Auxiliary Keywords functions
-export async function loadAuxiliaryKeywords(): Promise<void> {
-  if (!plugin) return;
-
-  const loadedData = await plugin.loadAuxiliaryKeywords();
-  const keywords = loadedData || DEFAULT_AUXILIARY_KEYWORDS;
-
-  // Migrate old auxiliary keywords without keyword field
-  keywords.forEach(category => {
-    category.auxiliaryKeywords.forEach(auxKw => {
-      // If keyword field is missing, create it from description or use a fallback
-      if (!auxKw.keyword) {
-        // Use the description as keyword, or generate one
-        auxKw.keyword = auxKw.description?.toLowerCase().replace(/\s+/g, '-') || 'aux';
-      }
-    });
-  });
-
-  auxiliaryKeywordsStore.set(keywords);
-}
-
-export async function saveAuxiliaryKeywords(): Promise<void> {
-  if (!plugin) return;
-
-  const currentKeywords = get(auxiliaryKeywordsStore);
-  await plugin.saveAuxiliaryKeywords(currentKeywords);
-}
-
-export function addAuxiliaryKeywordCategory(name: string, categoryClass?: string): void {
-  auxiliaryKeywordsStore.update((categories) => {
-    if (!categories.find(cat => cat.icon === name)) {
-      categories.push({ icon: name, id: categoryClass, auxiliaryKeywords: [] });
-    }
-    return categories;
-  });
-}
-
-export function removeAuxiliaryKeywordCategory(categoryName: string): void {
-  auxiliaryKeywordsStore.update((categories) => {
-    const index = categories.findIndex(cat => cat.icon === categoryName);
-    if (index > -1) {
-      categories.splice(index, 1);
-    }
-    return categories;
-  });
-}
-
-export function addAuxiliaryKeyword(categoryName: string, icon: string = '', keyword: string = '', description: string = '', cssClass: string = ''): void {
-  auxiliaryKeywordsStore.update((categories) => {
-    const category = categories.find(cat => cat.icon === categoryName);
-    if (category) {
-      category.auxiliaryKeywords.push({
-        icon,
-        keyword,
-        description,
-        class: cssClass
-      });
-    }
-    return categories;
-  });
-}
-
-export function removeAuxiliaryKeyword(categoryName: string, auxiliaryKeyword: AuxiliaryKeyword): void {
-  auxiliaryKeywordsStore.update((categories) => {
-    const category = categories.find(cat => cat.icon === categoryName);
-    if (category) {
-      const index = category.auxiliaryKeywords.indexOf(auxiliaryKeyword);
-      if (index > -1) {
-        category.auxiliaryKeywords.splice(index, 1);
-      }
-    }
-    return categories;
-  });
-}
-
 // Code Blocks functions
 export async function loadCodeBlocks(): Promise<void> {
   if (!plugin) return;
@@ -494,12 +366,38 @@ export async function saveCodeBlocks(): Promise<void> {
   await plugin.saveCodeBlocks(currentCodeBlocks);
 }
 
+// VWord Settings functions
+export async function loadVWordSettings(): Promise<void> {
+  if (!plugin) return;
+
+  const loadedData = await plugin.loadVWordSettings();
+  const vwordSettings = Object.assign({}, DEFAULT_VWORD_SETTINGS, loadedData);
+  vwordSettingsStore.set(vwordSettings);
+
+  // Inject VWord CSS after loading
+  injectVWordCSS(vwordSettings);
+}
+
+export async function saveVWordSettings(): Promise<void> {
+  if (!plugin) return;
+
+  const currentSettings = get(vwordSettingsStore);
+  await plugin.saveVWordSettings(currentSettings);
+
+  // Re-inject all CSS after VWord settings change (keywords + VWord)
+  const keywordSettings = get(settingsStore);
+  injectAllCSS(keywordSettings.categories, currentSettings);
+
+  refreshViews();
+}
+
 // Subjects and Topics functions
 export async function loadSubjects(): Promise<void> {
   if (!plugin) return;
 
   const loadedData = await plugin.loadSubjects();
-  const subjectsData = loadedData || { subjects: [], topics: [] };
+  const subjectsData = loadedData || { subjects: [] };
+
   subjectsStore.set(subjectsData);
 }
 
@@ -510,16 +408,17 @@ export async function saveSubjects(): Promise<void> {
   }
 
   const currentSubjects = get(subjectsStore);
-  console.log('[saveSubjects] Saving subjects data:', {
-    subjectsCount: currentSubjects.subjects.length,
-    topicsCount: currentSubjects.topics.length
+
+  // Count topics across all subjects
+  let totalTopics = 0;
+  currentSubjects.subjects.forEach(s => {
+    totalTopics += (s.primaryTopics?.length || 0) + (s.secondaryTopics?.length || 0);
   });
+
   await plugin.saveSubjects(currentSubjects);
-  console.log('[saveSubjects] Save completed');
 
   // Refresh subject selection commands
   await plugin.registerSubjectCommands();
-  console.log('[saveSubjects] Subject commands refreshed');
 }
 
 // Subjects functions
@@ -540,8 +439,7 @@ export function addSubject(name: string): string {
 export function removeSubject(subjectId: string): void {
   subjectsStore.update((data) => {
     data.subjects = data.subjects.filter((s: Subject) => s.id !== subjectId);
-    // Also remove topics for this subject
-    data.topics = data.topics.filter((t: Topic) => t.subjectId !== subjectId);
+    // Topics are nested under subjects, so they're automatically removed
     return data;
   });
   saveSubjects();
@@ -558,10 +456,19 @@ export function updateSubject(subjectId: string, updates: Partial<Subject>): voi
   saveSubjects();
 }
 
-// Topics functions
-export function addTopic(topic: Topic): void {
+// Topics functions - work with nested arrays
+export function addTopic(subjectId: string, topic: Topic, isPrimary: boolean): void {
   subjectsStore.update((data) => {
-    data.topics.push(topic);
+    const subject = data.subjects.find((s: Subject) => s.id === subjectId);
+    if (subject) {
+      if (isPrimary) {
+        if (!subject.primaryTopics) subject.primaryTopics = [];
+        subject.primaryTopics.push(topic);
+      } else {
+        if (!subject.secondaryTopics) subject.secondaryTopics = [];
+        subject.secondaryTopics.push(topic);
+      }
+    }
     return data;
   });
   saveSubjects();
@@ -569,7 +476,25 @@ export function addTopic(topic: Topic): void {
 
 export function removeTopic(topicId: string): void {
   subjectsStore.update((data) => {
-    data.topics = data.topics.filter((t: Topic) => t.id !== topicId);
+    // Find and remove topic from whichever subject contains it
+    for (const subject of data.subjects) {
+      if (subject.primaryTopics) {
+        const index = subject.primaryTopics.findIndex(t => t.id === topicId);
+        if (index >= 0) {
+          subject.primaryTopics.splice(index, 1);
+          if (subject.primaryTopics.length === 0) delete subject.primaryTopics;
+          return data;
+        }
+      }
+      if (subject.secondaryTopics) {
+        const index = subject.secondaryTopics.findIndex(t => t.id === topicId);
+        if (index >= 0) {
+          subject.secondaryTopics.splice(index, 1);
+          if (subject.secondaryTopics.length === 0) delete subject.secondaryTopics;
+          return data;
+        }
+      }
+    }
     return data;
   });
   saveSubjects();
@@ -577,9 +502,22 @@ export function removeTopic(topicId: string): void {
 
 export function updateTopic(topicId: string, updates: Partial<Topic>): void {
   subjectsStore.update((data) => {
-    const topic = data.topics.find((t: Topic) => t.id === topicId);
-    if (topic) {
-      Object.assign(topic, updates);
+    // Find topic in any subject and update it
+    for (const subject of data.subjects) {
+      if (subject.primaryTopics) {
+        const topic = subject.primaryTopics.find(t => t.id === topicId);
+        if (topic) {
+          Object.assign(topic, updates);
+          return data;
+        }
+      }
+      if (subject.secondaryTopics) {
+        const topic = subject.secondaryTopics.find(t => t.id === topicId);
+        if (topic) {
+          Object.assign(topic, updates);
+          return data;
+        }
+      }
     }
     return data;
   });
@@ -590,121 +528,23 @@ export function addPrimaryTopic(subjectId: string): void {
   const newTopic: Topic = {
     id: `topic-${Date.now()}`,
     name: '',
-    type: 'primary',
-    subjectId: subjectId,
     icon: '📌',
     topicTag: '',
     topicKeyword: '',
-    topicText: '',
-    filterExpression: '',
-    keywords: [],
-    order: Date.now(),
-    showFileRecords: true,
-    showHeaderRecords: true,
-    showRecordRecords: true
+    topicText: ''
   };
-  addTopic(newTopic);
+  addTopic(subjectId, newTopic, true);
 }
 
 export function addSecondaryTopic(subjectId: string): void {
   const newTopic: Topic = {
     id: `topic-${Date.now()}`,
     name: '',
-    type: 'secondary',
-    subjectId: subjectId,
     icon: '🔗',
     topicTag: '',
-    topicKeyword: '',
-    filterExpression: '',
-    keywords: [],
-    order: Date.now(),
-    showFileRecords: true,
-    showHeaderRecords: true,
-    showRecordRecords: true
+    topicKeyword: ''
   };
-  addTopic(newTopic);
+  addTopic(subjectId, newTopic, false);
 }
 
-// Global Topics functions
-export function addGlobalTopic(): string {
-  const newId = `global-topic-${Date.now()}`;
-  subjectsStore.update((data) => {
-    if (!data.globalTopics) {
-      data.globalTopics = [];
-    }
-    data.globalTopics.push({
-      id: newId,
-      name: '',
-      icon: '🔗',
-      topicTag: '',
-      topicKeyword: '',
-      topicText: '',
-      filterExpression: '',
-      showFileRecords: true,
-      showHeaderRecords: true,
-      showRecordRecords: true
-    });
-    return data;
-  });
-  saveSubjects();
-  return newId;
-}
-
-export function removeGlobalTopic(topicId: string): void {
-  subjectsStore.update((data) => {
-    if (data.globalTopics) {
-      data.globalTopics = data.globalTopics.filter((t: GlobalTopic) => t.id !== topicId);
-    }
-    return data;
-  });
-  saveSubjects();
-}
-
-export function updateGlobalTopic(topicId: string, updates: Partial<GlobalTopic>): void {
-  subjectsStore.update((data) => {
-    if (data.globalTopics) {
-      const topic = data.globalTopics.find((t: GlobalTopic) => t.id === topicId);
-      if (topic) {
-        Object.assign(topic, updates);
-      }
-    }
-    return data;
-  });
-  saveSubjects();
-}
-
-/**
- * Import a global topic into a subject as a secondary topic
- * Creates a copy of the global topic with the subject's ID
- */
-export function importGlobalTopic(globalTopicId: string, subjectId: string): string {
-  const globalTopicsData = get(subjectsStore).globalTopics || [];
-  const globalTopic = globalTopicsData.find((t: GlobalTopic) => t.id === globalTopicId);
-
-  if (!globalTopic) {
-    console.warn(`Global topic ${globalTopicId} not found`);
-    return '';
-  }
-
-  // Create a new topic based on the global topic
-  const newTopic: Topic = {
-    id: `topic-${Date.now()}`,
-    name: globalTopic.name,
-    type: 'secondary',
-    subjectId: subjectId,
-    icon: globalTopic.icon || '🔗',
-    topicTag: globalTopic.topicTag || '',
-    topicKeyword: globalTopic.topicKeyword || '',
-    topicText: globalTopic.topicText,
-    filterExpression: globalTopic.filterExpression || '',
-    keywords: [],
-    order: Date.now(),
-    showFileRecords: globalTopic.showFileRecords ?? true,
-    showHeaderRecords: globalTopic.showHeaderRecords ?? true,
-    showRecordRecords: globalTopic.showRecordRecords ?? true
-  };
-
-  addTopic(newTopic);
-  return newTopic.id;
-}
 

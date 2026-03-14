@@ -4,7 +4,7 @@ import { get } from 'svelte/store';
 import { settingsStore } from './stores/settings-store';
 import type { KeywordStyle } from './shared';
 
-export class AuxiliaryKeywordSuggest extends EditorSuggest<KeywordStyle> {
+export class CombinedKeywordSuggest extends EditorSuggest<KeywordStyle> {
   constructor(app: App) {
     super(app);
   }
@@ -57,49 +57,49 @@ export class AuxiliaryKeywordSuggest extends EditorSuggest<KeywordStyle> {
   }
 
   renderSuggestion(keyword: KeywordStyle, el: HTMLElement): void {
-    const container = el.createDiv({ cls: 'aux-keyword-suggestion' });
+    const container = el.createDiv({ cls: 'combined-keyword-suggestion' });
 
     // Icon
     if (keyword.generateIcon) {
       container.createSpan({
         text: keyword.generateIcon + ' ',
-        cls: 'aux-keyword-icon'
+        cls: 'combined-keyword-icon'
       });
     }
 
     // Keyword name
     container.createSpan({
       text: keyword.keyword,
-      cls: 'aux-keyword-name'
+      cls: 'combined-keyword-name'
     });
 
     // Description
     if (keyword.description) {
       container.createSpan({
         text: ' - ' + keyword.description,
-        cls: 'aux-keyword-description'
+        cls: 'combined-keyword-description'
       });
     }
 
     // Add CSS for styling
-    if (!document.querySelector('#aux-keyword-suggestion-styles')) {
+    if (!document.querySelector('#combined-keyword-suggestion-styles')) {
       const style = document.createElement('style');
-      style.id = 'aux-keyword-suggestion-styles';
+      style.id = 'combined-keyword-suggestion-styles';
       style.textContent = `
-        .aux-keyword-suggestion {
+        .combined-keyword-suggestion {
           padding: 4px 8px;
           display: flex;
           align-items: center;
           gap: 4px;
         }
-        .aux-keyword-icon {
+        .combined-keyword-icon {
           font-size: 1.2em;
         }
-        .aux-keyword-name {
+        .combined-keyword-name {
           color: var(--text-accent);
           font-weight: 500;
         }
-        .aux-keyword-description {
+        .combined-keyword-description {
           color: var(--text-muted);
           font-size: 0.9em;
         }

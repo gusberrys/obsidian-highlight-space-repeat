@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { KeywordStyle } from 'src/shared';
-  import { KeywordType, getKeywordType } from 'src/shared';
   import { CollectingStatus } from 'src/shared/collecting-status';
   import { MainCombinePriority } from 'src/shared/combine-priority';
   import { setIcon } from 'obsidian';
@@ -12,14 +11,10 @@
   export let keyword: KeywordStyle;
   export let keywordIndex: number;  // Local index within category
   export let categoryName: string;
-  export let isFirst: boolean = false;
-  export let isLast: boolean = false;
 
   const dispatch = createEventDispatcher();
 
-  // Check if parent category is a helper category
-  $: parentCategory = $settingsStore.categories.find(cat => cat.icon === categoryName);
-  $: isHelperCategory = parentCategory?.isHelper === true;
+  let rowElement: HTMLTableRowElement;
 
   // Reactive 3-state label and tooltip for collecting status
   $: stateLabel = keyword.collectingStatus === CollectingStatus.SPACED ? '🔄'
@@ -31,33 +26,73 @@
     ? 'Parsed (collected in records)'
     : 'Ignored (not collected)';
 
-  // Reactive priority label and tooltip - ONLY for MAIN keywords
-  $: currentType = getKeywordType(keyword);
-  $: isMain = currentType === KeywordType.MAIN;
+  // Reactive priority label and tooltip
+  $: priorityLabel = keyword.combinePriority === MainCombinePriority.StyleAndIcon ? '🎨🖼️'
+    : keyword.combinePriority === MainCombinePriority.Style ? '🎨'
+    : keyword.combinePriority === MainCombinePriority.Icon ? '🖼️'
+    : '-';
 
-  $: priorityLabel = isMain
-    ? (keyword.combinePriority === MainCombinePriority.StyleAndIcon ? '🎨🖼️'
-      : keyword.combinePriority === MainCombinePriority.Style ? '🎨'
-      : keyword.combinePriority === MainCombinePriority.Icon ? '🖼️'
-      : '-')
-    : '';
+  $: priorityTooltip = keyword.combinePriority === MainCombinePriority.StyleAndIcon
+    ? 'Both priorities: Use this keyword\'s styles AND icon when combined'
+    : keyword.combinePriority === MainCombinePriority.Style
+    ? 'Style priority: Use this keyword\'s colors/classes when combined'
+    : keyword.combinePriority === MainCombinePriority.Icon
+    ? 'Icon priority: Use this keyword\'s icon when combined'
+    : 'No priority (other keywords can override)';
 
-  $: priorityTooltip = isMain
-    ? (keyword.combinePriority === MainCombinePriority.StyleAndIcon
-      ? 'Both priorities: Use this main keyword\'s styles AND icon when auxiliaries present'
-      : keyword.combinePriority === MainCombinePriority.Style
-      ? 'Style priority: Use this main keyword\'s colors/classes when auxiliaries present'
-      : keyword.combinePriority === MainCombinePriority.Icon
-      ? 'Icon priority: Use this main keyword\'s icon when auxiliaries present'
-      : 'No priority (auxiliaries can override)')
-    : '';
+  function attachDragHandlers(node: HTMLTableRowElement) {
+    node.draggable = true;
 
-  function handleMoveUp() {
-    dispatch('moveup', { categoryName, keywordIndex });
-  }
+    node.addEventListener('dragstart', (e: DragEvent) => {
+      node.classList.add('kw-dragging');
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', keywordIndex.toString());
+      }
+    });
 
-  function handleMoveDown() {
-    dispatch('movedown', { categoryName, keywordIndex });
+    node.addEventListener('dragend', () => {
+      node.classList.remove('kw-dragging');
+      document.querySelectorAll('.keyword-row').forEach(r => {
+        r.classList.remove('kw-drag-over');
+      });
+    });
+
+    node.addEventListener('dragover', (e: DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'move';
+      }
+
+      const draggingRow = document.querySelector('.kw-dragging');
+      if (draggingRow && draggingRow !== node) {
+        node.classList.add('kw-drag-over');
+      }
+    });
+
+    node.addEventListener('dragleave', () => {
+      node.classList.remove('kw-drag-over');
+    });
+
+    node.addEventListener('drop', (e: DragEvent) => {
+      e.preventDefault();
+      node.classList.remove('kw-drag-over');
+
+      if (!e.dataTransfer) return;
+
+      const draggedIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
+      const targetIndex = keywordIndex;
+
+      if (draggedIndex === targetIndex) return;
+
+      dispatch('reorder', { draggedIndex, targetIndex });
+    });
+
+    return {
+      destroy() {
+        // Cleanup if needed
+      }
+    };
   }
 
   function toggleState() {
@@ -75,10 +110,7 @@
   }
 
   function togglePriority() {
-    // Only for main keywords - auxiliary keywords don't have priority settings
-    if (keyword.mainKeyword !== true) return;
-
-    // Main keyword: Cycle through - → 🎨 → 🖼️ → 🎨🖼️ → -
+    // Cycle through - → 🎨 → 🖼️ → 🎨🖼️ → -
     if (!keyword.combinePriority || keyword.combinePriority === MainCombinePriority.None) {
       keyword.combinePriority = MainCombinePriority.Style;
     } else if (keyword.combinePriority === MainCombinePriority.Style) {
@@ -127,39 +159,30 @@
   }
 </script>
 
-<div class="keyword-item" class:help-keyword={isHelperCategory}>
-  <div class="reorder-controls">
-    <button
-      class="move-button"
-      class:disabled={isFirst}
-      disabled={isFirst}
-      on:click={handleMoveUp}
-      title="Move up"
-      aria-label="Move up"
-    >▲</button>
-    <button
-      class="move-button"
-      class:disabled={isLast}
-      disabled={isLast}
-      on:click={handleMoveDown}
-      title="Move down"
-      aria-label="Move down"
-    >▼</button>
-  </div>
+<tr class="keyword-row" bind:this={rowElement} use:attachDragHandlers>
+  <td class="td-drag">
+    <span class="drag-handle" title="Drag to reorder">⋮⋮</span>
+  </td>
 
-  {#if !isHelperCategory}
+  <td class="td-state">
     <button
       class="state-toggle"
       on:click={toggleState}
       title={stateTooltip}
       aria-label="Toggle parsing state"
     >{stateLabel}</button>
+  </td>
+
+  <td class="td-priority">
     <button
       class="priority-toggle"
       on:click={togglePriority}
       title={priorityTooltip}
-      aria-label="Toggle priority for auxiliary keywords"
+      aria-label="Toggle priority when combined with other keywords"
     >{priorityLabel}</button>
+  </td>
+
+  <td class="td-subkeywords">
     <button
       class="subkeywords-toggle"
       on:click={openSubKeywordsModal}
@@ -171,11 +194,13 @@
       {/if}
       ⚙️
     </button>
-  {/if}
+  </td>
 
-  <input type="text" spellcheck="false" bind:value={keyword.keyword} on:change={updateKeyword} placeholder="Keyword" class:help-text={isHelperCategory} />
+  <td class="td-keyword">
+    <input type="text" spellcheck="false" bind:value={keyword.keyword} on:change={updateKeyword} placeholder="Keyword" class="input-keyword" />
+  </td>
 
-  {#if !isHelperCategory}
+  <td class="td-aliases">
     <input
       type="text"
       spellcheck="false"
@@ -185,118 +210,135 @@
         keyword.aliases = val ? val.split(',').map(a => a.trim()).filter(a => a) : [];
         updateKeyword();
       }}
-      placeholder="Aliases (comma-separated)"
+      placeholder="Aliases"
+      class="input-aliases"
     />
-  {/if}
+  </td>
 
-  <input type="text" spellcheck="false" bind:value={keyword.description} on:change={updateKeyword} placeholder="Description (optional)" class:help-text={isHelperCategory} />
+  <td class="td-description">
+    <input type="text" spellcheck="false" bind:value={keyword.description} on:change={updateKeyword} placeholder="Description" class="input-description" />
+  </td>
 
-  {#if !isHelperCategory}
-    <input type="text" spellcheck="false" bind:value={keyword.generateIcon} on:change={updateKeyword} placeholder="Icon" />
-  {/if}
+  <td class="td-icon">
+    <input type="text" spellcheck="false" bind:value={keyword.generateIcon} on:change={updateKeyword} placeholder="Icon" class="input-icon" />
+  </td>
 
-  <input type="text" spellcheck="false" bind:value={keyword.ccssc} on:change={updateKeyword} placeholder="CSS class" class:help-text={isHelperCategory} />
+  <td class="td-css">
+    <input type="text" spellcheck="false" bind:value={keyword.ccssc} on:change={updateKeyword} placeholder="CSS" class="input-css" />
+  </td>
 
-  {#if !isHelperCategory}
+  <td class="td-colors">
     <div class="color-controls">
-      <input type="color" bind:value={keyword.color} on:change={updateKeyword} />
-      <input type="color" bind:value={keyword.backgroundColor} on:change={updateKeyword} />
+      <input type="color" bind:value={keyword.color} on:change={updateKeyword} title="Text color" />
+      <input type="color" bind:value={keyword.backgroundColor} on:change={updateKeyword} title="Background color" />
       <button class="remove-button" aria-label="Remove keyword" use:useIcon={'minus-circle'} on:click={() => dispatch('remove', keyword)}></button>
     </div>
-  {:else}
-    <button class="remove-button" aria-label="Remove keyword" use:useIcon={'minus-circle'} on:click={() => dispatch('remove', keyword)}></button>
-  {/if}
-</div>
+  </td>
+</tr>
 
 <style>
-  .keyword-item {
-    display: flex;
-    align-items: center;
-    gap: 0.15rem;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 3px;
+  .keyword-row {
     background: var(--background-secondary);
-    padding: 0.1rem 0.2rem;
-    margin-bottom: 0.15rem;
+    cursor: grab;
+    transition: all 0.2s;
+  }
+
+  .keyword-row:active {
+    cursor: grabbing;
+  }
+
+  .keyword-row:hover {
+    background: var(--background-modifier-hover);
+  }
+
+  .keyword-row.kw-dragging {
+    opacity: 0.5;
+    background: var(--interactive-accent);
+  }
+
+  .keyword-row.kw-drag-over {
+    border-top: 2px solid var(--interactive-accent);
+  }
+
+  .keyword-row td {
+    padding: 0.3rem 0.2rem;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--background-modifier-border);
   }
 
   .state-toggle {
     background: none;
     border: none;
     cursor: pointer;
-    padding: 0;
+    padding: 0.2rem;
     font-size: 14px;
     line-height: 1;
-    width: 22px;
-    height: 18px;
+    width: 100%;
+    height: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
     user-select: none;
-    flex-shrink: 0;
-    margin-right: 0.15rem;
     font-weight: bold;
+    border-radius: 2px;
+    transition: all 0.2s;
   }
 
   .state-toggle:hover {
-    opacity: 0.7;
+    background: var(--background-modifier-hover);
   }
 
   .priority-toggle {
     background: none;
     border: none;
     cursor: pointer;
-    padding: 0;
+    padding: 0.2rem;
     font-size: 12px;
     line-height: 1;
-    width: 30px;
-    height: 18px;
+    width: 100%;
+    height: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
     user-select: none;
-    flex-shrink: 0;
-    margin-right: 0.15rem;
     font-weight: normal;
+    border-radius: 2px;
+    transition: all 0.2s;
   }
 
   .priority-toggle:hover {
-    opacity: 0.7;
     background: var(--background-modifier-hover);
-    border-radius: 2px;
   }
 
   .subkeywords-toggle {
     background: none;
     border: none;
     cursor: pointer;
-    padding: 0;
+    padding: 0.2rem;
     font-size: 14px;
     line-height: 1;
-    width: 24px;
-    height: 18px;
+    width: 100%;
+    height: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
     user-select: none;
-    flex-shrink: 0;
-    margin-right: 0.15rem;
     position: relative;
+    border-radius: 2px;
+    transition: all 0.2s;
   }
 
   .subkeywords-toggle:hover {
-    opacity: 0.7;
     background: var(--background-modifier-hover);
-    border-radius: 2px;
   }
 
   .subkeywords-badge {
     position: absolute;
-    top: -4px;
+    top: -2px;
     right: -2px;
     background: var(--interactive-accent);
     color: white;
-    font-size: 9px;
+    font-size: 8px;
     font-weight: bold;
     line-height: 1;
     min-width: 12px;
@@ -309,106 +351,73 @@
     pointer-events: none;
   }
 
-  /* HELP keyword styling */
-  .help-keyword {
-    width: 48%;
-    display: inline-flex;
-    margin-right: 2%;
+  .td-drag {
+    text-align: center;
+    padding: 0.3rem 0.2rem;
+    cursor: grab;
   }
 
-  .help-text {
-    color: #0088ff !important;
-    font-weight: 500;
-  }
-
-  .reorder-controls {
-    display: flex;
-    flex-direction: row;
-    gap: 1px;
-    margin-right: 0.15rem;
-  }
-
-  .move-button {
-    background: none;
-    border: none;
-    cursor: pointer;
+  .drag-handle {
+    display: inline-block;
     color: var(--text-muted);
-    padding: 0;
-    font-size: 10px;
+    font-size: 14px;
     line-height: 1;
-    height: 14px;
-    width: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     user-select: none;
+    letter-spacing: -2px;
   }
 
-  .move-button:hover:not(.disabled) {
+  .drag-handle:hover {
     color: var(--interactive-accent);
   }
 
-  .move-button.disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
+  .keyword-row:active .drag-handle {
+    cursor: grabbing;
   }
 
-  .keyword-item > input {
+  .td-state,
+  .td-priority,
+  .td-subkeywords {
+    text-align: center;
+  }
+
+  td input {
+    width: 100%;
     padding: 0.2rem 0.3rem;
     border: 1px solid var(--background-modifier-border);
     border-radius: 2px;
     background: var(--background-primary);
     color: var(--text-normal);
-    font-size: 0.9em;
+    font-size: 0.85em;
+    box-sizing: border-box;
   }
 
-  /* Keyword input */
-  .keyword-item > input[placeholder="Keyword"] {
-    width: 60px !important;
-    max-width: 60px !important;
-    flex-shrink: 0;
+  td input:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
   }
 
-  /* Aliases input */
-  .keyword-item > input[placeholder="Aliases (comma-separated)"] {
-    width: 80px !important;
-    max-width: 80px !important;
-    flex-shrink: 0;
-  }
-
-  /* Description input - flexible but smaller */
-  .keyword-item > input[placeholder="Description (optional)"] {
-    flex: 1;
-    min-width: 70px;
-  }
-
-  /* Icon input - wider to fit whole icons */
-  .keyword-item > input[placeholder="Icon"] {
-    width: 40px !important;
-    max-width: 40px !important;
-    flex-shrink: 0;
-  }
-
-  /* CSS class input - VERY NARROW */
-  .keyword-item > input[placeholder="CSS class"] {
-    width: 40px !important;
-    max-width: 40px !important;
-    flex-shrink: 0;
+  .td-colors {
+    padding: 0.2rem !important;
   }
 
   .color-controls {
     display: flex;
     align-items: center;
-    gap: 0.1rem;
+    gap: 0.15rem;
+    justify-content: center;
   }
 
   .color-controls input[type="color"] {
-    width: 18px;
-    height: 14px;
+    width: 20px;
+    height: 20px;
     border: 1px solid var(--background-modifier-border);
     border-radius: 2px;
-    padding: 0px;
+    padding: 1px;
     cursor: pointer;
+  }
+
+  .color-controls input[type="color"]:hover {
+    border-color: var(--interactive-accent);
   }
 
   .remove-button {
@@ -416,15 +425,16 @@
     border: none;
     cursor: pointer;
     color: var(--text-muted);
-    padding: 0.1rem;
+    padding: 0.15rem;
     border-radius: 2px;
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: all 0.2s;
   }
 
   .remove-button:hover {
-    background: var(--background-modifier-hover);
+    background: var(--background-modifier-error);
     color: var(--text-error);
   }
 </style>

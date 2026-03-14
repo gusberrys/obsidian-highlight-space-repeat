@@ -1,10 +1,11 @@
 import type { MarkdownPostProcessor } from 'obsidian';
 import { type KeywordStyle } from 'src/shared';
-import { KeywordType, getKeywordType } from 'src/shared/keyword-style';
 import { MainCombinePriority } from 'src/shared/combine-priority';
-import { settingsStore } from 'src/stores/settings-store';
+import { settingsStore, vwordSettingsStore } from 'src/stores/settings-store';
 import { get } from 'svelte/store';
 import { resolveIcon } from 'src/shared/priority-resolver';
+import { isVWordKeyword, parseVWordKeyword } from 'src/shared/vword';
+import { CollectingStatus } from 'src/shared/collecting-status';
 
 let keywordMap: Map<string, KeywordStyle>;
 
@@ -29,13 +30,7 @@ export const readerHighlighter: MarkdownPostProcessor = (el: HTMLElement) => {
       .map((k: KeywordStyle) => [k.keyword.toLowerCase(), k])
   );
 
-  // DEBUG: Check if helper keywords are loaded
-  console.log('[Reader] Keyword map size:', keywordMap.size);
-  console.log('[Reader] Has r14:', keywordMap.has('r14'));
-  console.log('[Reader] Has h:', keywordMap.has('h'));
-  if (keywordMap.has('r14')) {
-    console.log('[Reader] r14 keyword:', keywordMap.get('r14'));
-  }
+  // DEBUG: Check if helper keywords are loaded (removed excessive logging)
 
   replaceWithHighlight(el);
 
@@ -49,8 +44,9 @@ export const readerHighlighter: MarkdownPostProcessor = (el: HTMLElement) => {
 /**
  * Extract and match keywords using string-based approach
  * New syntax: "foo bar baz :: text content" or "# foo bar :: header"
+ * Returns: [matched keywords, VWord keywords, text content] or undefined
  */
-function extractAndMatch(textValue: string): [KeywordStyle[], string] | undefined {
+function extractAndMatch(textValue: string): [KeywordStyle[], string[], string] | undefined {
   // 1. Find :: separator (fastest)
   const colonIndex = textValue.indexOf('::');
   if (colonIndex === -1) return undefined;
@@ -70,22 +66,40 @@ function extractAndMatch(textValue: string): [KeywordStyle[], string] | undefine
   const keywordNames = beforeColon.split(/\s+/).filter(k => k.length > 0);
   if (keywordNames.length === 0) return undefined;
 
-  // 5. Look up each keyword in the map
+  // 5. Look up each keyword in the map (regular keywords only)
+  // VWords are handled separately - they don't affect colors, only layout
   const matchedKeywords: KeywordStyle[] = [];
+  const vwordKeywords: string[] = [];
+
   for (const name of keywordNames) {
+    // First, check if it's a regular keyword
     const kwData = keywordMap.get(name.toLowerCase());
     if (kwData) {
       matchedKeywords.push(kwData);
+      continue;
+    }
+
+    // Then, check if it's a VWord keyword (for layout only)
+    if (isVWordKeyword(name)) {
+      vwordKeywords.push(name);
     }
   }
 
-  // Must have at least one matched keyword
+  // Must have at least one REGULAR keyword (VWords alone are not enough)
   if (matchedKeywords.length === 0) return undefined;
 
-  return [matchedKeywords, afterColon];
+  return [matchedKeywords, vwordKeywords, afterColon];
 }
 
 function replaceWithHighlight(node: Node) {
+  // Skip code blocks entirely - don't interfere with execute-code plugin's RUN button
+  if (
+    node.nodeType === Node.ELEMENT_NODE &&
+    (<Element>node).tagName === 'PRE'
+  ) {
+    return;
+  }
+
   if (
     // skip highlighting nodes
     node.nodeType === Node.ELEMENT_NODE &&
@@ -98,14 +112,10 @@ function replaceWithHighlight(node: Node) {
 
     if (result) {
       const parent = node.parentNode!;
-      const [matchedKeywords, textContent] = result;
+      const [matchedKeywords, vwordKeywords, textContent] = result;
 
-      // Separate MAIN vs AUXILIARY keywords based on their keywordType
-      const mainKeywords = matchedKeywords.filter(k => getKeywordType(k) === KeywordType.MAIN);
-      const auxiliaryKeywords = matchedKeywords.filter(k => getKeywordType(k) === KeywordType.AUXILIARY);
-
-      // Use first MAIN keyword as primary (for now - later we can validate only one MAIN)
-      const primaryKeyword = mainKeywords[0] || auxiliaryKeywords[0];
+      // All keywords are now MAIN type
+      const primaryKeyword = matchedKeywords[0];
 
       // Resolve icon based on priority (centralized)
       const iconToDisplay = resolveIcon(matchedKeywords);
@@ -115,12 +125,14 @@ function replaceWithHighlight(node: Node) {
         parent as HTMLElement,
         textContent,
         primaryKeyword,
-        mainKeywords,
-        auxiliaryKeywords,
-        matchedKeywords
+        matchedKeywords,
+        vwordKeywords
       );
 
-      parent.insertBefore(document.createTextNode("" + iconToDisplay + " "), node);
+      // Only insert icon if it exists
+      if (iconToDisplay) {
+        parent.insertBefore(document.createTextNode(iconToDisplay + " "), node);
+      }
       parent.insertBefore(highlight, node);
       node.nodeValue = ""; // original node fully replaced
 
@@ -143,31 +155,56 @@ function getHighlightNode(
   parent: HTMLElement,
   textContent: string,
   primaryKeyword: KeywordStyle,
-  mainKeywords: KeywordStyle[],
-  auxiliaryKeywords: KeywordStyle[],
-  matchedKeywords: KeywordStyle[]
+  matchedKeywords: KeywordStyle[],
+  vwordKeywords: string[]
 ): Node {
   const highlight = parent.createSpan();
 
   // Resolve colors based on priority
-  let finalColor = primaryKeyword.color;
-  let finalBackgroundColor = primaryKeyword.backgroundColor;
+  // Standard priority rules:
+  // 1. Different priorities → highest priority wins
+  // 2. Same priority → FIRST one wins (most generic)
+  // 3. No Style/StyleAndIcon priority → first keyword wins
 
-  const firstMain = mainKeywords[0];
-  if (firstMain && auxiliaryKeywords.length > 0) {
-    const hasStylePriority =
-      firstMain.combinePriority === MainCombinePriority.Style ||
-      firstMain.combinePriority === MainCombinePriority.StyleAndIcon;
+  // Safety check: if primaryKeyword is undefined, use first matched keyword
+  const fallbackKeyword = primaryKeyword || matchedKeywords[0];
+  if (!fallbackKeyword) {
+    // No keywords at all - shouldn't happen, but return empty node
+    const emptyNode = parent.createSpan();
+    emptyNode.setText(textContent);
+    return emptyNode;
+  }
 
-    if (hasStylePriority) {
-      // Use main's colors
-      finalColor = firstMain.color;
-      finalBackgroundColor = firstMain.backgroundColor;
-    } else if (auxiliaryKeywords.length > 0) {
-      // Use first auxiliary's colors
-      const firstAux = auxiliaryKeywords[0];
-      if (firstAux.color) finalColor = firstAux.color;
-      if (firstAux.backgroundColor) finalBackgroundColor = firstAux.backgroundColor;
+  const keywordsWithStylePriority = matchedKeywords.filter(kw =>
+    kw.combinePriority === MainCombinePriority.Style ||
+    kw.combinePriority === MainCombinePriority.StyleAndIcon
+  );
+
+  // Start with fallback keyword colors (with defaults if undefined)
+  let finalColor = fallbackKeyword.color || '#000000';
+  let finalBackgroundColor = fallbackKeyword.backgroundColor || '#ffffff';
+
+  if (keywordsWithStylePriority.length > 0) {
+    // Map priority enum values to numbers for comparison
+    const getPriorityValue = (priority: MainCombinePriority) => {
+      if (priority === MainCombinePriority.StyleAndIcon) return 3;
+      if (priority === MainCombinePriority.Style) return 2;
+      return 0;
+    };
+
+    // Find the highest priority value
+    const maxPriority = Math.max(...keywordsWithStylePriority.map(kw => getPriorityValue(kw.combinePriority)));
+
+    // Filter to only those with the highest priority
+    const highestPriorityKeywords = keywordsWithStylePriority.filter(kw =>
+      getPriorityValue(kw.combinePriority) === maxPriority
+    );
+
+    // Take FIRST with highest priority (most generic)
+    if (highestPriorityKeywords.length > 0) {
+      const winner = highestPriorityKeywords[0];
+      if (winner.color) finalColor = winner.color;
+      if (winner.backgroundColor) finalBackgroundColor = winner.backgroundColor;
     }
   }
 
@@ -180,14 +217,19 @@ function getHighlightNode(
   // Apply kh-highlighted class
   parent.classList.add('kh-highlighted');
 
-  // Apply ALL matched keywords' classes (MAIN, AUXILIARY, and HELP)
+  // Apply ALL matched keywords' classes (MAIN and HELP)
   for (const kw of matchedKeywords) {
     const cssClass = kw.ccssc && kw.ccssc.trim() !== "" ? kw.ccssc.trim() : kw.keyword;
     parent.classList.add(cssClass);
   }
 
+  // Apply VWord keywords as classes (for layout control only, not styling)
+  for (const vword of vwordKeywords) {
+    parent.classList.add(vword);
+  }
+
   // Add data-keywords attribute with all matched keywords (for record badges)
-  const allKeywords = [...mainKeywords, ...auxiliaryKeywords].map(k => k.keyword);
+  const allKeywords = matchedKeywords.map(k => k.keyword);
   parent.setAttribute('data-keywords', allKeywords.join(' '));
 
   highlight.setText(textContent);
@@ -196,39 +238,42 @@ function getHighlightNode(
 
 /**
  * Restructure paragraphs with images into two-column layout
- * Detects highlighted paragraphs that contain images and reorganizes them
+ * ONLY applies when an i-keyword (i10-i90) is present
+ * Breaking change: No longer auto-restructures all images
  */
 function restructureImagesLayout(el: HTMLElement) {
-  console.log('[ImageLayout] restructureImagesLayout called, el:', el);
-
   // Find all highlighted paragraphs
   const highlightedElements = el.querySelectorAll('.kh-highlighted');
-  console.log('[ImageLayout] Found highlighted elements:', highlightedElements.length);
 
   highlightedElements.forEach((highlightedEl) => {
     const paragraph = highlightedEl as HTMLElement;
-    console.log('[ImageLayout] Processing paragraph:', paragraph.className);
+
+    // Check if this paragraph has an i-keyword (i10-i90)
+    // i-keywords control image column width
+    const iKeywordClass = Array.from(paragraph.classList).find(className => {
+      return className.match(/^i\d{2}$/); // Matches i10, i15, i20, ..., i90
+    });
+
+    // ONLY restructure if i-keyword is present
+    if (!iKeywordClass) {
+      return; // No i-keyword, skip restructuring
+    }
 
     // Check if this paragraph contains any images
     const images = Array.from(paragraph.querySelectorAll('img'));
-    console.log('[ImageLayout] Found images:', images.length);
 
     if (images.length === 0) {
-      console.log('[ImageLayout] No images, skipping');
       return; // No images, skip restructuring
     }
 
     // Check if already restructured to avoid double-processing
     if (paragraph.classList.contains('kh-record-with-images')) {
-      console.log('[ImageLayout] Already restructured, skipping');
       return;
     }
 
-    console.log('[ImageLayout] Creating two-column layout');
-
-    // Create two-column wrapper
+    // Create two-column wrapper with i-keyword class for CSS targeting
     const wrapper = document.createElement('div');
-    wrapper.className = 'kh-record-with-images';
+    wrapper.className = `kh-record-with-images ${iKeywordClass}`;
 
     // Create text column (left)
     const textColumn = document.createElement('div');
@@ -238,41 +283,90 @@ function restructureImagesLayout(el: HTMLElement) {
     const imageColumn = document.createElement('div');
     imageColumn.className = 'kh-record-image-column';
 
-    // Move all child nodes to text column, except images
-    const childNodes = Array.from(paragraph.childNodes);
-    console.log('[ImageLayout] Processing child nodes:', childNodes.length);
+    // Helper to check if an image is on its own line (standalone)
+    const isStandaloneImage = (node: Node, index: number, allNodes: Node[]): boolean => {
+      // Check previous sibling - should be <br>, whitespace, or nothing
+      let prevNonWhitespace = null;
+      for (let i = index - 1; i >= 0; i--) {
+        const prevNode = allNodes[i];
+        if (prevNode.nodeType === Node.TEXT_NODE && prevNode.textContent?.trim() === '') {
+          continue; // Skip whitespace
+        }
+        if (prevNode.nodeType === Node.ELEMENT_NODE && (prevNode as HTMLElement).tagName === 'BR') {
+          break; // Found <br>, image is on its own line
+        }
+        prevNonWhitespace = prevNode;
+        break;
+      }
 
-    childNodes.forEach((child) => {
+      // Check next sibling - should be <br>, whitespace, or nothing
+      let nextNonWhitespace = null;
+      for (let i = index + 1; i < allNodes.length; i++) {
+        const nextNode = allNodes[i];
+        if (nextNode.nodeType === Node.TEXT_NODE && nextNode.textContent?.trim() === '') {
+          continue; // Skip whitespace
+        }
+        if (nextNode.nodeType === Node.ELEMENT_NODE && (nextNode as HTMLElement).tagName === 'BR') {
+          break; // Found <br>, image is on its own line
+        }
+        nextNonWhitespace = nextNode;
+        break;
+      }
+
+      // Image is standalone if:
+      // - At start of paragraph (no prev non-whitespace) OR preceded by <br>
+      // - AND at end of paragraph (no next non-whitespace) OR followed by <br>
+      return (prevNonWhitespace === null || (prevNonWhitespace.nodeType === Node.ELEMENT_NODE && (prevNonWhitespace as HTMLElement).tagName === 'BR'))
+        && (nextNonWhitespace === null || (nextNonWhitespace.nodeType === Node.ELEMENT_NODE && (nextNonWhitespace as HTMLElement).tagName === 'BR'));
+    };
+
+    // Move all child nodes to text column, except inline images
+    const childNodes = Array.from(paragraph.childNodes);
+
+    childNodes.forEach((child, index) => {
       if (child.nodeType === Node.ELEMENT_NODE && (child as HTMLElement).tagName === 'IMG') {
-        console.log('[ImageLayout] Found direct IMG element');
-        // This is an image, move to image column
-        imageColumn.appendChild(child);
+        // Check if this is an Excalidraw image (keep in text column)
+        const img = child as HTMLElement;
+        if (img.classList.contains('excalidraw-svg') || img.classList.contains('excalidraw-embedded-img')) {
+          textColumn.appendChild(child);
+        } else {
+          // Check if standalone - keep in text column, otherwise move to image column
+          if (isStandaloneImage(child, index, childNodes)) {
+            textColumn.appendChild(child);
+          } else {
+            imageColumn.appendChild(child);
+          }
+        }
       } else if (child.nodeType === Node.ELEMENT_NODE && (child as HTMLElement).classList.contains('internal-embed')) {
-        console.log('[ImageLayout] Found internal-embed element');
         // This is an image embed wrapper, check if it contains an image
         const embeddedImg = (child as HTMLElement).querySelector('img');
         if (embeddedImg) {
-          console.log('[ImageLayout] internal-embed contains image, moving to image column');
-          // Move to image column
-          imageColumn.appendChild(child);
+          // Check if it's Excalidraw (keep in text column)
+          if (embeddedImg.classList.contains('excalidraw-svg') || embeddedImg.classList.contains('excalidraw-embedded-img')) {
+            textColumn.appendChild(child);
+          } else {
+            // Check if standalone - keep in text column, otherwise move to image column
+            if (isStandaloneImage(child, index, childNodes)) {
+              textColumn.appendChild(child);
+            } else {
+              imageColumn.appendChild(child);
+            }
+          }
         } else {
-          console.log('[ImageLayout] internal-embed does not contain image, moving to text column');
           // Not an image embed, move to text column
           textColumn.appendChild(child);
         }
+      } else if (child.nodeType === Node.ELEMENT_NODE && (child as HTMLElement).classList.contains('excalidraw-svg')) {
+        // Excalidraw wrapper div, keep in text column
+        textColumn.appendChild(child);
       } else {
         // Regular text node or other element, move to text column
         textColumn.appendChild(child);
       }
     });
 
-    console.log('[ImageLayout] Text column children:', textColumn.childNodes.length);
-    console.log('[ImageLayout] Image column children:', imageColumn.childNodes.length);
-
     // Only restructure if we actually have content in both columns
     if (textColumn.childNodes.length > 0 && imageColumn.childNodes.length > 0) {
-      console.log('[ImageLayout] Applying restructure');
-
       // Clear the paragraph
       paragraph.innerHTML = '';
 
@@ -285,12 +379,6 @@ function restructureImagesLayout(el: HTMLElement) {
 
       // Mark as restructured
       paragraph.classList.add('kh-record-with-images');
-
-      console.log('[ImageLayout] Restructure complete');
-    } else {
-      console.log('[ImageLayout] Not enough content in both columns, skipping restructure');
     }
   });
-
-  console.log('[ImageLayout] restructureImagesLayout complete');
 }

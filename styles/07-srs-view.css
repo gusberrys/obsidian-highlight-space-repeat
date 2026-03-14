@@ -1,0 +1,262 @@
+/* SRS Review Modal & View */
+.srs-review-modal,
+.srs-review-view {
+  padding: 20px;
+}
+
+.srs-progress-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.srs-progress {
+  font-size: 0.9em;
+  opacity: 0.7;
+  font-weight: 600;
+}
+
+.srs-session-complete {
+  text-align: center;
+  padding: 40px 20px;
+  font-size: 1.2em;
+  color: var(--text-success);
+  font-weight: 600;
+}
+
+.srs-info-icon {
+  font-size: 1.1em;
+  cursor: help;
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+}
+
+.srs-info-icon:hover {
+  opacity: 1;
+}
+
+.srs-answer-button-container {
+  display: flex;
+  justify-content: center;
+  margin: 16px 0;
+}
+
+.srs-answer-button-container button {
+  padding: 10px 24px;
+  font-size: 1em;
+  font-weight: 600;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.srs-answer-button-container button:hover {
+  opacity: 0.85;
+  transform: translateY(-2px);
+}
+
+.srs-card-info {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.srs-keyword-badge {
+  padding: 4px 12px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-radius: 12px;
+  font-size: 0.9em;
+  font-weight: 600;
+}
+
+.srs-type-badge {
+  padding: 4px 10px;
+  background: var(--background-modifier-border);
+  border-radius: 8px;
+  font-size: 0.85em;
+  opacity: 0.8;
+}
+
+.srs-file-path {
+  font-size: 0.85em;
+  opacity: 0.7;
+  font-family: var(--font-monospace);
+}
+
+.srs-content-container {
+  margin: 20px 0;
+  padding: 16px;
+  background: var(--background-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--background-modifier-border);
+  max-height: 400px;
+  overflow-y: auto;
+  transition: all 0.2s ease;
+}
+
+.srs-content-container:hover {
+  background: var(--background-secondary-alt);
+  border-color: var(--interactive-accent);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.srs-content-container pre {
+  margin: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.srs-content-container code {
+  font-family: var(--font-monospace);
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+
+.srs-text-content {
+  line-height: 1.6;
+  color: var(--text-normal);
+}
+
+.srs-stats-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+  padding: 16px;
+  background: var(--background-primary-alt);
+  border-radius: 8px;
+}
+
+.srs-stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.srs-stat-label {
+  font-size: 0.8em;
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.srs-stat-value {
+  font-size: 1.1em;
+  font-weight: 600;
+  color: var(--interactive-accent);
+}
+
+.srs-button-container {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.srs-button-container button {
+  padding: 12px 16px;
+  font-size: 1em;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.srs-btn-again {
+  background: var(--text-error);
+  color: white;
+}
+
+.srs-btn-again:hover {
+  background: var(--text-error);
+  opacity: 0.85;
+  transform: translateY(-2px);
+}
+
+.srs-btn-hard {
+  background: var(--text-warning);
+  color: white;
+}
+
+.srs-btn-hard:hover {
+  background: var(--text-warning);
+  opacity: 0.85;
+  transform: translateY(-2px);
+}
+
+.srs-btn-good {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.srs-btn-good:hover {
+  background: var(--interactive-accent);
+  opacity: 0.85;
+  transform: translateY(-2px);
+}
+
+.srs-btn-easy {
+  background: var(--text-success);
+  color: white;
+}
+
+.srs-btn-easy:hover {
+  background: var(--text-success);
+  opacity: 0.85;
+  transform: translateY(-2px);
+}
+
+.srs-keyboard-hint {
+  text-align: center;
+  margin-top: 16px;
+  font-size: 0.85em;
+  opacity: 0.6;
+  font-style: italic;
+}
+
+/* SRS Settings */
+.srs-stats-section {
+  margin: 20px 0;
+}
+
+.srs-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.srs-stat-card {
+  padding: 16px;
+  background: var(--background-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--background-modifier-border);
+  text-align: center;
+}
+
+.srs-stat-card-label {
+  font-size: 0.9em;
+  margin-bottom: 8px;
+  opacity: 0.8;
+}
+
+.srs-stat-card-value {
+  font-size: 1.8em;
+  font-weight: 700;
+  color: var(--interactive-accent);
+}
+
+.srs-orphan-section,
+.srs-database-section {
+  margin: 30px 0;
+}
+

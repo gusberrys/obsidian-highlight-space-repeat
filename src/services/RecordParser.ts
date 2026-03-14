@@ -1,5 +1,6 @@
 import { App, TFile } from 'obsidian';
 import type { ParsedFile, ParsedHeader, ParsedEntry, ParsedEntrySubItem, FlatEntry, HeaderInfo } from '../interfaces/ParsedFile';
+import type { ParserSettings } from '../interfaces/ParserSettings';
 
 /**
  * RecordParser - Hierarchical file parser for highlight-space-repeat
@@ -11,7 +12,9 @@ import type { ParsedFile, ParsedHeader, ParsedEntry, ParsedEntrySubItem, FlatEnt
  * All keywords before :: are equal (space-separated)
  */
 export class RecordParser {
-	constructor(private app: App) {}
+	constructor(private app: App, private parserSettings?: ParserSettings) {
+		console.log('[RecordParser] Constructor called with parserSettings:', parserSettings);
+	}
 
 	/**
 	 * Resolve aliases to main keywords and deduplicate
@@ -29,6 +32,28 @@ export class RecordParser {
 		// Deduplicate
 		const deduplicated = [...new Set(resolved)];
 		return deduplicated;
+	}
+
+	/**
+	 * Extract keywords from inline <mark class="xxx"> tags
+	 * Handles both regular and escaped quotes: <mark class="syn"> or <mark class=\"syn\" x=\"⚒️\">
+	 * @param text The text to scan for mark tags
+	 * @returns Array of keywords found in mark class attributes
+	 */
+	private extractInlineKeywords(text: string): string[] {
+		const keywords: string[] = [];
+		// Match <mark...class="keyword"...> or <mark...class=\"keyword\"...> with any additional attributes
+		// Handles escaped quotes and additional attributes like x="⚒️"
+		const markRegex = /<mark[^>]*?class\s*=\s*\\?["']([^"'\\]+?)\\?["']/g;
+		let match;
+
+		while ((match = markRegex.exec(text)) !== null) {
+			const classes = match[1].split(/\s+/);
+			// Take all classes as potential keywords
+			keywords.push(...classes.filter(c => c.length > 0).map(c => c.toLowerCase()));
+		}
+
+		return keywords;
 	}
 
 	/**
@@ -117,10 +142,12 @@ export class RecordParser {
 				const h1Header = this.parseHeader(headerContent, 1, aliasMap);
 
 				// Update header context for flat entries
-				currentH1Info = h1Header.text ? {
+				// Header is valid if it has text OR keywords OR inlineKeywords
+				currentH1Info = (h1Header.text || h1Header.keywords || h1Header.inlineKeywords) ? {
 					text: h1Header.text,
 					tags: h1Header.tags,
-					keywords: h1Header.keywords || []
+					keywords: h1Header.keywords || [],
+					inlineKeywords: h1Header.inlineKeywords
 				} : undefined;
 				currentH2Info = undefined;
 				currentH3Info = undefined;
@@ -165,10 +192,12 @@ export class RecordParser {
 				const h2Header = this.parseHeader(headerContent, 2, aliasMap);
 
 				// Update header context for flat entries
-				currentH2Info = h2Header.text ? {
+				// Header is valid if it has text OR keywords OR inlineKeywords
+				currentH2Info = (h2Header.text || h2Header.keywords || h2Header.inlineKeywords) ? {
 					text: h2Header.text,
 					tags: h2Header.tags,
-					keywords: h2Header.keywords || []
+					keywords: h2Header.keywords || [],
+					inlineKeywords: h2Header.inlineKeywords
 				} : undefined;
 				currentH3Info = undefined;
 
@@ -212,10 +241,12 @@ export class RecordParser {
 				const h3Header = this.parseHeader(headerContent, 3, aliasMap);
 
 				// Update header context for flat entries
-				currentH3Info = h3Header.text ? {
+				// Header is valid if it has text OR keywords OR inlineKeywords
+				currentH3Info = (h3Header.text || h3Header.keywords || h3Header.inlineKeywords) ? {
 					text: h3Header.text,
 					tags: h3Header.tags,
-					keywords: h3Header.keywords || []
+					keywords: h3Header.keywords || [],
+					inlineKeywords: h3Header.inlineKeywords
 				} : undefined;
 
 				// Track if header has keywords for first-list conversion
@@ -495,6 +526,7 @@ export class RecordParser {
 		const flatEntry: FlatEntry = {
 			type: entry.type,
 			keywords: entry.keywords,
+			inlineKeywords: entry.inlineKeywords,
 			text: entry.text,
 			lineNumber: entry.lineNumber,
 			language: entry.language,
@@ -509,19 +541,36 @@ export class RecordParser {
 	}
 
 	/**
-	 * Parse a header line (NEW SYNTAX: foo bar baz :: text)
+	 * Parse a header line
+	 * Supports:
+	 * - foo bar :: text (keywords with text)
+	 * - foo bar (keywords only, no text)
+	 * - regular text (no keywords)
 	 */
-	private parseHeader(headerContent: string, level: number, aliasMap?: Map<string, string>): ParsedHeader {
-		// Check for keyword pattern: foo bar baz :: text
-		const keywordMatch = headerContent.match(/^([\w\s]+)::\s*(.*)$/);
+	private parseHeader(headerContent: string, level: number, aliasMap?: Map<string, string>): ParsedHeader & { inlineKeywords?: string[] } {
 		let keywords: string[] | undefined;
 		let text = headerContent;
 
+		// Check for keyword pattern: foo bar baz :: text
+		const keywordMatch = headerContent.match(/^([\w\s]+)::\s*(.*)$/);
+
 		if (keywordMatch) {
+			// Pattern with :: found
 			const keywordsStr = keywordMatch[1].trim();
 			const parsedKeywords = keywordsStr.split(/\s+/).map(k => k.toLowerCase()).filter(k => k.length > 0);
 			keywords = this.resolveKeywords(parsedKeywords, aliasMap);
 			text = keywordMatch[2];
+		} else {
+			// No :: found - try to parse entire content as keywords
+			const possibleKeywords = headerContent.split(/\s+/).map(k => k.toLowerCase()).filter(k => k.length > 0);
+			const resolvedKeywords = this.resolveKeywords(possibleKeywords, aliasMap);
+
+			// If at least one keyword was recognized, treat as keywords-only header
+			if (resolvedKeywords.length > 0) {
+				keywords = resolvedKeywords;
+				text = '';
+			}
+			// Otherwise, treat as regular text (no keywords)
 		}
 
 		// Extract tags
@@ -531,10 +580,20 @@ export class RecordParser {
 		// Remove tags from text
 		text = text.replace(/#[\w-]+/g, '').trim();
 
+		// Extract inline keywords from <mark> tags if parseInlines is enabled (stored separately)
+		let inlineKeywords: string[] | undefined;
+		if (this.parserSettings?.parseInlines) {
+			const extractedInlineKws = this.extractInlineKeywords(text);
+			if (extractedInlineKws.length > 0) {
+				inlineKeywords = this.resolveKeywords(extractedInlineKws, aliasMap);
+			}
+		}
+
 		return {
-			text,
+			text: text || null,  // Return null instead of empty string
 			level,
 			keywords: keywords && keywords.length > 0 ? keywords : undefined,
+			inlineKeywords: inlineKeywords && inlineKeywords.length > 0 ? inlineKeywords : undefined,
 			tags,
 			entries: []
 		};
@@ -613,6 +672,21 @@ export class RecordParser {
 
 		const text = textLines.join('\n').trim();
 
+		// Extract inline keywords from <mark> tags if parseInlines is enabled (stored separately)
+		let inlineKeywords: string[] | undefined;
+		if (this.parserSettings?.parseInlines) {
+			const extractedInlineKws = this.extractInlineKeywords(text);
+			if (text.includes('node{}')) {
+				console.log('[Parser] NODE ENTRY - extractInlineKeywords returned:', extractedInlineKws, 'for text:', text);
+			}
+			if (extractedInlineKws.length > 0) {
+				inlineKeywords = this.resolveKeywords(extractedInlineKws, aliasMap);
+				if (text.includes('node{}')) {
+					console.log('[Parser] NODE ENTRY - After resolveKeywords, inlineKeywords =', inlineKeywords);
+				}
+			}
+		}
+
 		// Collect sub-items
 		const subItems: ParsedEntrySubItem[] = [];
 		let j = continuationIndex;
@@ -634,6 +708,7 @@ export class RecordParser {
 				const checked = checkboxMatch[1].toLowerCase() === 'x';
 				let content = checkboxMatch[2];
 				let itemKeywords: string[] | undefined;
+				let itemInlineKeywords: string[] | undefined;
 
 				// Check for keywords in checkbox (NEW SYNTAX)
 				const kwMatch = content.match(/^([\w\s]+)::\s*(.*)$/);
@@ -642,6 +717,14 @@ export class RecordParser {
 					const parsedKws = keywordsStr.split(/\s+/).map(k => k.toLowerCase()).filter(k => k.length > 0);
 					itemKeywords = this.resolveKeywords(parsedKws, aliasMap);
 					content = kwMatch[2];
+				}
+
+				// Extract inline keywords from <mark> tags if parseInlines is enabled (stored separately)
+				if (this.parserSettings?.parseInlines) {
+					const extractedInlineKws = this.extractInlineKeywords(content);
+					if (extractedInlineKws.length > 0) {
+						itemInlineKeywords = this.resolveKeywords(extractedInlineKws, aliasMap);
+					}
 				}
 
 				// Check if content is a code block marker
@@ -690,7 +773,8 @@ export class RecordParser {
 					content,
 					listType: 'checkbox',
 					checked,
-					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined
+					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined,
+					inlineKeywords: itemInlineKeywords && itemInlineKeywords.length > 0 ? itemInlineKeywords : undefined
 				};
 
 				if (nestedCodeBlock) {
@@ -711,6 +795,7 @@ export class RecordParser {
 			if (dashMatch) {
 				let content = dashMatch[1];
 				let itemKeywords: string[] | undefined;
+				let itemInlineKeywords: string[] | undefined;
 
 				// Check for keywords in dash item (NEW SYNTAX)
 				const kwMatch = content.match(/^([\w\s]+)::\s*(.*)$/);
@@ -719,6 +804,14 @@ export class RecordParser {
 					const parsedKws = keywordsStr.split(/\s+/).map(k => k.toLowerCase()).filter(k => k.length > 0);
 					itemKeywords = this.resolveKeywords(parsedKws, aliasMap);
 					content = kwMatch[2];
+				}
+
+				// Extract inline keywords from <mark> tags if parseInlines is enabled (stored separately)
+				if (this.parserSettings?.parseInlines) {
+					const extractedInlineKws = this.extractInlineKeywords(content);
+					if (extractedInlineKws.length > 0) {
+						itemInlineKeywords = this.resolveKeywords(extractedInlineKws, aliasMap);
+					}
 				}
 
 				// Check if content is a code block marker
@@ -766,7 +859,8 @@ export class RecordParser {
 				const subItem: ParsedEntrySubItem = {
 					content,
 					listType: 'dash',
-					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined
+					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined,
+					inlineKeywords: itemInlineKeywords && itemInlineKeywords.length > 0 ? itemInlineKeywords : undefined
 				};
 
 				if (nestedCodeBlock) {
@@ -787,6 +881,7 @@ export class RecordParser {
 			if (asteriskMatch) {
 				let content = asteriskMatch[1];
 				let itemKeywords: string[] | undefined;
+				let itemInlineKeywords: string[] | undefined;
 
 				// Check for keywords in asterisk item (NEW SYNTAX)
 				const kwMatch = content.match(/^([\w\s]+)::\s*(.*)$/);
@@ -795,6 +890,14 @@ export class RecordParser {
 					const parsedKws = keywordsStr.split(/\s+/).map(k => k.toLowerCase()).filter(k => k.length > 0);
 					itemKeywords = this.resolveKeywords(parsedKws, aliasMap);
 					content = kwMatch[2];
+				}
+
+				// Extract inline keywords from <mark> tags if parseInlines is enabled (stored separately)
+				if (this.parserSettings?.parseInlines) {
+					const extractedInlineKws = this.extractInlineKeywords(content);
+					if (extractedInlineKws.length > 0) {
+						itemInlineKeywords = this.resolveKeywords(extractedInlineKws, aliasMap);
+					}
 				}
 
 				// Check if content is a code block marker
@@ -842,7 +945,8 @@ export class RecordParser {
 				const subItem: ParsedEntrySubItem = {
 					content,
 					listType: 'asterisk',
-					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined
+					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined,
+					inlineKeywords: itemInlineKeywords && itemInlineKeywords.length > 0 ? itemInlineKeywords : undefined
 				};
 
 				if (nestedCodeBlock) {
@@ -863,6 +967,7 @@ export class RecordParser {
 			if (numberedMatch) {
 				let content = numberedMatch[2];
 				let itemKeywords: string[] | undefined;
+				let itemInlineKeywords: string[] | undefined;
 
 				// Check for keywords in numbered item (NEW SYNTAX)
 				const kwMatch = content.match(/^([\w\s]+)::\s*(.*)$/);
@@ -871,6 +976,14 @@ export class RecordParser {
 					const parsedKws = keywordsStr.split(/\s+/).map(k => k.toLowerCase()).filter(k => k.length > 0);
 					itemKeywords = this.resolveKeywords(parsedKws, aliasMap);
 					content = kwMatch[2];
+				}
+
+				// Extract inline keywords from <mark> tags if parseInlines is enabled (stored separately)
+				if (this.parserSettings?.parseInlines) {
+					const extractedInlineKws = this.extractInlineKeywords(content);
+					if (extractedInlineKws.length > 0) {
+						itemInlineKeywords = this.resolveKeywords(extractedInlineKws, aliasMap);
+					}
 				}
 
 				// Check if content is a code block marker
@@ -918,7 +1031,8 @@ export class RecordParser {
 				const subItem: ParsedEntrySubItem = {
 					content,
 					listType: 'numbered',
-					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined
+					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined,
+					inlineKeywords: itemInlineKeywords && itemInlineKeywords.length > 0 ? itemInlineKeywords : undefined
 				};
 
 				if (nestedCodeBlock) {
@@ -939,6 +1053,7 @@ export class RecordParser {
 			if (blockquoteMatch) {
 				let content = blockquoteMatch[1];
 				let itemKeywords: string[] | undefined;
+				let itemInlineKeywords: string[] | undefined;
 
 				// Check for keywords in blockquote (NEW SYNTAX)
 				const kwMatch = content.match(/^([\w\s]+)::\s*(.*)$/);
@@ -949,10 +1064,19 @@ export class RecordParser {
 					content = kwMatch[2];
 				}
 
+				// Extract inline keywords from <mark> tags if parseInlines is enabled (stored separately)
+				if (this.parserSettings?.parseInlines) {
+					const extractedInlineKws = this.extractInlineKeywords(content);
+					if (extractedInlineKws.length > 0) {
+						itemInlineKeywords = this.resolveKeywords(extractedInlineKws, aliasMap);
+					}
+				}
+
 				subItems.push({
 					content,
 					listType: 'blockquote',
-					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined
+					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined,
+					inlineKeywords: itemInlineKeywords && itemInlineKeywords.length > 0 ? itemInlineKeywords : undefined
 				});
 				j++;
 				continue;
@@ -1002,14 +1126,21 @@ export class RecordParser {
 			break;
 		}
 
+		const entry = {
+			type: 'keyword',
+			lineNumber: startIndex + 1,
+			text,
+			keywords: keywords.length > 0 ? keywords : undefined,
+			inlineKeywords: inlineKeywords && inlineKeywords.length > 0 ? inlineKeywords : undefined,
+			subItems: subItems.length > 0 ? subItems : undefined
+		};
+
+		if (text.includes('node{}')) {
+			console.log('[Parser] NODE ENTRY - Returning entry:', JSON.stringify(entry, null, 2));
+		}
+
 		return {
-			entry: {
-				type: 'keyword',
-				lineNumber: startIndex + 1,
-				text,
-				keywords: keywords.length > 0 ? keywords : undefined,
-				subItems: subItems.length > 0 ? subItems : undefined
-			},
+			entry,
 			nextIndex: j
 		};
 	}

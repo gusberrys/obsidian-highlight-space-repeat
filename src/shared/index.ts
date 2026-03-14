@@ -4,3 +4,4 @@ export * from './dynamic-css';
 export * from './data-paths';
 export * from './combine-priority';
 export * from './subjects-data';
+export * from './vword';

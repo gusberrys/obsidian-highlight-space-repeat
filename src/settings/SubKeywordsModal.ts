@@ -1,6 +1,5 @@
 import { App, Modal } from 'obsidian';
 import type { KeywordStyle, Category } from '../shared/keyword-style';
-import { KeywordType } from '../shared/keyword-style';
 import { settingsStore } from '../stores/settings-store';
 import { get } from 'svelte/store';
 
@@ -71,7 +70,7 @@ export class SubKeywordsModal extends Modal {
 	}
 
 	/**
-	 * Add all auxiliary (non-main) keywords from current category
+	 * Add all helper (non-main) keywords from current category
 	 */
 	private addAllAuxFromCategory(): void {
 		const settings = get(settingsStore);
@@ -80,18 +79,6 @@ export class SubKeywordsModal extends Modal {
 
 		// Clear current selections
 		this.selectedSubKeywords.clear();
-
-		// Add all auxiliary keywords from this category
-		for (const kw of category.keywords) {
-			// Skip self
-			if (kw.keyword === this.keyword.keyword) continue;
-
-			// Check if keyword is auxiliary (not main)
-			const isMain = kw.keywordType === KeywordType.MAIN || kw.mainKeyword === true;
-			if (!isMain) {
-				this.selectedSubKeywords.add(kw.keyword);
-			}
-		}
 
 		// Save and refresh
 		this.saveSelections();
@@ -220,14 +207,14 @@ export class SubKeywordsModal extends Modal {
 
 		contentEl.createEl('h2', { text: `Sub-keywords for: ${this.keyword.keyword}` });
 
-		// Quick action button: Add all auxiliary keywords from this category
+		// Quick action button: Add all helper keywords from this category
 		const quickActionDiv = contentEl.createDiv({ cls: 'kh-subkeywords-quick-action' });
 		const auxButton = quickActionDiv.createEl('button', {
-			text: '⚡ Add All Aux from Category',
+			text: '⚡ Add All Helper from Category',
 			cls: 'mod-warning'
 		});
 		auxButton.style.marginBottom = '10px';
-		auxButton.title = 'Wipe current selections and add all auxiliary (non-main) keywords from this category';
+		auxButton.title = 'Wipe current selections and add all helper (non-main) keywords from this category';
 		auxButton.onclick = () => {
 			this.addAllAuxFromCategory();
 		};

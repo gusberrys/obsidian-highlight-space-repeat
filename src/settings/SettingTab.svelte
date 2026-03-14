@@ -8,13 +8,12 @@
     settingsStore as store, type PluginSettings, saveStore,
     settingsDataStore, saveSettingsData,
     codeBlocksStore, saveCodeBlocks,
+    vwordSettingsStore, saveVWordSettings,
     updateCategoryClass,
     subjectsStore,
     addSubject, removeSubject, updateSubject,
     addTopic, removeTopic, updateTopic, addPrimaryTopic, addSecondaryTopic,
-    addGlobalTopic, removeGlobalTopic, updateGlobalTopic, importGlobalTopic,
   } from 'src/stores/settings-store';
-  import type { GlobalTopic } from 'src/shared/subjects-data';
   import { setIcon, Notice, TFile } from 'obsidian';
   import type { HighlightSpaceRepeatPlugin } from 'src/highlight-space-repeat-plugin';
   import { RecordParser } from 'src/services/RecordParser';
@@ -23,6 +22,7 @@
   import type { ParsedRecord } from 'src/interfaces/ParsedRecord';
   import { SubjectModal } from './SubjectModal';
   import { DATA_PATHS } from 'src/shared/data-paths';
+  import { addSRSSettings } from './SRSSettings';
 
   export let settingsStore: Writable<PluginSettings>;
   export let plugin: HighlightSpaceRepeatPlugin;
@@ -91,7 +91,16 @@
   let collapsedGroups: Set<string> = new Set();
 
   // Tab state
-  let activeTab: 'keywords' | 'cBlocks' | 'parser' | 'subjects' | 'generic' | 'filters' = 'keywords';
+  let activeTab: 'keywords' | 'cBlocks' | 'vword' | 'parser' | 'subjects' | 'generic' | 'filters' | 'srs' = 'keywords';
+
+  // SRS container reference
+  let srsContainer: HTMLElement;
+
+  // Mount SRS settings when SRS tab is active
+  $: if (activeTab === 'srs' && srsContainer) {
+    srsContainer.empty();
+    addSRSSettings(srsContainer, plugin);
+  }
 
   // Initialize collapsed categories with all category names when component loads
   $: if (categories.length > 0 && collapsedCategories.size === 0) {
@@ -100,7 +109,6 @@
   let editingCategoryName: string | null = null;
   let editedCategoryName = '';
   let editedCategoryId = '';
-  let editedCategoryIsHelper = false;
 
   let editingGroupName: string | null = null;
   let editedGroupName = '';
@@ -218,36 +226,20 @@
     removeKeyword(keyword);
   }
 
-  function handleMoveUp(event: CustomEvent) {
-    const { categoryName, keywordIndex } = event.detail;
+  function handleKeywordReorder(categoryName: string, draggedIndex: number, targetIndex: number) {
+    if (draggedIndex === targetIndex) return;
 
     settingsStore.update(settings => {
       const category = settings.categories.find(cat => cat.icon === categoryName);
-      if (!category || keywordIndex <= 0) return settings;
+      if (!category) return settings;
 
-      // Swap with the previous keyword to move up visually (to lower index)
-      const temp = category.keywords[keywordIndex - 1];
-      category.keywords[keywordIndex - 1] = category.keywords[keywordIndex];
-      category.keywords[keywordIndex] = temp;
+      const draggedKeyword = category.keywords[draggedIndex];
 
-      // Create new array reference to trigger reactivity
-      category.keywords = [...category.keywords];
+      // Remove from old position
+      category.keywords.splice(draggedIndex, 1);
 
-      return settings;
-    });
-  }
-
-  function handleMoveDown(event: CustomEvent) {
-    const { categoryName, keywordIndex } = event.detail;
-
-    settingsStore.update(settings => {
-      const category = settings.categories.find(cat => cat.icon === categoryName);
-      if (!category || keywordIndex >= category.keywords.length - 1) return settings;
-
-      // Swap with the next keyword to move down visually (to higher index)
-      const temp = category.keywords[keywordIndex + 1];
-      category.keywords[keywordIndex + 1] = category.keywords[keywordIndex];
-      category.keywords[keywordIndex] = temp;
+      // Insert at new position
+      category.keywords.splice(targetIndex, 0, draggedKeyword);
 
       // Create new array reference to trigger reactivity
       category.keywords = [...category.keywords];
@@ -415,15 +407,13 @@
     editingCategoryName = categoryName;
     editedCategoryName = categoryName;
     editedCategoryId = category?.id || '';
-    editedCategoryIsHelper = category?.isHelper || false;
   }
 
   function saveEditedCategory() {
     if (editingCategoryName) {
       const currentCategory = categories.find(cat => cat.icon === editingCategoryName);
       const hasChanges = (editedCategoryName.trim() !== editingCategoryName) ||
-                        (editedCategoryId.trim() !== (currentCategory?.id || '')) ||
-                        (editedCategoryIsHelper !== (currentCategory?.isHelper || false));
+                        (editedCategoryId.trim() !== (currentCategory?.id || ''));
 
       if (hasChanges && editedCategoryName.trim()) {
         settingsStore.update((settings) => {
@@ -431,7 +421,6 @@
           if (category) {
             category.icon = editedCategoryName.trim();
             category.id = editedCategoryId.trim() || undefined;
-            category.isHelper = editedCategoryIsHelper;
           }
           return settings;
         });
@@ -440,14 +429,12 @@
     editingCategoryName = null;
     editedCategoryName = '';
     editedCategoryId = '';
-    editedCategoryIsHelper = false;
   }
 
   function cancelEditingCategory() {
     editingCategoryName = null;
     editedCategoryName = '';
     editedCategoryId = '';
-    editedCategoryIsHelper = false;
   }
 
   // Keyword Group handlers
@@ -770,7 +757,7 @@
 
     try {
       const startTime = Date.now();
-      const recordParser = new RecordParser(plugin.app);
+      const recordParser = new RecordParser(plugin.app, $store.parserSettings);
 
       // Get keywords that should be parsed (PARSED or SPACED status)
       const keywordsToparse: string[] = [];
@@ -1152,6 +1139,13 @@
   </button>
   <button
     class="tab-button"
+    class:active={activeTab === 'vword'}
+    on:click={() => activeTab = 'vword'}
+  >
+    🎨 VWord
+  </button>
+  <button
+    class="tab-button"
     class:active={activeTab === 'parser'}
     on:click={() => activeTab = 'parser'}
   >
@@ -1177,6 +1171,14 @@
     on:click={() => activeTab = 'generic'}
   >
     ⚙️ Generic
+  </button>
+
+  <button
+    class="tab-button"
+    class:active={activeTab === 'srs'}
+    on:click={() => activeTab = 'srs'}
+  >
+    🔄 SRS
   </button>
 </div>
 
@@ -1291,25 +1293,12 @@
                         placeholder="category-id (optional)"
                       />
                     </div>
-                    <div class="category-edit-field">
-                      <label class="category-edit-label">Helper:</label>
-                      <input
-                        type="checkbox"
-                        bind:checked={editedCategoryIsHelper}
-                        on:change={saveEditedCategory}
-                        on:click|stopPropagation
-                        class="category-helper-checkbox"
-                      />
-                    </div>
                   </div>
                 {:else}
                   <h3 on:dblclick|stopPropagation={() => startEditingCategory(category.icon)}>
                     {category.icon}
                     {#if category.id}
                       <span class="category-id-badge">:{category.id}</span>
-                    {/if}
-                    {#if category.isHelper}
-                      <span class="category-helper-badge">HELP</span>
                     {/if}
                     <span class="keyword-count">({filteredKeywords.length}{#if keywordSearchFilter.trim()}/{category.keywords.length}{/if})</span>
                     <span class="category-icons">
@@ -1339,25 +1328,55 @@
 
             {#if !collapsedCategories.has(category.icon)}
               <div class="category-content">
-
-                {#each category.keywords as keyword, keywordIndex}
-                  {#if keywordMatchesFilter(keyword)}
-                    <KeywordSetting
-                      {keywordIndex}
-                      categoryName={category.icon}
-                      {keyword}
-                      isFirst={keywordIndex === 0}
-                      isLast={keywordIndex === category.keywords.length - 1}
-                      on:remove={() => handleRemoveKeyword(keyword)}
-                      on:moveup={handleMoveUp}
-                      on:movedown={handleMoveDown}
-                    />
-                  {/if}
-                {/each}
-
-                <div class="setting-item">
-                  <button on:click={() => handleAddKeyword(category.icon)}>Add keyword to {category.icon}</button>
-                </div>
+                <table class="keywords-table">
+                  <colgroup>
+                    <col style="width: 25px;" /> <!-- Drag -->
+                    <col style="width: 25px;" /> <!-- State -->
+                    <col style="width: 35px;" /> <!-- Priority -->
+                    <col style="width: 30px;" /> <!-- Subkeywords -->
+                    <col style="width: 70px;" /> <!-- Keyword -->
+                    <col style="width: 90px;" /> <!-- Aliases -->
+                    <col style="width: auto;" /> <!-- Description -->
+                    <col style="width: 45px;" /> <!-- Icon -->
+                    <col style="width: 45px;" /> <!-- CSS class -->
+                    <col style="width: 80px;" /> <!-- Colors + Remove -->
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th class="th-add">
+                        <button
+                          class="add-keyword-header-btn"
+                          on:click={() => handleAddKeyword(category.icon)}
+                          title="Add keyword to {category.icon}"
+                        >
+                          +
+                        </button>
+                      </th>
+                      <th title="Collecting Status">S</th>
+                      <th title="Combine Priority">P</th>
+                      <th title="Sub-keywords">⚙️</th>
+                      <th>Keyword</th>
+                      <th>Aliases</th>
+                      <th>Description</th>
+                      <th>Icon</th>
+                      <th>CSS</th>
+                      <th>Colors</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each category.keywords as keyword, keywordIndex}
+                      {#if keywordMatchesFilter(keyword)}
+                        <KeywordSetting
+                          {keywordIndex}
+                          categoryName={category.icon}
+                          {keyword}
+                          on:remove={() => handleRemoveKeyword(keyword)}
+                          on:reorder={(e) => handleKeywordReorder(category.icon, e.detail.draggedIndex, e.detail.targetIndex)}
+                        />
+                      {/if}
+                    {/each}
+                  </tbody>
+                </table>
               </div>
             {/if}
           </div>
@@ -1420,9 +1439,19 @@
                   </span>
                 {/if}
 
-                {#if subject.expression}
-                  <span class="kb-filter-expression-inline">
-                    <code>{subject.expression}</code>
+                {#if subject.dashOnlyFilterExp}
+                  <span class="kb-filter-expression-inline" style="background-color: rgba(0, 0, 139, 0.7); color: white; padding: 2px 6px; border-radius: 3px; margin-right: 4px;">
+                    <code style="color: white;">Dash: {subject.dashOnlyFilterExp}</code>
+                  </span>
+                {/if}
+                {#if subject.matrixOnlyFilterExp}
+                  <span class="kb-filter-expression-inline" style="background-color: rgba(255, 0, 0, 0.6); color: white; padding: 2px 6px; border-radius: 3px;">
+                    <code style="color: white;">Matrix: {subject.matrixOnlyFilterExp}</code>
+                  </span>
+                {/if}
+                {#if !subject.dashOnlyFilterExp && !subject.matrixOnlyFilterExp && subject.expression}
+                  <span class="kb-filter-expression-inline" style="opacity: 0.6;">
+                    <code>Legacy: {subject.expression}</code>
                   </span>
                 {/if}
 
@@ -1442,150 +1471,6 @@
             </div>
           {/each}
         {/if}
-      </div>
-
-      <!-- Global Topics Section -->
-      <div class="kb-global-topics-section">
-        <h2>🌐 Global Topics</h2>
-
-        <p class="kb-description">
-          Global topics are secondary topic templates that can be imported into multiple subjects. Define them once, reuse everywhere.
-        </p>
-
-        <!-- List of global topics -->
-        <div class="kb-global-topics-list">
-          {#if !$subjectsStore.globalTopics || $subjectsStore.globalTopics.length === 0}
-            <p class="kb-empty-message">No global topics yet. Click "+ Add Global Topic" to create one.</p>
-          {:else}
-            {#each $subjectsStore.globalTopics as globalTopic}
-              <div class="kb-global-topic-card">
-                <div class="kb-modal-row">
-                  <!-- Name -->
-                  <div class="kb-topic-field-name">
-                    <input
-                      type="text"
-                      value={globalTopic.name}
-                      placeholder="Topic Name"
-                      on:input={(e) => {
-                        updateGlobalTopic(globalTopic.id, { name: e.currentTarget.value });
-                      }}
-                    />
-                  </div>
-
-                  <!-- Icon -->
-                  <div class="kb-topic-field-icon">
-                    <input
-                      type="text"
-                      value={globalTopic.icon || ''}
-                      placeholder="🔗"
-                      maxlength="10"
-                      on:input={(e) => {
-                        updateGlobalTopic(globalTopic.id, { icon: e.currentTarget.value });
-                      }}
-                    />
-                  </div>
-
-                  <!-- TAG -->
-                  <div class="kb-topic-field-compact">
-                    <label>TAG</label>
-                    <input
-                      type="text"
-                      value={globalTopic.topicTag || ''}
-                      placeholder="#grammar"
-                      on:input={(e) => {
-                        updateGlobalTopic(globalTopic.id, { topicTag: e.currentTarget.value });
-                      }}
-                    />
-                  </div>
-
-                  <!-- KEY -->
-                  <div class="kb-topic-field-compact">
-                    <label>KEY</label>
-                    <input
-                      type="text"
-                      value={globalTopic.topicKeyword || ''}
-                      placeholder="doc"
-                      on:input={(e) => {
-                        updateGlobalTopic(globalTopic.id, { topicKeyword: e.currentTarget.value });
-                      }}
-                    />
-                  </div>
-
-                  <!-- Filter Expression -->
-                  <div class="kb-topic-field-expr">
-                    <input
-                      type="text"
-                      value={globalTopic.filterExpression || ''}
-                      placeholder="Filter (can use #?, .?, `?)"
-                      on:input={(e) => {
-                        updateGlobalTopic(globalTopic.id, { filterExpression: e.currentTarget.value });
-                      }}
-                    />
-                  </div>
-
-                  <!-- Delete button -->
-                  <button
-                    class="kb-topic-delete-btn"
-                    on:click={() => removeGlobalTopic(globalTopic.id)}
-                  >
-                    🗑️
-                  </button>
-                </div>
-
-                <!-- Matrix visibility checkboxes row -->
-                <div class="kb-modal-row" style="margin-top: 8px; margin-bottom: 8px;">
-                  <label style="font-weight: 600;">Show in matrix:</label>
-
-                  <!-- F checkbox -->
-                  <label class="kb-mode-label">
-                    <input
-                      type="checkbox"
-                      checked={globalTopic.showFileRecords ?? true}
-                      on:change={(e) => {
-                        updateGlobalTopic(globalTopic.id, { showFileRecords: e.currentTarget.checked });
-                      }}
-                    />
-                    <span> F:</span>
-                  </label>
-
-                  <!-- H checkbox -->
-                  <label class="kb-mode-label">
-                    <input
-                      type="checkbox"
-                      checked={globalTopic.showHeaderRecords ?? true}
-                      on:change={(e) => {
-                        updateGlobalTopic(globalTopic.id, { showHeaderRecords: e.currentTarget.checked });
-                      }}
-                    />
-                    <span> H:</span>
-                  </label>
-
-                  <!-- R checkbox -->
-                  <label class="kb-mode-label">
-                    <input
-                      type="checkbox"
-                      checked={globalTopic.showRecordRecords ?? true}
-                      on:change={(e) => {
-                        updateGlobalTopic(globalTopic.id, { showRecordRecords: e.currentTarget.checked });
-                      }}
-                    />
-                    <span> R:</span>
-                  </label>
-                </div>
-              </div>
-            {/each}
-          {/if}
-        </div>
-
-        <!-- Add Global Topic button -->
-        <div class="kb-add-global-topic-section">
-          <button
-            class="kb-add-topic-inline-btn"
-            on:click={() => addGlobalTopic()}
-          >
-            + Add Global Topic
-          </button>
-        </div>
       </div>
 
       <!-- Add Subject button -->
@@ -1742,6 +1627,78 @@
         </button>
       </div>
     </div>
+  {:else if activeTab === 'vword'}
+    <div class="vword-settings-section">
+      <h2>VWord (Visual Keywords)</h2>
+      <p class="description">
+        VWord keywords are special pattern-based keywords for controlling visual layout.
+        They are automatically recognized and don't need to be added individually.
+      </p>
+
+      <div class="vword-explanation">
+        <h3>📐 Available VWord Keywords</h3>
+
+        <div class="vword-type">
+          <h4>i-keywords (Image Column Control)</h4>
+          <p><strong>Pattern:</strong> <code>i10</code>, <code>i15</code>, <code>i20</code>, ..., <code>i90</code> (17 total)</p>
+          <p><strong>Purpose:</strong> Controls image column width percentage in reading view.</p>
+          <p><strong>Example:</strong> <code>def i67 :: My content</code> → Image takes 67% width, text takes 33%</p>
+          <p><strong>Note:</strong> Images will ONLY split into two columns when an i-keyword is present.</p>
+        </div>
+
+        <div class="vword-type">
+          <h4>h-keywords (Horizontal List Layouts)</h4>
+          <p><strong>Pattern:</strong> <code>h</code> + 2-5 digits (112 total combinations)</p>
+          <p><strong>Purpose:</strong> Controls horizontal list layout with custom width ratios.</p>
+          <p><strong>Examples:</strong></p>
+          <ul>
+            <li><code>h442</code> → 3 items with 40%/40%/20% widths (weights: 4+4+2=10)</li>
+            <li><code>h123</code> → 3 items with 16.66%/33.33%/50% widths (weights: 1+2+3=6)</li>
+            <li><code>h1234</code> → 4 items with custom ratios</li>
+          </ul>
+          <p><strong>Rules:</strong> 2-5 elements, sum of weights must be 2-7</p>
+        </div>
+      </div>
+
+      <div class="vword-color-settings">
+        <h3>🎨 VWord Styling</h3>
+        <p>All VWord keywords share the same color and background color:</p>
+
+        <div class="color-pickers">
+          <div class="color-picker-item">
+            <label for="vword-color">Text Color:</label>
+            <input
+              type="color"
+              id="vword-color"
+              bind:value={$vwordSettingsStore.color}
+              on:change={async () => await saveVWordSettings()}
+            />
+            <span class="color-value">{$vwordSettingsStore.color}</span>
+          </div>
+
+          <div class="color-picker-item">
+            <label for="vword-bg-color">Background Color:</label>
+            <input
+              type="color"
+              id="vword-bg-color"
+              bind:value={$vwordSettingsStore.backgroundColor}
+              on:change={async () => await saveVWordSettings()}
+            />
+            <span class="color-value">{$vwordSettingsStore.backgroundColor}</span>
+          </div>
+        </div>
+
+        <div class="vword-preview">
+          <p><strong>Preview:</strong></p>
+          <span
+            class="vword-preview-text"
+            style="color: {$vwordSettingsStore.color}; background-color: {$vwordSettingsStore.backgroundColor}; padding: 4px 8px; border-radius: 3px;"
+          >
+            VWord keyword
+          </span>
+        </div>
+      </div>
+    </div>
   {:else if activeTab === 'parser'}
     <div class="parser-settings-section">
       <h2>Parser Settings</h2>
@@ -1757,7 +1714,7 @@
           <input
             type="text"
             value={$store.parserSettings?.excludePatterns?.join(', ') || '_/'}
-            on:change={(e) => {
+            on:change={async (e) => {
               const value = e.currentTarget.value;
               const patterns = value.split(',').map(p => p.trim()).filter(p => p.length > 0);
               settingsStore.update(s => ({
@@ -1767,9 +1724,35 @@
                   excludePatterns: patterns.length > 0 ? patterns : ['_/']
                 }
               }));
+              await saveStore();
             }}
             placeholder="_/, templates/"
             class="parser-input"
+          />
+        </div>
+      </div>
+
+      <!-- Parse Inlines Toggle -->
+      <div class="setting-item">
+        <div class="setting-item-info">
+          <div class="setting-item-name">Parse Inline Keywords</div>
+          <div class="setting-item-description">Extract keywords from &lt;mark class="keyword"&gt; tags in entry text (e.g., "foo :: bar &lt;mark class="baz"&gt;text&lt;/mark&gt;" will include "baz" as a keyword)</div>
+        </div>
+        <div class="setting-item-control">
+          <input
+            type="checkbox"
+            checked={$store.parserSettings?.parseInlines || false}
+            on:change={async (e) => {
+              const checked = e.currentTarget.checked;
+              settingsStore.update(s => ({
+                ...s,
+                parserSettings: {
+                  ...s.parserSettings,
+                  parseInlines: checked
+                }
+              }));
+              await saveStore();
+            }}
           />
         </div>
       </div>
@@ -2042,6 +2025,8 @@
         </div>
       {/if}
     </div>
+  {:else if activeTab === 'srs'}
+    <div bind:this={srsContainer} class="srs-settings-content"></div>
   {/if}
 </div>
 
@@ -4768,9 +4753,10 @@
   /* Global Topics Import (in SubjectModal) */
   .kb-global-topics-import-container {
     display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    padding: 1rem;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.5rem;
     background: var(--background-secondary);
     border-radius: 6px;
   }
@@ -4778,8 +4764,8 @@
   .kb-global-topic-checkbox-row {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.5rem;
+    gap: 0.4rem;
+    padding: 0.3rem 0.6rem;
     background: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
     border-radius: 4px;
@@ -4793,8 +4779,8 @@
 
   .kb-global-topic-checkbox-row input[type="checkbox"] {
     cursor: pointer;
-    width: 18px;
-    height: 18px;
+    width: 16px;
+    height: 16px;
     flex-shrink: 0;
   }
 
@@ -4804,16 +4790,16 @@
   }
 
   .kb-global-topic-checkbox-row label {
-    flex: 1;
     display: flex;
     align-items: center;
-    font-size: 0.95em;
+    font-size: 0.9em;
     color: var(--text-normal);
+    white-space: nowrap;
   }
 
   .kb-global-topic-icon {
-    font-size: 1.2em;
-    margin-right: 0.25rem;
+    font-size: 1.1em;
+    margin-right: 0.2rem;
   }
 
   .kb-global-topic-name {
@@ -4822,16 +4808,11 @@
   }
 
   .kb-global-topic-details {
-    font-size: 0.85em;
-    color: var(--text-muted);
-    margin-left: 0.5rem;
+    display: none;
   }
 
   .kb-imported-badge {
-    font-size: 0.85em;
-    color: var(--color-green);
-    font-weight: 600;
-    margin-left: 0.5rem;
+    display: none;
   }
 
   .global-topics-section h2 {
@@ -5324,6 +5305,71 @@
     border-radius: 4px;
     margin-top: 0.75rem;
     font-size: 0.9em;
+  }
+
+  /* Keywords Table */
+  .keywords-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 0.5rem;
+    font-size: 0.9em;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .keywords-table thead {
+    background: var(--background-primary-alt);
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
+  .keywords-table th {
+    padding: 0.5rem 0.3rem;
+    text-align: center;
+    font-weight: 600;
+    font-size: 0.8em;
+    border-bottom: 2px solid var(--background-modifier-border);
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .keywords-table th:first-child {
+    text-align: center;
+  }
+
+  .keywords-table tbody tr {
+    transition: background-color 0.1s;
+  }
+
+  .th-add {
+    padding: 0 !important;
+  }
+
+  .add-keyword-header-btn {
+    width: 100%;
+    height: 100%;
+    background: #28a745;
+    color: white;
+    border: none;
+    cursor: pointer;
+    font-size: 18px;
+    font-weight: bold;
+    padding: 0.4rem;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .add-keyword-header-btn:hover {
+    background: #218838;
+    transform: scale(1.1);
+  }
+
+  .add-keyword-header-btn:active {
+    transform: scale(0.95);
   }
 
   /* Spaced Rep Settings */
@@ -6251,6 +6297,121 @@
 
   .kb-modal-btn-primary:hover {
     background: var(--interactive-accent-hover);
+  }
+
+  /* VWord Settings */
+  .vword-settings-section {
+    padding: 1rem;
+  }
+
+  .vword-settings-section h2 {
+    margin-bottom: 0.5rem;
+  }
+
+  .vword-settings-section .description {
+    color: var(--text-muted);
+    margin-bottom: 1.5rem;
+  }
+
+  .vword-explanation {
+    background: var(--background-secondary);
+    padding: 1rem;
+    border-radius: 6px;
+    margin-bottom: 2rem;
+  }
+
+  .vword-explanation h3 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+  }
+
+  .vword-type {
+    margin-bottom: 1.5rem;
+  }
+
+  .vword-type h4 {
+    margin-bottom: 0.5rem;
+    color: var(--text-accent);
+  }
+
+  .vword-type p {
+    margin: 0.3rem 0;
+  }
+
+  .vword-type code {
+    background: var(--background-primary);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: var(--font-monospace);
+  }
+
+  .vword-type ul {
+    margin: 0.5rem 0;
+    padding-left: 1.5rem;
+  }
+
+  .vword-type li {
+    margin: 0.3rem 0;
+  }
+
+  .vword-color-settings {
+    background: var(--background-secondary);
+    padding: 1rem;
+    border-radius: 6px;
+  }
+
+  .vword-color-settings h3 {
+    margin-top: 0;
+    margin-bottom: 0.5rem;
+  }
+
+  .vword-color-settings > p {
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+  }
+
+  .color-pickers {
+    display: flex;
+    gap: 2rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .color-picker-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .color-picker-item label {
+    font-weight: 500;
+  }
+
+  .color-picker-item input[type="color"] {
+    width: 50px;
+    height: 35px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .color-value {
+    font-family: var(--font-monospace);
+    font-size: 0.9em;
+    color: var(--text-muted);
+  }
+
+  .vword-preview {
+    padding-top: 1rem;
+    border-top: 1px solid var(--background-modifier-border);
+  }
+
+  .vword-preview p {
+    margin-bottom: 0.5rem;
+  }
+
+  .vword-preview-text {
+    display: inline-block;
+    font-family: var(--font-monospace);
   }
 
 </style>

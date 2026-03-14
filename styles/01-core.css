@@ -1,0 +1,43 @@
+.kh-highlighted {
+  padding: 3px;
+  border-radius: 3px;
+  color: var(--kh-c);
+  background-color: var(--kh-bgc);
+}
+
+/* Remove padding from headings to maintain proper spacing with collapse icons */
+h1.kh-highlighted,
+h2.kh-highlighted,
+h3.kh-highlighted,
+h4.kh-highlighted,
+h5.kh-highlighted,
+h6.kh-highlighted {
+  padding: 0;
+}
+
+.kh-line-through {
+  text-decoration: line-through;
+}
+
+.kh-underline {
+  text-decoration: underline;
+}
+
+.kh-toggle-group>button {
+  border-radius: 0;
+}
+
+.kh-toggle-group>button:first-child {
+  border-top-left-radius: var(--button-radius);
+  border-bottom-left-radius: var(--button-radius);
+}
+
+.kh-toggle-group>button:last-child {
+  border-top-right-radius: var(--button-radius);
+  border-bottom-right-radius: var(--button-radius);
+}
+
+.kh-toggle-group>.kh-toggle--checked {
+  background-color: var(--color-base-40);
+}
+

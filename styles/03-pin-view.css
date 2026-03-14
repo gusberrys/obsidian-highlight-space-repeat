@@ -1,0 +1,155 @@
+/* Pin Entries Styles */
+.pin-entries-container {
+	margin: 8px 0;
+	padding: 6px;
+	background-color: var(--background-secondary);
+	border-radius: 4px;
+	border: 1px solid var(--background-modifier-border);
+}
+
+.pin-entry-wrapper {
+	margin-bottom: 6px;
+	padding: 4px 6px;
+	background-color: var(--background-primary);
+	border-radius: 3px;
+	border-left: 2px solid var(--interactive-accent);
+}
+
+.pin-entry {
+	padding: 2px 0;
+}
+
+/* Make pin icons in pin entries clickable with hover effect */
+.pin-entry .kh-icon.pin {
+	cursor: pointer;
+	transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.pin-entry .kh-icon.pin:hover {
+	transform: scale(1.3);
+	opacity: 0.8;
+}
+
+/* ============================================
+   PINNED VIEW STYLES
+   ============================================ */
+
+.kh-pinned-view-container {
+  padding: 8px;
+  overflow-y: auto;
+}
+
+.kh-pinned-header {
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.kh-pinned-title {
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kh-pinned-empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.kh-pinned-records {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Pinned File Group */
+.kh-pinned-file-group {
+  margin-bottom: 12px;
+}
+
+.kh-pinned-file-header {
+  padding: 6px 10px;
+  background: var(--background-primary-alt);
+  border-radius: 4px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-left: 3px solid var(--interactive-accent);
+}
+
+.kh-pinned-toggle {
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text-muted);
+  transition: color 0.2s;
+}
+
+.kh-pinned-toggle:hover {
+  color: var(--text-normal);
+}
+
+.kh-pinned-file-name {
+  flex: 1;
+  font-weight: 600;
+  color: var(--text-normal);
+  font-size: 13px;
+  transition: color 0.2s;
+}
+
+.kh-pinned-file-name:hover {
+  color: var(--interactive-accent);
+}
+
+.kh-pinned-count {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Pinned Entries Container */
+.kh-pinned-entries {
+  padding: 4px 0 4px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kh-pinned-header-text {
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  background: var(--background-secondary);
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.kh-pinned-header-marker {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-family: var(--font-monospace);
+}
+
+/* Pinned View uses the same .kh-widget-filter-entry class as Matrix Widget for consistent styling */
+/* Make pinned entries show they are clickable */
+.kh-pinned-entries .kh-widget-filter-entry {
+	cursor: pointer;
+	transition: all 0.2s ease;
+}
+
+.kh-pinned-entries .kh-widget-filter-entry:hover {
+	transform: translateX(2px);
+	opacity: 0.9;
+	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+

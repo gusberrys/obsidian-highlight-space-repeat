@@ -1,12 +1,29 @@
 import { Component, MarkdownRenderer } from 'obsidian';
 import type { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
 import type { ParsedEntry, ParsedFile, ParsedEntrySubItem } from '../interfaces/ParsedFile';
+import { isIKeyword } from '../shared/vword';
 
 /**
  * Shared component for rendering keyword records with images and quotes
  * Adapted from knowledge-base plugin
  */
 export class KHEntry {
+	/**
+	 * Check if entry has an i-keyword and return it
+	 * i-keywords control image column width (i10-i90)
+	 */
+	private static getIKeyword(entry: ParsedEntry): string | null {
+		if (!entry.keywords) return null;
+
+		for (const keyword of entry.keywords) {
+			if (isIKeyword(keyword)) {
+				return keyword;
+			}
+		}
+
+		return null;
+	}
+
 	/**
 	 * Apply basic markdown formatting to text content
 	 * Copied from knowledge-base plugin
@@ -58,6 +75,13 @@ export class KHEntry {
 		// Add compact/full mode class
 		const modeClass = compact ? 'kh-entry-compact' : 'kh-entry-full';
 		container.addClass(modeClass);
+
+		// Add entry keywords as classes (including VWord keywords like r123, i67)
+		if (entry.keywords && entry.keywords.length > 0) {
+			entry.keywords.forEach(kw => {
+				container.addClass(kw);
+			});
+		}
 
 		// Check for image embeds (not block references with # or ^)
 		const imageEmbedRegex = /!\[\[([^\]|#^]+?)(?:\|(\d+))?\]\]/g;
@@ -326,9 +350,12 @@ export class KHEntry {
 			}
 		}
 
-		// If images found, use two-column layout
-		if (images.length > 0) {
-			const twoColumnWrapper = container.createDiv({ cls: 'kh-record-with-images' });
+		// Check if entry has an i-keyword (required for two-column layout)
+		const iKeyword = this.getIKeyword(entry);
+
+		// If images found AND i-keyword present, use two-column layout
+		if (images.length > 0 && iKeyword) {
+			const twoColumnWrapper = container.createDiv({ cls: `kh-record-with-images ${iKeyword}` });
 
 			// Left column: quotes and text
 			const textColumn = twoColumnWrapper.createDiv({ cls: 'kh-record-text-column' });
@@ -413,7 +440,8 @@ export class KHEntry {
 				}
 			}
 		} else {
-			// No images - render segments in order (single column)
+			// No images OR no i-keyword - render segments in order (single column)
+			// If images exist but no i-keyword, they'll be rendered inline with text
 			for (const segment of segments) {
 				if (segment.type === 'text') {
 					const hasWikilinks = /(?<!!)\[\[([^\]]+)\]\]/.test(segment.content);
@@ -745,8 +773,17 @@ export class KHEntry {
 			return;
 		}
 
-		// Create two-column layout wrapper
-		const twoColumnWrapper = container.createDiv({ cls: 'kh-record-with-images' });
+		// Check if entry has an i-keyword (required for two-column layout)
+		const iKeyword = this.getIKeyword(entry);
+
+		if (!iKeyword) {
+			// No i-keyword - render normally without two-column layout
+			await this.renderNormalText(container, entry, record, plugin, compact);
+			return;
+		}
+
+		// Create two-column layout wrapper with i-keyword class
+		const twoColumnWrapper = container.createDiv({ cls: `kh-record-with-images ${iKeyword}` });
 
 		// Left side: text content
 		const textColumn = twoColumnWrapper.createDiv({ cls: 'kh-record-text-column' });

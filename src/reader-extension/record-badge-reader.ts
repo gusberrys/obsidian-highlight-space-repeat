@@ -6,6 +6,7 @@ import { settingsStore, settingsDataStore } from '../stores/settings-store';
 import { get } from 'svelte/store';
 import { DATA_PATHS } from '../shared/data-paths';
 import { getFileNameFromPath } from '../utils/file-helpers';
+import { getAllKeywords } from '../utils/parse-helpers';
 
 
 /**
@@ -99,15 +100,7 @@ function hasTestablePatterns(text: string): boolean {
 	const hasTriple = /:::/.test(text);
 	const hasBold = /\*\*[^*]+\*\*/.test(text);
 
-	const result = hasCurly || hasCode || hasCodeBlock || hasTriple || hasBold;
-
-	if (result) {
-		console.log('[RecordBadge] Pattern detected in text:', text, {
-			hasCurly, hasCode, hasCodeBlock, hasTriple, hasBold
-		});
-	}
-
-	return result;
+	return hasCurly || hasCode || hasCodeBlock || hasTriple || hasBold;
 }
 
 /**
@@ -140,7 +133,8 @@ function findHeaderWithKeyword(entry: FlatEntry, keyword: string): string | null
 
 	for (const headerLevel of headerLevels) {
 		const header = headerLevel!.info;
-		const headerHasKeyword = header.keywords?.includes(keyword);
+		const headerKeywords = getAllKeywords(header);
+		const headerHasKeyword = headerKeywords.includes(keyword);
 		if (headerHasKeyword && header.text) {
 			return header.text;
 		}
@@ -162,7 +156,8 @@ function isEntryAtTopLevel(entry: FlatEntry): boolean {
 }
 
 /**
- * SRS Pattern Hiding Logic (copied from SRSReviewView)
+ * SRS Pattern Hiding Logic
+ * Priority: {{}} > ::: > backticks/code > bold
  */
 function getHighestPriorityPattern(text: string): 'curly' | 'code' | 'triple' | 'bold' | null {
 	// Priority 1: {{content}}
@@ -170,14 +165,14 @@ function getHighestPriorityPattern(text: string): 'curly' | 'code' | 'triple' | 
 		return 'curly';
 	}
 
-	// Priority 2: `code` or ```code blocks```
-	if (/`[^`]+`/.test(text) || /```[\s\S]+?```/.test(text)) {
-		return 'code';
-	}
-
-	// Priority 3: :::
+	// Priority 2: :::
 	if (/:::/.test(text)) {
 		return 'triple';
+	}
+
+	// Priority 3: `code` or ```code blocks```
+	if (/`[^`]+`/.test(text) || /```[\s\S]+?```/.test(text)) {
+		return 'code';
 	}
 
 	// Priority 4: **bold**
@@ -189,35 +184,38 @@ function getHighestPriorityPattern(text: string): 'curly' | 'code' | 'triple' | 
 }
 
 function hideContent(text: string): string {
-	const pattern = getHighestPriorityPattern(text);
-
-	if (!pattern) {
-		return text;
+	// Priority 1: {{content}} - replace with ___
+	if (/\{\{[^}]+\}\}/.test(text)) {
+		return text.replace(/\{\{[^}]+\}\}/g, '___');
 	}
 
-	switch (pattern) {
-		case 'curly':
-			return text.replace(/\{\{[^}]+\}\}/g, '___');
-
-		case 'code':
-			return text
-				.replace(/```[\s\S]+?```/g, '___')
-				.replace(/`[^`]+`/g, '___');
-
-		case 'triple':
-			const parts = text.split(':::');
-			return parts[0] || text;
-
-		case 'bold':
-			return text.replace(/\*\*([^*]+)\*\*/g, '*___*');
-
-		default:
-			return text;
+	// Priority 2: ::: - show ONLY left side (everything before :::), NO OTHER HIDING
+	if (/:::/.test(text)) {
+		const parts = text.split(':::');
+		return parts[0] || text;
 	}
+
+	// Priority 3: `code` - replace with ___
+	if (/`[^`]+`/.test(text) || /```[\s\S]+?```/.test(text)) {
+		return text
+			.replace(/```[\s\S]+?```/g, '___')
+			.replace(/`[^`]+`/g, '___');
+	}
+
+	// Priority 4: **bold** - replace with *___*
+	if (/\*\*[^*]+\*\*/.test(text)) {
+		return text.replace(/\*\*([^*]+)\*\*/g, '*___*');
+	}
+
+	// No pattern found
+	return text;
 }
 
 /**
  * Convert entry to SRS preview format (with patterns hidden)
+ * TWO separate highest priority searches:
+ * 1. Main text - hide its highest priority pattern
+ * 2. All subitems - find highest priority across ALL subitems, hide only that
  */
 function entryToSRSPreview(entry: ParsedEntry, context?: string, _unused?: string): string {
 	let mainText = entry.text;
@@ -244,7 +242,44 @@ function entryToSRSPreview(entry: ParsedEntry, context?: string, _unused?: strin
 		mainText = `**${context}**: ${mainText}`;
 	}
 
-	let preview = `${hideContent(mainText)}`;
+	// Helper to get numeric priority (lower = higher priority)
+	const getPatternPriority = (pattern: 'curly' | 'code' | 'triple' | 'bold' | null): number => {
+		if (pattern === 'curly') return 1;
+		if (pattern === 'triple') return 2;
+		if (pattern === 'code') return 3;
+		if (pattern === 'bold') return 4;
+		return 999; // No pattern
+	};
+
+	// RULE 1: Hide main text's highest priority pattern
+	let preview = hideContent(mainText);
+
+	// RULE 2: Find highest priority pattern across ALL subitems
+	let subitemsHighestPattern: 'curly' | 'code' | 'triple' | 'bold' | null = null;
+	let subitemsHighestPriority = 999;
+
+	if (entry.subItems) {
+		for (const subItem of entry.subItems) {
+			const subPattern = getHighestPriorityPattern(subItem.content);
+			if (subPattern) {
+				const priority = getPatternPriority(subPattern);
+				if (priority < subitemsHighestPriority) {
+					subitemsHighestPriority = priority;
+					subitemsHighestPattern = subPattern;
+				}
+			}
+			if (subItem.nestedCodeBlock) {
+				const nestedPattern = getHighestPriorityPattern(subItem.nestedCodeBlock.content);
+				if (nestedPattern) {
+					const priority = getPatternPriority(nestedPattern);
+					if (priority < subitemsHighestPriority) {
+						subitemsHighestPriority = priority;
+						subitemsHighestPattern = nestedPattern;
+					}
+				}
+			}
+		}
+	}
 
 	if (entry.subItems && entry.subItems.length > 0) {
 		preview += '\n\nSub-items:';
@@ -253,11 +288,17 @@ function entryToSRSPreview(entry: ParsedEntry, context?: string, _unused?: strin
 			               subItem.listType === 'asterisk' ? '*' :
 			               subItem.listType === 'numbered' ? '1.' :
 			               subItem.listType === 'checkbox' ? (subItem.checked ? '[x]' : '[ ]') : '';
-			preview += `\n  ${marker} ${hideContent(subItem.content)}`;
+
+			// Only hide if this subitem has the highest priority pattern across all subitems
+			const subPattern = getHighestPriorityPattern(subItem.content);
+			const subContent = (subPattern === subitemsHighestPattern) ? hideContent(subItem.content) : subItem.content;
+			preview += `\n  ${marker} ${subContent}`;
 
 			// Handle nested code blocks
 			if (subItem.nestedCodeBlock) {
-				preview += `\n    Code: ${hideContent(subItem.nestedCodeBlock.content)}`;
+				const nestedPattern = getHighestPriorityPattern(subItem.nestedCodeBlock.content);
+				const nestedContent = (nestedPattern === subitemsHighestPattern) ? hideContent(subItem.nestedCodeBlock.content) : subItem.nestedCodeBlock.content;
+				preview += `\n    Code: ${nestedContent}`;
 			}
 		}
 	}
@@ -269,8 +310,6 @@ function entryToSRSPreview(entry: ParsedEntry, context?: string, _unused?: strin
  * Add record badges to reading view
  */
 export function addRecordBadgesToReadingView(element: HTMLElement, context: MarkdownPostProcessorContext, plugin: HighlightSpaceRepeatPlugin): void {
-	console.log('[RecordBadge] Processing element in reading view:', element);
-
 	// Check if current file path is excluded from badges
 	const settings = get(settingsDataStore);
 	const currentPath = context.sourcePath;
@@ -281,7 +320,6 @@ export function addRecordBadgesToReadingView(element: HTMLElement, context: Mark
 			return currentPath.startsWith(excludedPath) || currentPath === excludedPath;
 		});
 		if (isExcluded) {
-			console.log('[RecordBadge] Skipping badges for excluded path:', currentPath);
 			return;
 		}
 	}
@@ -292,38 +330,28 @@ export function addRecordBadgesToReadingView(element: HTMLElement, context: Mark
 	// Find all elements with kh-highlighted class (keyword entries that have been processed)
 	const highlightedElements = element.querySelectorAll('.kh-highlighted');
 
-	console.log('[RecordBadge] Found highlighted elements:', highlightedElements.length);
-
 	highlightedElements.forEach((el) => {
 		const htmlEl = el as HTMLElement;
 
 		// Extract keywords from data-keywords attribute
 		const keywordsAttr = htmlEl.getAttribute('data-keywords');
 		if (!keywordsAttr) {
-			console.log('[RecordBadge] No data-keywords attribute found on element:', htmlEl);
 			return;
 		}
 
 		const keywords = keywordsAttr.split(/\s+/).map(k => k.toLowerCase()).filter(k => k.length > 0);
 		if (keywords.length === 0) {
-			console.log('[RecordBadge] No keywords found in data-keywords:', keywordsAttr);
 			return;
 		}
-
-		console.log('[RecordBadge] Found keyword element with keywords:', keywords);
 
 		// Check collecting status
 		const status = getCollectingStatus(keywords);
 		if (!status) {
-			console.log('[RecordBadge] No status for keywords:', keywords);
 			return;
 		}
 
-		console.log('[RecordBadge] Status:', status, 'for keywords:', keywords);
-
 		// Don't show badges for IGNORED keywords
 		if (status === CollectingStatus.IGNORED) {
-			console.log('[RecordBadge] Keyword is IGNORED, not showing badge');
 			return;
 		}
 
@@ -334,7 +362,6 @@ export function addRecordBadgesToReadingView(element: HTMLElement, context: Mark
 		}
 
 		if (!container) {
-			console.log('[RecordBadge] No el-p container found for element:', htmlEl);
 			return;
 		}
 
@@ -423,30 +450,23 @@ export function addRecordBadgesToReadingView(element: HTMLElement, context: Mark
 		// Insert badge at the beginning of the container
 		container.insertBefore(badgeEl, container.firstChild);
 
-		console.log('[RecordBadge] Badge added:', badge);
-
 		// Add SRS preview badge (brain icon) - ONLY if there's something to hide
 		if (isSpaced(status)) {
 			// Load entry to check if there's something to hide
 			loadParsedRecords(plugin).then(parsedRecords => {
 				if (!parsedRecords) {
-					console.log('[RecordBadge] No parsed records found for brain icon check');
 					return;
 				}
 
 				const fileRecord = parsedRecords.find(record => record.filePath === currentPath);
 				if (!fileRecord) {
-					console.log('[RecordBadge] No file record found for:', currentPath);
 					return;
 				}
 
 				const entry = findEntryByLineNumber(fileRecord, lineNumber);
 				if (!entry) {
-					console.log('[RecordBadge] No entry found at line:', lineNumber);
 					return;
 				}
-
-				console.log('[RecordBadge] Checking brain icon for entry:', entry.text);
 
 				// Check for 6 cases where brain should show:
 				// 1-4: Has testable patterns ({{, `, :::, **)
@@ -458,18 +478,10 @@ export function addRecordBadgesToReadingView(element: HTMLElement, context: Mark
 				// 6: Entry is under header with same keyword → hide header
 				const headerWithKeyword = findHeaderWithKeyword(entry, keywords[0]);
 
-				console.log('[RecordBadge] Brain icon decision:', {
-					hasPatterns,
-					atTopLevel,
-					headerWithKeyword,
-					text: entry.text
-				});
-
 				// Show brain ONLY if one of the 6 cases is true
 				const shouldShowBrain = hasPatterns || atTopLevel || headerWithKeyword !== null;
 
 				if (!shouldShowBrain) {
-					console.log('[RecordBadge] No testable content or context, skipping brain icon');
 					return;
 				}
 
@@ -513,8 +525,6 @@ export function addRecordBadgesToReadingView(element: HTMLElement, context: Mark
 
 				// Insert SRS badge after the record badge
 				container.insertBefore(srsBadgeEl, badgeEl.nextSibling);
-
-				console.log('[RecordBadge] SRS preview badge added');
 			});
 		}
 	});

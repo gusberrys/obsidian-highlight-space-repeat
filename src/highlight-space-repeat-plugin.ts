@@ -4,12 +4,11 @@ import { SettingTab } from 'src/settings/setting-tab';
 import { readerHighlighter, addRecordBadgesToReadingView, addGoalStatusBadges } from './reader-extension';
 import { createInsertKeywordCommand, createInsertSubKeywordCommand } from './commands';
 import { initStore, saveStore, type PluginSettings, type Settings } from './stores/settings-store';
-import { DATA_PATHS, type AuxiliaryKeyword, type AuxiliaryCategory, type CodeBlockLanguage, type SubjectsData } from './shared';
+import { DATA_PATHS, type CodeBlockLanguage, type SubjectsData, type VWordSettings } from './shared';
 import type { HighlightSpaceRepeatAPI } from './public-api';
-import { AuxiliaryKeywordSuggest } from './auxiliary-keyword-suggest';
+import { CombinedKeywordSuggest } from './combined-keyword-suggest';
 import { SubKeywordSuggest } from './subkeyword-suggest';
 import { KHMatrixWidget, KH_MATRIX_VIEW_TYPE } from './widgets/KHMatrixWidget';
-import { DashboardView, DASHBOARD_VIEW_TYPE } from './widgets/DashboardView';
 import { PinnedView, PINNED_VIEW_TYPE } from './widgets/PinnedView';
 import { SRSReviewView, SRS_REVIEW_VIEW_TYPE } from './widgets/SRSReviewView';
 import { SubjectDashboardView, SUBJECT_DASHBOARD_VIEW_TYPE } from './widgets/SubjectDashboardView';
@@ -185,8 +184,8 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     this.registerMarkdownPostProcessor((el, ctx) => addGoalStatusBadges(el, ctx, this, this.app));
     this.registerMarkdownPostProcessor((el, ctx) => renderSubjectDashboard(el, ctx, this));
 
-    // Register auxiliary keyword suggest (triggers on :::)
-    this.registerEditorSuggest(new AuxiliaryKeywordSuggest(this.app));
+    // Register combined keyword suggest (triggers on :::)
+    this.registerEditorSuggest(new CombinedKeywordSuggest(this.app));
 
     // Register subkeyword suggest (triggers on //)
     this.registerEditorSuggest(new SubKeywordSuggest(this.app));
@@ -195,12 +194,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     this.registerView(
       KH_MATRIX_VIEW_TYPE,
       (leaf) => new KHMatrixWidget(leaf, this)
-    );
-
-    // Register Dashboard View
-    this.registerView(
-      DASHBOARD_VIEW_TYPE,
-      (leaf) => new DashboardView(leaf, this)
     );
 
     // Register Pinned View
@@ -249,14 +242,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     });
 
     // Add command to open Dashboard
-    this.addCommand({
-      id: 'open-kh-dashboard',
-      name: 'Open Dashboard',
-      callback: () => {
-        this.activateDashboardView();
-      }
-    });
-
     // Add command to open Pinned View
     this.addCommand({
       id: 'open-kh-pinned',
@@ -272,6 +257,21 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       name: 'Open Subject Dashboard',
       callback: () => {
         this.activateSubjectDashboardView();
+      }
+    });
+
+    // Add command to toggle collapse/expand all in Subject Dashboard
+    this.addCommand({
+      id: 'dashboard-toggle-collapse-all',
+      name: 'Dashboard: Toggle Collapse/Expand All',
+      callback: () => {
+        const leaves = this.app.workspace.getLeavesOfType(SUBJECT_DASHBOARD_VIEW_TYPE);
+        if (leaves.length > 0) {
+          const dashboardView = leaves[0].view as SubjectDashboardView;
+          if (dashboardView && 'toggleAllFiles' in dashboardView) {
+            dashboardView.toggleAllFiles();
+          }
+        }
       }
     });
 
@@ -306,6 +306,41 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       }
     });
 
+    // Add command to review current file
+    this.addCommand({
+      id: 'srs-review-current-file',
+      name: 'SRS: Review Current File',
+      callback: async () => {
+        const activeFile = this.app.workspace.getActiveFile();
+        if (!activeFile) {
+          new Notice('No active file');
+          return;
+        }
+
+        // Get all cards for this file
+        const allFileCards = this.srsManager.getCardsForFile(activeFile.path);
+        if (allFileCards.length === 0) {
+          new Notice('No SRS cards found in this file. Mark keywords as SPACED and rescan.');
+          return;
+        }
+
+        // Filter for due cards only
+        const now = new Date();
+        const dueCards = allFileCards.filter(card => {
+          const nextReview = new Date(card.nextReviewDate);
+          return nextReview <= now;
+        });
+
+        if (dueCards.length === 0) {
+          new Notice(`No cards due in this file. Total cards: ${allFileCards.length}`);
+          return;
+        }
+
+        // Start review session with due cards only
+        await this.activateSRSReviewView(dueCards);
+      }
+    });
+
     // Add command to rescan knowledge base
     this.addCommand({
       id: 'rescan-knowledge-base',
@@ -322,6 +357,37 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       new Notice('Rescanning knowledge base...');
       await this.triggerScan();
       new Notice('Knowledge base rescan complete!');
+    });
+
+    // Add ribbon icon for SRS review of current file
+    this.addRibbonIcon('graduation-cap', 'SRS: Review Current File', async () => {
+      const activeFile = this.app.workspace.getActiveFile();
+      if (!activeFile) {
+        new Notice('No active file');
+        return;
+      }
+
+      // Get all cards for this file
+      const allFileCards = this.srsManager.getCardsForFile(activeFile.path);
+      if (allFileCards.length === 0) {
+        new Notice('No SRS cards found in this file. Mark keywords as SPACED and rescan.');
+        return;
+      }
+
+      // Filter for due cards only
+      const now = new Date();
+      const dueCards = allFileCards.filter(card => {
+        const nextReview = new Date(card.nextReviewDate);
+        return nextReview <= now;
+      });
+
+      if (dueCards.length === 0) {
+        new Notice(`No cards due in this file. Total cards: ${allFileCards.length}`);
+        return;
+      }
+
+      // Start review session with due cards only
+      await this.activateSRSReviewView(dueCards);
     });
 
     const settingTab = new SettingTab(this.app, this);
@@ -353,32 +419,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       if (leaf) {
         await leaf.setViewState({
           type: KH_MATRIX_VIEW_TYPE,
-          active: true,
-        });
-      }
-    }
-
-    // Reveal the leaf
-    if (leaf) {
-      workspace.revealLeaf(leaf);
-    }
-  }
-
-  async activateDashboardView() {
-    const { workspace } = this.app;
-
-    let leaf: WorkspaceLeaf | null = null;
-    const leaves = workspace.getLeavesOfType(DASHBOARD_VIEW_TYPE);
-
-    if (leaves.length > 0) {
-      // View already exists, reveal it
-      leaf = leaves[0];
-    } else {
-      // Create new view in main area (active leaf)
-      leaf = workspace.getLeaf(false);
-      if (leaf) {
-        await leaf.setViewState({
-          type: DASHBOARD_VIEW_TYPE,
           active: true,
         });
       }
@@ -514,6 +554,7 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       // Refresh views if open
       this.refreshPinnedView();
       this.refreshSubjectDashboard();
+      await this.refreshMatrixWidget();
       return;
     }
 
@@ -522,8 +563,8 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     const { get } = await import('svelte/store');
     const { settingsStore } = await import('./stores/settings-store');
 
-    const recordParser = new RecordParser(this.app);
     const settings = get(settingsStore);
+    const recordParser = new RecordParser(this.app, settings.parserSettings);
 
     // Get keywords that should be parsed (PARSED or SPACED status)
     const keywordsToParse: string[] = [];
@@ -588,6 +629,7 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     // Refresh views if open
     this.refreshPinnedView();
     this.refreshSubjectDashboard();
+    this.refreshMatrixWidget();
   }
 
   /**
@@ -615,6 +657,20 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       if (dashboardView && 'render' in dashboardView && typeof (dashboardView as any).render === 'function') {
         (dashboardView as any).render();
         console.log('[Knowledge Base Rescan] Refreshed Subject Dashboard View');
+      }
+    }
+  }
+
+  /**
+   * Refresh Matrix Widget if it's currently open
+   */
+  private async refreshMatrixWidget(): Promise<void> {
+    const leaves = this.app.workspace.getLeavesOfType(KH_MATRIX_VIEW_TYPE);
+    if (leaves.length > 0) {
+      const matrixWidget = leaves[0].view as KHMatrixWidget;
+      if (matrixWidget && 'recalculateMatrixCounts' in matrixWidget && typeof (matrixWidget as any).recalculateMatrixCounts === 'function') {
+        await (matrixWidget as any).recalculateMatrixCounts();
+        console.log('[Knowledge Base Rescan] Refreshed Matrix Widget counts');
       }
     }
   }
@@ -651,22 +707,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     await this.app.vault.adapter.write(DATA_PATHS.SETTINGS, JSON.stringify(data, null, 2));
   }
 
-  // Load auxiliary keywords from auxiliary-keywords.json
-  async loadAuxiliaryKeywords(): Promise<AuxiliaryCategory[] | null> {
-    try {
-      const data = await this.app.vault.adapter.read(DATA_PATHS.AUXILIARY_KEYWORDS);
-      return JSON.parse(data);
-    } catch (error) {
-      console.log('[Plugin] No auxiliary keywords file found, using defaults');
-      return null;
-    }
-  }
-
-  // Save auxiliary keywords to auxiliary-keywords.json
-  async saveAuxiliaryKeywords(data: AuxiliaryCategory[]): Promise<void> {
-    await this.app.vault.adapter.write(DATA_PATHS.AUXILIARY_KEYWORDS, JSON.stringify(data, null, 2));
-  }
-
   // Load code blocks from codeblocks.json
   async loadCodeBlocks(): Promise<CodeBlockLanguage[] | null> {
     try {
@@ -683,6 +723,21 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     await this.app.vault.adapter.write(DATA_PATHS.CODEBLOCKS, JSON.stringify(data, null, 2));
   }
 
+  // Load VWord settings from vword-settings.json
+  async loadVWordSettings(): Promise<VWordSettings | null> {
+    try {
+      const data = await this.app.vault.adapter.read(DATA_PATHS.VWORD_SETTINGS);
+      return JSON.parse(data);
+    } catch (error) {
+      console.log('[Plugin] No VWord settings file found, using defaults');
+      return null;
+    }
+  }
+
+  // Save VWord settings to vword-settings.json
+  async saveVWordSettings(data: VWordSettings): Promise<void> {
+    await this.app.vault.adapter.write(DATA_PATHS.VWORD_SETTINGS, JSON.stringify(data, null, 2));
+  }
 
   // Load subjects and topics from subjects.json
   async loadSubjects(): Promise<SubjectsData | null> {
@@ -697,9 +752,15 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
 
   // Save subjects and topics to subjects.json
   async saveSubjects(data: SubjectsData): Promise<void> {
+    // Count topics from nested structure
+    let topicsCount = 0;
+    data.subjects.forEach(s => {
+      topicsCount += (s.primaryTopics?.length || 0) + (s.secondaryTopics?.length || 0);
+    });
+
     console.log('[Plugin.saveSubjects] Writing to file:', DATA_PATHS.SUBJECTS, {
       subjectsCount: data.subjects.length,
-      topicsCount: data.topics.length
+      topicsCount
     });
     await this.app.vault.adapter.write(DATA_PATHS.SUBJECTS, JSON.stringify(data, null, 2));
     console.log('[Plugin.saveSubjects] Write completed successfully');
