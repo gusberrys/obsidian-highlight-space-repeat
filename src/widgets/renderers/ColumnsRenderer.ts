@@ -17,7 +17,7 @@ export class ColumnsRenderer {
 
 	// Callbacks for widget functionality
 	private onFileClick: (filePath: string) => Promise<void>;
-	private onCountClick: (type: 'F' | 'H' | 'R', cellKey: string) => void;
+	private onCountClick: (type: 'F' | 'H' | 'R' | 'D', cellKey: string) => void;
 
 	constructor(
 		subject: Subject,
@@ -26,7 +26,7 @@ export class ColumnsRenderer {
 		selectedRowId: string | null,
 		callbacks: {
 			onFileClick: (filePath: string) => Promise<void>;
-			onCountClick: (type: 'F' | 'H' | 'R', cellKey: string) => void;
+			onCountClick: (type: 'F' | 'H' | 'R' | 'D', cellKey: string) => void;
 		}
 	) {
 		this.subject = subject;

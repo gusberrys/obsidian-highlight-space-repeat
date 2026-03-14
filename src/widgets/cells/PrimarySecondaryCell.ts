@@ -57,12 +57,21 @@ export class PrimarySecondaryCell extends MatrixCell {
 		return FilterExpressionService.getMatchingRecords(allRecords, expr, this.primaryTopic, this.subject, includesSubjectTag);
 	}
 
+	protected doCollectDashRecords(allRecords: ParsedFile[]): Array<{ entry: FlatEntry; file: ParsedFile }> {
+		// Intersection cells don't have dashboard filter
+		return [];
+	}
+
 	shouldShowFiles(): boolean {
 		return !this.primaryTopic.fhDisabled && !this.secondaryTopic.fhDisabled;
 	}
 
 	shouldShowHeaders(): boolean {
 		return !this.primaryTopic.fhDisabled && !this.secondaryTopic.fhDisabled;
+	}
+
+	shouldShowDashRecords(): boolean {
+		return false;
 	}
 
 	getFilterExpression(): string {

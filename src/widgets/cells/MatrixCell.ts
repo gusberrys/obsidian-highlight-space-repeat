@@ -28,6 +28,7 @@ export abstract class MatrixCell {
 	private cachedFiles?: ParsedFile[];
 	private cachedHeaders?: Map<string, HeaderGroup>;
 	private cachedRecords?: Array<{ entry: FlatEntry; file: ParsedFile }>;
+	private cachedDashRecords?: Array<{ entry: FlatEntry; file: ParsedFile }>;
 
 	constructor(
 		subject: Subject,
@@ -93,12 +94,33 @@ export abstract class MatrixCell {
 		return this.collectRecords(allRecords).length;
 	}
 
+	/**
+	 * SINGLE source of truth for dashboard records
+	 * Both counting and rendering use this
+	 * Only applies to primary topics with dashOnlyFilterExpSide
+	 */
+	collectDashRecords(allRecords: ParsedFile[]): Array<{ entry: FlatEntry; file: ParsedFile }> {
+		if (this.cachedDashRecords) return this.cachedDashRecords;
+
+		this.cachedDashRecords = this.doCollectDashRecords(allRecords);
+		return this.cachedDashRecords;
+	}
+
+	/**
+	 * Count dashboard records - just returns collected dashboard records length
+	 */
+	countDashRecords(allRecords: ParsedFile[]): number {
+		return this.collectDashRecords(allRecords).length;
+	}
+
 	// Abstract methods - each subclass must implement
 	protected abstract doCollectFiles(allRecords: ParsedFile[]): ParsedFile[];
 	protected abstract doCollectHeaders(allRecords: ParsedFile[]): Map<string, HeaderGroup>;
 	protected abstract doCollectRecords(allRecords: ParsedFile[]): Array<{ entry: FlatEntry; file: ParsedFile }>;
+	protected abstract doCollectDashRecords(allRecords: ParsedFile[]): Array<{ entry: FlatEntry; file: ParsedFile }>;
 
 	abstract shouldShowFiles(): boolean;
 	abstract shouldShowHeaders(): boolean;
+	abstract shouldShowDashRecords(): boolean;
 	abstract getFilterExpression(): string;
 }

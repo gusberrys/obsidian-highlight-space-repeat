@@ -45,12 +45,21 @@ export class SecondaryHeaderCell extends MatrixCell {
 		return FilterExpressionService.getMatchingRecords(allRecords, expr, null, this.subject, false);
 	}
 
+	protected doCollectDashRecords(allRecords: ParsedFile[]): Array<{ entry: FlatEntry; file: ParsedFile }> {
+		// Secondary topic cells don't have dashboard filter
+		return [];
+	}
+
 	shouldShowFiles(): boolean {
 		return !this.secondaryTopic.fhDisabled;
 	}
 
 	shouldShowHeaders(): boolean {
 		return !this.secondaryTopic.fhDisabled;
+	}
+
+	shouldShowDashRecords(): boolean {
+		return false;
 	}
 
 	getFilterExpression(): string {

@@ -18,6 +18,7 @@ import { renderSubjectDashboard } from './reader/subject-dashboard';
 
 export class HighlightSpaceRepeatPlugin extends Plugin {
   static settings: PluginSettings;
+  static currentSubject: any = null; // Global selected subject for matrix/commands/ribbon
 
   // Track registered subject selection command IDs for cleanup
   private subjectCommandIds: string[] = [];
@@ -352,6 +353,47 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       }
     });
 
+    // Add command to edit current subject
+    this.addCommand({
+      id: 'edit-current-subject',
+      name: 'Edit Current Subject',
+      callback: () => {
+        if (!HighlightSpaceRepeatPlugin.currentSubject) {
+          new Notice('No subject selected. Open matrix view and select a subject first.');
+          return;
+        }
+
+        // Find matrix view to call openSubjectEditor
+        const leaves = this.app.workspace.getLeavesOfType(KH_MATRIX_VIEW_TYPE);
+        if (leaves.length > 0) {
+          const matrixView = leaves[0].view as KHMatrixWidget;
+          if (matrixView && 'openSubjectEditor' in matrixView) {
+            (matrixView as any).openSubjectEditor();
+          }
+        } else {
+          new Notice('Matrix view not open. Open it first to edit subjects.');
+        }
+      }
+    });
+
+    // Add command to start SRS review of filtered records
+    this.addCommand({
+      id: 'srs-review-filtered',
+      name: 'SRS: Review Filtered Records',
+      callback: async () => {
+        // Find matrix view to call startSRSReview
+        const leaves = this.app.workspace.getLeavesOfType(KH_MATRIX_VIEW_TYPE);
+        if (leaves.length > 0) {
+          const matrixView = leaves[0].view as KHMatrixWidget;
+          if (matrixView && 'startSRSReview' in matrixView) {
+            await (matrixView as any).startSRSReview();
+          }
+        } else {
+          new Notice('Matrix view not open. Open it first to use filtered SRS review.');
+        }
+      }
+    });
+
     // Add ribbon icon for knowledge base rescan
     this.addRibbonIcon('refresh-cw', 'Knowledge Base Rescan', async () => {
       new Notice('Rescanning knowledge base...');
@@ -388,6 +430,39 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
 
       // Start review session with due cards only
       await this.activateSRSReviewView(dueCards);
+    });
+
+    // Add ribbon icon for editing current subject
+    this.addRibbonIcon('settings', 'Edit Current Subject', () => {
+      if (!HighlightSpaceRepeatPlugin.currentSubject) {
+        new Notice('No subject selected. Open matrix view and select a subject first.');
+        return;
+      }
+
+      // Find matrix view to call openSubjectEditor
+      const leaves = this.app.workspace.getLeavesOfType(KH_MATRIX_VIEW_TYPE);
+      if (leaves.length > 0) {
+        const matrixView = leaves[0].view as KHMatrixWidget;
+        if (matrixView && 'openSubjectEditor' in matrixView) {
+          (matrixView as any).openSubjectEditor();
+        }
+      } else {
+        new Notice('Matrix view not open. Open it first to edit subjects.');
+      }
+    });
+
+    // Add ribbon icon for SRS review of filtered records
+    this.addRibbonIcon('brain', 'SRS: Review Filtered Records', async () => {
+      // Find matrix view to call startSRSReview
+      const leaves = this.app.workspace.getLeavesOfType(KH_MATRIX_VIEW_TYPE);
+      if (leaves.length > 0) {
+        const matrixView = leaves[0].view as KHMatrixWidget;
+        if (matrixView && 'startSRSReview' in matrixView) {
+          await (matrixView as any).startSRSReview();
+        }
+      } else {
+        new Notice('Matrix view not open. Open it first to use filtered SRS review.');
+      }
     });
 
     const settingTab = new SettingTab(this.app, this);

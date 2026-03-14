@@ -85,12 +85,21 @@ export class PrimaryPrimaryCell extends MatrixCell {
 		return records;
 	}
 
+	protected doCollectDashRecords(allRecords: ParsedFile[]): Array<{ entry: FlatEntry; file: ParsedFile }> {
+		// PRIMARY×PRIMARY cells don't have dashboard filter
+		return [];
+	}
+
 	shouldShowFiles(): boolean {
 		return true;
 	}
 
 	shouldShowHeaders(): boolean {
 		return true;
+	}
+
+	shouldShowDashRecords(): boolean {
+		return false;
 	}
 
 	getFilterExpression(): string {

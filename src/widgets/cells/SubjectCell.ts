@@ -50,12 +50,21 @@ export class SubjectCell extends MatrixCell {
 		return FilterExpressionService.getMatchingRecords(allRecords, expr, null, this.subject, false);
 	}
 
+	protected doCollectDashRecords(allRecords: ParsedFile[]): Array<{ entry: FlatEntry; file: ParsedFile }> {
+		// Subject cell doesn't have dashboard filter
+		return [];
+	}
+
 	shouldShowFiles(): boolean {
 		return true;
 	}
 
 	shouldShowHeaders(): boolean {
 		return true;
+	}
+
+	shouldShowDashRecords(): boolean {
+		return false;
 	}
 
 	getFilterExpression(): string {

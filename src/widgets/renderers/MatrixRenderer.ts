@@ -10,29 +10,35 @@ import { renderFHRCountLinkBadges } from './render-helpers';
  */
 export class MatrixRenderer {
 	private subject: Subject;
+	private subjects: Subject[];
 	private cellInstances: Map<string, MatrixCell>;
 	private parsedRecords: ParsedFile[];
 
 	// Callbacks for widget functionality
 	private onCellClick: (cellKey: string, cellType: 'subject' | 'primary' | 'secondary' | 'intersection', event: MouseEvent) => void;
-	private onCountClick: (type: 'F' | 'H' | 'R', cellKey: string) => void;
+	private onCountClick: (type: 'F' | 'H' | 'R' | 'D', cellKey: string) => void;
+	private onSubjectChange: (subjectId: string) => void;
 	private computeCellExpressions: (subject: Subject, secondaryTopic: Topic | null, primaryTopic: Topic | null, includesSubjectTag: boolean) => any;
 
 	constructor(
 		subject: Subject,
+		subjects: Subject[],
 		cellInstances: Map<string, MatrixCell>,
 		parsedRecords: ParsedFile[],
 		callbacks: {
 			onCellClick: (cellKey: string, cellType: 'subject' | 'primary' | 'secondary' | 'intersection', event: MouseEvent) => void;
-			onCountClick: (type: 'F' | 'H' | 'R', cellKey: string) => void;
+			onCountClick: (type: 'F' | 'H' | 'R' | 'D', cellKey: string) => void;
+			onSubjectChange: (subjectId: string) => void;
 			computeCellExpressions: (subject: Subject, secondaryTopic: Topic | null, primaryTopic: Topic | null, includesSubjectTag: boolean) => any;
 		}
 	) {
 		this.subject = subject;
+		this.subjects = subjects;
 		this.cellInstances = cellInstances;
 		this.parsedRecords = parsedRecords;
 		this.onCellClick = callbacks.onCellClick;
 		this.onCountClick = callbacks.onCountClick;
+		this.onSubjectChange = callbacks.onSubjectChange;
 		this.computeCellExpressions = callbacks.computeCellExpressions;
 	}
 
@@ -111,27 +117,48 @@ export class MatrixRenderer {
 	}
 
 	/**
-	 * Render subject header cell (1x1)
+	 * Render subject header cell (1x1) with mini subject selector
 	 */
 	private renderSubjectHeaderCell(headerRow: HTMLTableRowElement): void {
 		const cellKey = '1x1';
-		const cell = headerRow.createEl('th', { cls: 'kh-matrix-cell kh-matrix-header-cell' });
+		const cell = headerRow.createEl('th', { cls: 'kh-matrix-cell kh-matrix-header-cell kh-matrix-subject-cell' });
 
-		cell.textContent = this.subject.icon || '📁';
-		const tooltipText = `Click: Open subject column\n\nSubject: ${this.subject.name}`;
-		cell.setAttribute('title', tooltipText);
+		// Create mini subject selector container
+		const selectorDiv = cell.createDiv({ cls: 'kh-matrix-mini-selector' });
+
+		// Button with current subject icon (clickable to toggle column)
+		const iconBtn = selectorDiv.createEl('button', {
+			text: this.subject.icon || '📁',
+			cls: 'kh-matrix-subject-icon',
+			title: `Click: Open subject column\n\nSubject: ${this.subject.name}`
+		});
+		iconBtn.addEventListener('click', (e) => {
+			e.stopPropagation();
+			this.onCellClick(cellKey, 'subject', e);
+		});
+
+		// Compact dropdown (just the arrow, no text)
+		const select = selectorDiv.createEl('select', { cls: 'kh-matrix-subject-dropdown' });
+		this.subjects.forEach(subject => {
+			const option = select.createEl('option', {
+				text: `${subject.icon || '📁'} ${subject.name}`,
+				value: subject.id
+			});
+			if (subject.id === this.subject.id) {
+				option.selected = true;
+			}
+		});
+		select.addEventListener('change', (e) => {
+			e.stopPropagation();
+			const selectedId = (e.target as HTMLSelectElement).value;
+			this.onSubjectChange(selectedId);
+		});
 
 		// Add counts
 		const cellInstance = this.cellInstances.get(cellKey);
 		if (cellInstance) {
 			renderFHRCountLinkBadges(cell, cellInstance, cellKey, this.parsedRecords, this.onCountClick);
 		}
-
-		// Click handler - show subject columns
-		cell.style.cursor = 'pointer';
-		cell.addEventListener('click', (e) => {
-			this.onCellClick(cellKey, 'subject', e);
-		});
 	}
 
 	/**

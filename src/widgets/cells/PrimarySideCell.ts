@@ -63,6 +63,14 @@ export class PrimarySideCell extends MatrixCell {
 		return FilterExpressionService.getMatchingRecords(allRecords, expr, this.primaryTopic, this.subject, andMode);
 	}
 
+	protected doCollectDashRecords(allRecords: ParsedFile[]): Array<{ entry: FlatEntry; file: ParsedFile }> {
+		const expr = this.getDashFilterExpression();
+		if (!expr) return [];
+
+		const andMode = this.primaryTopic.andMode || false;
+		return FilterExpressionService.getMatchingRecords(allRecords, expr, this.primaryTopic, this.subject, andMode);
+	}
+
 	shouldShowFiles(): boolean {
 		return true;
 	}
@@ -71,7 +79,15 @@ export class PrimarySideCell extends MatrixCell {
 		return true;
 	}
 
+	shouldShowDashRecords(): boolean {
+		return !!this.primaryTopic.dashOnlyFilterExpSide;
+	}
+
 	getFilterExpression(): string {
 		return this.primaryTopic.matrixOnlyFilterExpSide || '';
+	}
+
+	getDashFilterExpression(): string {
+		return this.primaryTopic.dashOnlyFilterExpSide || '';
 	}
 }

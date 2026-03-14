@@ -27,8 +27,8 @@ export class KHMatrixWidget extends ItemView {
 	private cellInstances: Map<string, MatrixCell> = new Map();
 
 	// Widget filter state
-	private widgetFilterType: 'F' | 'H' | 'R' | null = null;
-	private widgetFilterCell: MatrixCell | null = null; // Cell-based filter (from clicking F/H/R counts)
+	private widgetFilterType: 'F' | 'H' | 'R' | 'D' | null = null;
+	private widgetFilterCell: MatrixCell | null = null; // Cell-based filter (from clicking F/H/R/D counts)
 	private widgetFilterExpression: string = ''; // Manual text filter expression (from typing in text box)
 	private widgetFilterText: string = ''; // Text filter for entries (file name, aliases, keywords, content)
 	private collapsedFiles: Set<string> = new Set(); // Track collapsed file groups in widget filter
@@ -84,6 +84,8 @@ export class KHMatrixWidget extends ItemView {
 		const subject = this.subjects.find(s => s.id === subjectId);
 		if (subject) {
 			this.currentSubject = subject;
+			// Sync global subject
+			HighlightSpaceRepeatPlugin.currentSubject = this.currentSubject;
 			// Just recalculate matrix for new subject (don't trigger full rescan)
 			await this.recalculateMatrixCounts();
 		} else {
@@ -104,6 +106,9 @@ export class KHMatrixWidget extends ItemView {
 				// No subject selected, default to first
 				this.currentSubject = this.subjects[0];
 			}
+
+			// Sync global subject
+			HighlightSpaceRepeatPlugin.currentSubject = this.currentSubject;
 
 			this.render();
 		});
@@ -164,13 +169,10 @@ export class KHMatrixWidget extends ItemView {
 	}
 
 	/**
-	 * PART 1: Render matrix header (subject selector + chips/flags)
+	 * PART 1: Render matrix header (chips/flags only)
 	 */
 	private renderMatrixHeader(container: HTMLElement): void {
 		const renderer = new HeaderRenderer(
-			this.subjects,
-			this.currentSubject,
-			this.widgetFilterExpression,
 			{
 				activeChips: this.activeChips,
 				trimSubItems: this.trimSubItems,
@@ -179,38 +181,10 @@ export class KHMatrixWidget extends ItemView {
 				showLegend: this.showLegend
 			},
 			{
-				onSubjectIconClick: () => {
-					this.toggleSubjectColumn();
-				},
-				onSubjectChange: async (subjectId: string) => {
-					this.currentSubject = this.subjects.find(s => s.id === subjectId) || null;
-					if (this.currentSubject) {
-						await this.recalculateMatrixCounts();
-					} else {
-						this.render();
-					}
-				},
-				onFilterSearch: (expression: string) => {
-					this.widgetFilterExpression = expression;
-					this.widgetFilterType = 'R'; // Default to Record filter
-					this.widgetFilterCell = null; // Manual expression, not cell-based
-					this.render();
-				},
-				onFilterInput: (expression: string) => {
-					this.widgetFilterExpression = expression;
-					this.syncButtonsFromExpression();
-				},
-				onEditClick: () => {
-					this.openSubjectEditor();
-				},
-				onSRSClick: async () => {
-					await this.startSRSReview();
-				},
 				onTrimToggle: () => {
 					this.trimSubItems = !this.trimSubItems;
 					this.toggleFilterModifier('\\s', this.trimSubItems);
 					this.render();
-
 				},
 				onTopToggle: () => {
 					this.topRecordOnly = !this.topRecordOnly;
@@ -228,12 +202,9 @@ export class KHMatrixWidget extends ItemView {
 				},
 				onChipClick: (chipId: string) => {
 					// Chip click functionality handled via active chips
-				},
-				updateSRSButtonTooltip: (button: HTMLElement) => {
-					this.updateSRSButtonTooltip(button);
 				}
-		}
-	);
+			}
+		);
 
 		renderer.render(container);
 	}
@@ -262,7 +233,7 @@ export class KHMatrixWidget extends ItemView {
 			},
 			{
 				activeChips: this.activeChips,
-					trimSubItems: this.trimSubItems,
+				trimSubItems: this.trimSubItems,
 				topRecordOnly: this.topRecordOnly,
 				showAll: this.showAll
 			},
@@ -274,6 +245,35 @@ export class KHMatrixWidget extends ItemView {
 				onFilterTextChange: (text: string) => {
 					this.widgetFilterText = text;
 					this.renderRecordsOnly();
+				},
+				onExpressionSearch: (expression: string) => {
+					this.widgetFilterExpression = expression;
+					this.widgetFilterType = 'R'; // Default to Record filter
+					this.widgetFilterCell = null; // Manual expression, not cell-based
+					this.render();
+				},
+				onExpressionInput: (expression: string) => {
+					this.widgetFilterExpression = expression;
+					this.syncButtonsFromExpression();
+				},
+				onTrimToggle: () => {
+					this.trimSubItems = !this.trimSubItems;
+					this.toggleFilterModifier('\\s', this.trimSubItems);
+					this.render();
+				},
+				onTopToggle: () => {
+					this.topRecordOnly = !this.topRecordOnly;
+					this.toggleFilterModifier('\\t', this.topRecordOnly);
+					this.render();
+				},
+				onShowAllToggle: () => {
+					this.showAll = !this.showAll;
+					this.toggleFilterModifier('\\a', this.showAll);
+					this.render();
+				},
+				onLegendToggle: () => {
+					this.showLegend = !this.showLegend;
+					this.render();
 				}
 			}
 		);
@@ -492,7 +492,7 @@ export class KHMatrixWidget extends ItemView {
 	/**
 	 * Open subject editor modal
 	 */
-	private openSubjectEditor(): void {
+	public openSubjectEditor(): void {
 		if (!this.currentSubject) return;
 
 		const modal = new SubjectModal(
@@ -590,6 +590,7 @@ export class KHMatrixWidget extends ItemView {
 
 		const renderer = new MatrixRenderer(
 			this.currentSubject,
+			this.subjects,
 			this.cellInstances,
 			parsedRecords,
 			{
@@ -601,13 +602,23 @@ export class KHMatrixWidget extends ItemView {
 					}
 					// Secondary and intersection cells don't toggle columns (icon clicks only)
 				},
-				onCountClick: (type: 'F' | 'H' | 'R', cellKey: string) => {
+				onCountClick: (type: 'F' | 'H' | 'R' | 'D', cellKey: string) => {
 					const cellInstance = this.cellInstances.get(cellKey);
 					if (!cellInstance) return;
 
 					this.widgetFilterType = type;
 					this.widgetFilterCell = cellInstance;
 					this.renderRecordsOnly();
+				},
+				onSubjectChange: async (subjectId: string) => {
+					this.currentSubject = this.subjects.find(s => s.id === subjectId) || null;
+					// Sync global subject
+					HighlightSpaceRepeatPlugin.currentSubject = this.currentSubject;
+					if (this.currentSubject) {
+						await this.recalculateMatrixCounts();
+					} else {
+						this.render();
+					}
 				},
 				computeCellExpressions: this.computeCellExpressions.bind(this),
 			}
@@ -637,7 +648,7 @@ export class KHMatrixWidget extends ItemView {
 						await this.app.workspace.getLeaf(false).openFile(file);
 					}
 				},
-				onCountClick: (type: 'F' | 'H' | 'R', cellKey: string) => {
+				onCountClick: (type: 'F' | 'H' | 'R' | 'D', cellKey: string) => {
 					const cellInstance = this.cellInstances.get(cellKey);
 					if (!cellInstance) return;
 
@@ -896,7 +907,7 @@ export class KHMatrixWidget extends ItemView {
 	 * Start SRS review session for filtered records
 	 * IMPORTANT: Respects filter flags (\s trim, \t top-only, \a show-all)
 	 */
-	private async startSRSReview(): Promise<void> {
+	public async startSRSReview(): Promise<void> {
 		// Get current filter expression
 		const filterExpr = this.getCurrentFilterExpression();
 
