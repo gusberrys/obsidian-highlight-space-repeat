@@ -116,7 +116,6 @@ export class MatrixRenderer {
 	private renderSubjectHeaderCell(headerRow: HTMLTableRowElement): void {
 		const cellKey = '1x1';
 		const cell = headerRow.createEl('th', { cls: 'kh-matrix-cell kh-matrix-header-cell' });
-		const cellData = this.subject.matrix?.cells[cellKey];
 
 		cell.textContent = this.subject.icon || '📁';
 		const tooltipText = `Click: Open subject column\n\nSubject: ${this.subject.name}`;
@@ -126,12 +125,6 @@ export class MatrixRenderer {
 		const cellInstance = this.cellInstances.get(cellKey);
 		if (cellInstance) {
 			renderFHRCountLinkBadges(cell, cellInstance, cellKey, this.parsedRecords, this.onCountClick);
-		}
-
-		// Set background color
-		const bgColor = this.getCellBackgroundColor(null, null);
-		if (bgColor) {
-			cell.style.backgroundColor = bgColor;
 		}
 
 		// Click handler - show subject columns
@@ -147,7 +140,6 @@ export class MatrixRenderer {
 	private renderSecondaryHeaderCell(headerRow: HTMLTableRowElement, topic: Topic, col: number): void {
 		const cellKey = `1x${col}`;
 		const cell = headerRow.createEl('th', { cls: 'kh-matrix-cell kh-matrix-header-cell' });
-		const cellData = this.subject.matrix?.cells[cellKey];
 		const andMode = topic.andMode || false;
 
 		// Apply AND mode styling
@@ -183,12 +175,6 @@ export class MatrixRenderer {
 		const cellInstance = this.cellInstances.get(cellKey);
 		if (cellInstance) {
 			renderFHRCountLinkBadges(cell, cellInstance, cellKey, this.parsedRecords, this.onCountClick);
-		}
-
-		// Set background color
-		const bgColor = this.getCellBackgroundColor(topic, null);
-		if (bgColor) {
-			cell.style.backgroundColor = bgColor;
 		}
 	}
 
@@ -229,7 +215,6 @@ export class MatrixRenderer {
 	private renderPrimaryRowHeader(row: HTMLTableRowElement, primaryTopic: Topic, rowNum: number): void {
 		const cellKey = `${rowNum}x1`;
 		const rowHeaderCell = row.createEl('th', { cls: 'kh-matrix-cell kh-matrix-row-header-cell' });
-		const cellData = this.subject.matrix?.cells[cellKey];
 		const andMode = primaryTopic.andMode || false;
 
 		// Apply AND mode styling
@@ -261,12 +246,6 @@ export class MatrixRenderer {
 			renderFHRCountLinkBadges(rowHeaderCell, cellInstance, cellKey, this.parsedRecords, this.onCountClick);
 		}
 
-		// Set background color
-		const bgColor = this.getCellBackgroundColor(null, primaryTopic);
-		if (bgColor) {
-			rowHeaderCell.style.backgroundColor = bgColor;
-		}
-
 		// Click handler
 		rowHeaderCell.style.cursor = 'pointer';
 		rowHeaderCell.title = `Click: Open column | Cmd+Click: Open dashboard\n\n${rowHeaderCell.title}`;
@@ -288,7 +267,6 @@ export class MatrixRenderer {
 		const intersectionKey = `${rowNum}x${col}`;
 		const cell = row.createEl('td', { cls: 'kh-matrix-cell kh-matrix-data-cell' });
 		const andMode = primaryTopic.andMode || false;
-		const cellData = this.subject.matrix?.cells[intersectionKey];
 
 		// Apply AND mode styling
 		if (andMode) {
@@ -305,7 +283,7 @@ export class MatrixRenderer {
 			cell.classList.add('kb-matrix-fh-disabled');
 		}
 
-		cell.textContent = cellData?.icon || '·';
+		cell.textContent = '·';
 
 		// Set tooltip
 		const includesSubjectTag = andMode;
@@ -323,12 +301,6 @@ export class MatrixRenderer {
 		const cellInstance = this.cellInstances.get(intersectionKey);
 		if (cellInstance) {
 			renderFHRCountLinkBadges(cell, cellInstance, intersectionKey, this.parsedRecords, this.onCountClick);
-		}
-
-		// Set background color
-		const bgColor = this.getCellBackgroundColor(secondaryTopic, primaryTopic);
-		if (bgColor) {
-			cell.style.backgroundColor = bgColor;
 		}
 	}
 
@@ -361,7 +333,6 @@ export class MatrixRenderer {
 					cell.classList.add('kh-matrix-and-mode-row');
 				}
 
-				const cellData = this.subject.matrix?.cells[intersectionKey];
 				const includesSubjectTag = andMode;
 
 				if (this.hasLimitedCollection(secondaryTopic, primaryTopic)) {
@@ -372,7 +343,7 @@ export class MatrixRenderer {
 					cell.classList.add('kb-matrix-fh-disabled');
 				}
 
-				const displayIcon = cellData?.icon || secondaryTopic.icon || '·';
+				const displayIcon = secondaryTopic.icon || '·';
 				const iconSpan = cell.createEl('span', { cls: 'kh-matrix-specific-icon' });
 				iconSpan.textContent = displayIcon;
 
@@ -392,12 +363,6 @@ export class MatrixRenderer {
 				if (cellInstance) {
 					renderFHRCountLinkBadges(cell, cellInstance, intersectionKey, this.parsedRecords, this.onCountClick);
 				}
-
-				// Set background color
-				const specificBgColor = this.getCellBackgroundColor(secondaryTopic, primaryTopic);
-				if (specificBgColor) {
-					cell.style.backgroundColor = specificBgColor;
-				}
 			} else {
 				// Empty slot
 				cell.textContent = '';
@@ -406,39 +371,7 @@ export class MatrixRenderer {
 		}
 	}
 
-	/**
-	 * Get cell background color based on topic flags
-	 */
-	private getCellBackgroundColor(
-		secondaryTopic: Topic | null,
-		primaryTopic: Topic | null
-	): string | null {
-		// Determine which topic's visibility flags to check
-		const showFileRecords = (() => {
-			if (secondaryTopic && primaryTopic) {
-				return !secondaryTopic.fhDisabled && !primaryTopic.fhDisabled;
-			} else if (secondaryTopic) {
-				return !secondaryTopic.fhDisabled;
-			} else if (primaryTopic) {
-				return !primaryTopic.fhDisabled;
-			}
-			return true; // Subject cell (1x1) always shows
-		})();
 
-		const showHeaderRecords = (() => {
-			if (secondaryTopic && primaryTopic) {
-				return !secondaryTopic.fhDisabled && !primaryTopic.fhDisabled;
-			} else if (secondaryTopic) {
-				return !secondaryTopic.fhDisabled;
-			} else if (primaryTopic) {
-				return !primaryTopic.fhDisabled;
-			}
-			return true; // Subject cell (1x1) always shows
-		})();
-
-		// DISABLED: No background color overrides - let CSS classes handle styling
-		return null;
-	}
 
 	/**
 	 * Check if a topic (or combination) has limited collection
@@ -446,20 +379,12 @@ export class MatrixRenderer {
 	private hasLimitedCollection(secondaryTopic: Topic | null, primaryTopic: Topic | null): boolean {
 		// For intersection: check if EITHER topic has limited collection
 		if (secondaryTopic && primaryTopic) {
-			const secondaryLimited = (secondaryTopic.fhDisabled) ||
-			                        (secondaryTopic.fhDisabled) ||
-			                        (false);
-			const primaryLimited = (primaryTopic.fhDisabled) ||
-			                      (primaryTopic.fhDisabled) ||
-			                      (false);
-			return secondaryLimited || primaryLimited;
+			return secondaryTopic.fhDisabled || primaryTopic.fhDisabled;
 		}
 		// For single topic: check that topic's flags
 		const topic = secondaryTopic || primaryTopic;
 		if (topic) {
-			return (topic.fhDisabled) ||
-			       (topic.fhDisabled) ||
-			       (false);
+			return topic.fhDisabled;
 		}
 		return false; // Subject cell has no limited collection
 	}

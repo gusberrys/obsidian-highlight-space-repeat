@@ -1,10 +1,10 @@
 import type { App } from 'obsidian';
 import { TFile, setIcon, MarkdownRenderer, MarkdownView } from 'obsidian';
 import type { Subject } from '../../interfaces/Subject';
-import type { Topic } from '../../interfaces/Topic';
-import type { ParsedFile, ParsedEntry, FlatEntry } from '../../interfaces/ParsedFile';
+import type { ParsedFile, FlatEntry } from '../../interfaces/ParsedFile';
 import type { ActiveChip } from '../../interfaces/ActiveChip';
 import type { KeywordStyle } from '../../shared/keyword-style';
+import type { MatrixCell } from '../cells/MatrixCell';
 import { HighlightSpaceRepeatPlugin } from '../../highlight-space-repeat-plugin';
 import { FilterParser } from '../../services/FilterParser';
 import { FilterExpressionService } from '../../services/FilterExpressionService';
@@ -25,13 +25,8 @@ export class RecordsRenderer {
 
 	// Filter state
 	private filterType: 'F' | 'H' | 'R' | null;
+	private filterCell: MatrixCell | null;
 	private filterExpression: string;
-	private filterContext: {
-		subject: Subject;
-		secondaryTopic: Topic | null;
-		primaryTopic: Topic | null;
-		includesSubjectTag: boolean;
-	} | null;
 	private filterText: string;
 
 	// UI flags
@@ -46,9 +41,6 @@ export class RecordsRenderer {
 
 	// Callbacks
 	private onFilterTextChange: (text: string) => void;
-	private getTags: (subject: Subject, secondaryTopic: Topic | null, primaryTopic: Topic | null, includesSubjectTag: boolean) => string[];
-	private getFileLevelTags: (record: ParsedFile) => string[];
-	private getRecordTags: (record: ParsedFile) => string[];
 
 	constructor(
 		app: App,
@@ -57,13 +49,8 @@ export class RecordsRenderer {
 		currentSubject: Subject | null,
 		filterState: {
 			filterType: 'F' | 'H' | 'R' | null;
+			filterCell: MatrixCell | null;
 			filterExpression: string;
-			filterContext: {
-				subject: Subject;
-				secondaryTopic: Topic | null;
-				primaryTopic: Topic | null;
-				includesSubjectTag: boolean;
-			} | null;
 			filterText: string;
 		},
 		uiFlags: {
@@ -78,9 +65,6 @@ export class RecordsRenderer {
 		},
 		callbacks: {
 			onFilterTextChange: (text: string) => void;
-			getTags: (subject: Subject, secondaryTopic: Topic | null, primaryTopic: Topic | null, includesSubjectTag: boolean) => string[];
-			getFileLevelTags: (record: ParsedFile) => string[];
-			getRecordTags: (record: ParsedFile) => string[];
 		}
 	) {
 		this.app = app;
@@ -89,8 +73,8 @@ export class RecordsRenderer {
 		this.currentSubject = currentSubject;
 
 		this.filterType = filterState.filterType;
+		this.filterCell = filterState.filterCell;
 		this.filterExpression = filterState.filterExpression;
-		this.filterContext = filterState.filterContext;
 		this.filterText = filterState.filterText;
 
 		this.activeChips = uiFlags.activeChips;
@@ -102,9 +86,6 @@ export class RecordsRenderer {
 		this.expandedHeaders = uiState.expandedHeaders;
 
 		this.onFilterTextChange = callbacks.onFilterTextChange;
-		this.getTags = callbacks.getTags;
-		this.getFileLevelTags = callbacks.getFileLevelTags;
-		this.getRecordTags = callbacks.getRecordTags;
 	}
 
 	/**
@@ -226,25 +207,22 @@ export class RecordsRenderer {
 
 		const resultsContainer = filterSection.createDiv({ cls: 'kh-widget-filter-results' });
 
-		if (!this.filterContext) {
-			return;
-		}
+		console.log(`[WIDGET FILTER] Type: ${this.filterType}, Cell: ${!!this.filterCell}, Expression: ${this.filterExpression}`);
 
-		console.log(`[WIDGET FILTER] Type: ${this.filterType}, Expression: ${this.filterExpression}`);
-		console.log(`[WIDGET FILTER] Context:`, this.filterContext);
-
-		if (this.filterType === 'F') {
-			// File filter - show files matching tags
-			console.log(`[WIDGET FILTER] Calling renderFileFilterResults`);
-			await this.renderFileFilterResults(resultsContainer);
-		} else if (this.filterType === 'H') {
-			// Header filter - show headers matching keyword/tag
-			console.log(`[WIDGET FILTER] Calling renderHeaderFilterResults`);
-			await this.renderHeaderFilterResults(resultsContainer);
-		} else if (this.filterType === 'R') {
-			// Record filter - show records matching expression
-			console.log(`[WIDGET FILTER] Calling renderRecordFilterResults`);
-			await this.renderRecordFilterResults(resultsContainer);
+		// Use cell-based rendering if we have a cell, otherwise use expression-based
+		if (this.filterCell) {
+			// Cell-based filtering - use cell's collect methods
+			if (this.filterType === 'F') {
+				await this.renderFileFilterResults(resultsContainer);
+			} else if (this.filterType === 'H') {
+				await this.renderHeaderFilterResults(resultsContainer);
+			} else if (this.filterType === 'R') {
+				await this.renderRecordFilterResults(resultsContainer);
+			}
+		} else if (this.filterExpression) {
+			// Expression-based filtering - use FilterExpressionService
+			// (for manual text filters typed by user)
+			await this.renderExpressionRecords(resultsContainer);
 		}
 	}
 
@@ -330,65 +308,10 @@ export class RecordsRenderer {
 	 * Render file filter results
 	 */
 	private async renderFileFilterResults(container: HTMLElement): Promise<void> {
-		if (!this.filterContext) return;
+		if (!this.filterCell) return;
 
-		const { subject, secondaryTopic, primaryTopic, includesSubjectTag } = this.filterContext;
-
-		// Special handling for subject cell (1x1) and secondary topic cells (1x2, 1x3, etc.)
-		let matchingFiles: ParsedFile[];
-		if (!secondaryTopic && !primaryTopic) {
-			// Subject cell (1x1): has subject tag BUT NOT any primary or secondary topic tags
-			const primaryTopics = this.currentSubject?.primaryTopics || [];
-			const secondaryTopics = this.currentSubject?.secondaryTopics || [];
-			const primaryTopicTags = primaryTopics.map((t: Topic) => t.topicTag).filter(Boolean);
-			const secondaryTopicTags = secondaryTopics.map((t: Topic) => t.topicTag).filter(Boolean);
-
-			matchingFiles = this.parsedRecords.filter(file => {
-				const fileTags = this.getFileLevelTags(file);
-				// Must have subject tag
-				const hasSubjectTag = subject.mainTag ? fileTags.includes(subject.mainTag) : false;
-				// Must NOT have any primary topic tags
-				const hasPrimaryTag = primaryTopicTags.some((tag: string) => fileTags.includes(tag));
-				// Must NOT have any secondary topic tags
-				const hasSecondaryTag = secondaryTopicTags.some((tag: string) => fileTags.includes(tag));
-				return hasSubjectTag && !hasPrimaryTag && !hasSecondaryTag;
-			});
-		} else if (secondaryTopic && !primaryTopic) {
-			// Secondary topic cell (1x2, 1x3, etc.): has secondary tag BUT NOT any primary topic tags
-			const primaryTopics = this.currentSubject?.primaryTopics || [];
-			const primaryTopicTags = primaryTopics.map((t: Topic) => t.topicTag).filter(Boolean);
-			const tags = this.getTags(subject, secondaryTopic, primaryTopic, includesSubjectTag);
-
-			matchingFiles = this.parsedRecords.filter(file => {
-				const fileTags = this.getFileLevelTags(file);
-				// Must have the secondary topic's tag
-				const hasSecondaryTag = tags.every(tag => fileTags.includes(tag));
-				// Must NOT have any primary topic tags
-				const hasPrimaryTag = primaryTopicTags.some((tag: string) => fileTags.includes(tag));
-				return hasSecondaryTag && !hasPrimaryTag;
-			});
-		} else if (primaryTopic && !secondaryTopic) {
-			// Primary topic cell (2x1, 3x1, etc.): has primary tag BUT NOT any secondary topic tags
-			const secondaryTopics = this.currentSubject?.secondaryTopics || [];
-			const secondaryTopicTags = secondaryTopics.map((t: Topic) => t.topicTag).filter(Boolean);
-			const tags = this.getTags(subject, secondaryTopic, primaryTopic, includesSubjectTag);
-
-			matchingFiles = this.parsedRecords.filter(file => {
-				const fileTags = this.getFileLevelTags(file);
-				// Must have the primary topic's tag
-				const hasPrimaryTag = tags.every(tag => fileTags.includes(tag));
-				// Must NOT have any secondary topic tags
-				const hasSecondaryTag = secondaryTopicTags.some((tag: string) => fileTags.includes(tag));
-				return hasPrimaryTag && !hasSecondaryTag;
-			});
-		} else {
-			// Intersection cells (2x2, 2x3, etc.): use getTags() for AND filtering
-			const tags = this.getTags(subject, secondaryTopic, primaryTopic, includesSubjectTag);
-			matchingFiles = this.parsedRecords.filter(file => {
-				const fileTags = this.getFileLevelTags(file);
-				return tags.every(tag => fileTags.includes(tag));
-			});
-		}
+		// Get files from cell instead of manual filtering
+		let matchingFiles = this.filterCell.collectFiles(this.parsedRecords);
 
 		// Apply text filter
 		if (this.filterText) {
@@ -420,196 +343,12 @@ export class RecordsRenderer {
 
 	/**
 	 * Render header filter results with expandable entries
-	 * NOTE: This method is ~468 lines and will be implemented in a follow-up
 	 */
-	private async renderHeaderFilterResults(container: HTMLElement, ): Promise<void> {
-		if (!this.filterContext) return;
+	private async renderHeaderFilterResults(container: HTMLElement): Promise<void> {
+		if (!this.filterCell) return;
 
-		const { subject, secondaryTopic, primaryTopic, includesSubjectTag } = this.filterContext;
-
-		// Group entries by header: Map<"filePath::headerText", { file, headerText, headerLevel, entries }>
-		const headerGroups = new Map<string, { file: ParsedFile; headerText: string; headerLevel: number; entries: FlatEntry[] }>();
-
-		// Collect matching headers using EXACT same logic as counting
-		if (secondaryTopic && primaryTopic) {
-			// Intersection logic: (topic1 in header + topic2 in file) OR (topic2 in header + topic1 in file)
-			// Don't pre-filter files by tags - intersection logic checks headers individually
-			// A file only needs to have at least ONE of the topic tags (or none if both are keyword-based)
-
-			// Check if this is primary×primary intersection (both are primary topics)
-			const isPrimaryPrimaryIntersection = this.currentSubject?.primaryTopics?.some(t => t.id === secondaryTopic.id);
-
-			console.log(`[HEADER FILTER] Rendering headers for intersection:`);
-			console.log(`  Primary: ${primaryTopic.name} (tag: ${primaryTopic.topicTag}, keyword: ${primaryTopic.topicKeyword})`);
-			console.log(`  Secondary: ${secondaryTopic.name} (tag: ${secondaryTopic.topicTag}, keyword: ${secondaryTopic.topicKeyword})`);
-			console.log(`  Is Primary×Primary: ${isPrimaryPrimaryIntersection}`);
-
-			for (const file of this.parsedRecords) {
-				// For primary×primary, use file-level tags only. For secondary×primary, use all tags
-				const fileTags = isPrimaryPrimaryIntersection ? this.getFileLevelTags(file) : this.getRecordTags(file);
-
-				// Check both topics on file level
-				const topic1InFile = !!(primaryTopic.topicTag && fileTags.includes(primaryTopic.topicTag));
-				const topic2InFile = !!(secondaryTopic.topicTag && fileTags.includes(secondaryTopic.topicTag));
-
-				// Check each entry's headers (h1/h2/h3)
-				for (const entry of file.entries) {
-					const headerLevels = [
-						entry.h1 ? { level: 1, info: entry.h1 } : null,
-						entry.h2 ? { level: 2, info: entry.h2 } : null,
-						entry.h3 ? { level: 3, info: entry.h3 } : null
-					].filter(h => h !== null);
-
-					for (const headerLevel of headerLevels) {
-						const header = headerLevel!.info;
-						if (header.text || header.keywords || header.inlineKeywords) {
-							// Check topic1 (primary) in header
-							let topic1KeywordMatch = false;
-							if (primaryTopic.topicKeyword) {
-								const headerKeywords = getAllKeywords(header);
-								topic1KeywordMatch = headerKeywords.some(kw =>
-									kw.toLowerCase() === primaryTopic.topicKeyword!.toLowerCase()
-								);
-							}
-							const topic1TagMatch = !!(primaryTopic.topicTag && header.tags?.some(tag => {
-								const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
-								return normalizedTag === primaryTopic.topicTag;
-							}));
-							const topic1InHeader = topic1KeywordMatch || topic1TagMatch;
-
-							// Check topic2 (secondary) in header
-							let topic2KeywordMatch = false;
-							if (secondaryTopic.topicKeyword) {
-								const headerKeywords = getAllKeywords(header);
-								topic2KeywordMatch = headerKeywords.some(kw =>
-									kw.toLowerCase() === secondaryTopic.topicKeyword!.toLowerCase()
-								);
-							}
-							const topic2TagMatch = !!(secondaryTopic.topicTag && header.tags?.some(tag => {
-								const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
-								return normalizedTag === secondaryTopic.topicTag;
-							}));
-							const topic2InHeader = topic2KeywordMatch || topic2TagMatch;
-
-							// Check intersection: (topic1 in header + topic2 on file) OR (topic2 in header + topic1 on file)
-							const validCase1 = topic1InHeader && topic2InFile;
-							const validCase2 = topic2InHeader && topic1InFile;
-
-							if (validCase1 || validCase2) {
-								console.log(`  ✓ MATCH FOUND: ${file.filePath} :: ${header.text}`);
-								console.log(`    validCase1 (topic1 in header + topic2 on file): ${validCase1}`);
-								console.log(`    validCase2 (topic2 in header + topic1 on file): ${validCase2}`);
-								console.log(`    topic1InFile: ${topic1InFile}, topic2InFile: ${topic2InFile}`);
-								console.log(`    topic1InHeader: ${topic1InHeader}, topic2InHeader: ${topic2InHeader}`);
-								console.log(`    File tags: ${fileTags.join(', ')}`);
-
-								const groupKey = `${file.filePath}::${header.text}`;
-								if (!headerGroups.has(groupKey)) {
-									headerGroups.set(groupKey, {
-										file,
-										headerText: header.text,
-										headerLevel: headerLevel!.level,
-										entries: []
-									});
-								}
-								headerGroups.get(groupKey)!.entries.push(entry);
-							}
-						}
-					}
-				}
-			}
-		} else {
-			// Single topic logic: keyword OR tag in header
-			const topic = secondaryTopic || primaryTopic;
-			if (topic) {
-				for (const file of this.parsedRecords) {
-					for (const entry of file.entries) {
-						const headerLevels = [
-							entry.h1 ? { level: 1, info: entry.h1 } : null,
-							entry.h2 ? { level: 2, info: entry.h2 } : null,
-							entry.h3 ? { level: 3, info: entry.h3 } : null
-						].filter(h => h !== null);
-
-						for (const headerLevel of headerLevels) {
-							const header = headerLevel!.info;
-							if (header.text || header.keywords || header.inlineKeywords) {
-								// Check if topic keyword is in header.keywords array
-								let keywordMatch = false;
-								if (topic.topicKeyword && header.keywords) {
-									keywordMatch = header.keywords?.some(kw =>
-										kw.toLowerCase() === topic.topicKeyword!.toLowerCase()
-									);
-								}
-
-								// Check if header tags include the topic tag
-								const tagMatch = topic.topicTag && header.tags?.some(tag => {
-									const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
-									return normalizedTag === topic.topicTag;
-								});
-
-								if (keywordMatch || tagMatch) {
-									const groupKey = `${file.filePath}::${header.text}`;
-									if (!headerGroups.has(groupKey)) {
-										headerGroups.set(groupKey, {
-											file,
-											headerText: header.text,
-											headerLevel: headerLevel!.level,
-											entries: []
-										});
-									}
-									headerGroups.get(groupKey)!.entries.push(entry);
-								}
-							}
-						}
-					}
-				}
-			} else {
-				// Subject cell: use subject's keyword OR tag
-				if (subject.keyword || subject.mainTag) {
-					for (const file of this.parsedRecords) {
-						for (const entry of file.entries) {
-							const headerLevels = [
-								entry.h1 ? { level: 1, info: entry.h1 } : null,
-								entry.h2 ? { level: 2, info: entry.h2 } : null,
-								entry.h3 ? { level: 3, info: entry.h3 } : null
-							].filter(h => h !== null);
-
-							for (const headerLevel of headerLevels) {
-								const header = headerLevel!.info;
-								if (header.text || header.keywords || header.inlineKeywords) {
-									// Check if subject keyword is in header.keywords array
-									let keywordMatch = false;
-									if (subject.keyword && header.keywords) {
-										keywordMatch = header.keywords?.some(kw =>
-											kw.toLowerCase() === subject.keyword!.toLowerCase()
-										);
-									}
-
-									// Check if header tags include the subject tag
-									const tagMatch = subject.mainTag && header.tags?.some(tag => {
-										const normalizedTag = tag.startsWith('#') ? tag : '#' + tag;
-										return normalizedTag === subject.mainTag;
-									});
-
-									if (keywordMatch || tagMatch) {
-										const groupKey = `${file.filePath}::${header.text}`;
-										if (!headerGroups.has(groupKey)) {
-											headerGroups.set(groupKey, {
-												file,
-												headerText: header.text,
-												headerLevel: headerLevel!.level,
-												entries: []
-											});
-										}
-										headerGroups.get(groupKey)!.entries.push(entry);
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
+		// Get headers from cell instead of manual collection
+		let headerGroups = this.filterCell.collectHeaders(this.parsedRecords);
 
 		// Apply text filter to header groups
 		if (this.filterText) {
@@ -887,19 +626,48 @@ export class RecordsRenderer {
 	}
 
 	/**
+	 * Render record filter results from cell
+	 */
+	private async renderRecordFilterResults(container: HTMLElement): Promise<void> {
+		if (!this.filterCell) return;
+
+		// Get records from cell instead of manual filtering
+		let matchingRecords = this.filterCell.collectRecords(this.parsedRecords);
+
+		// Apply text filter
+		if (this.filterText) {
+			matchingRecords = matchingRecords.filter(({ entry, file }) =>
+				this.entryMatchesTextFilter(entry, file, this.filterText)
+			);
+		}
+
+		if (matchingRecords.length === 0) {
+			container.createEl('div', {
+				text: 'No records found',
+				cls: 'kh-widget-filter-empty'
+			});
+			return;
+		}
+
+		// Use shared rendering logic
+		await this.renderRecordsByFile(container, matchingRecords);
+	}
+
+	/**
 	 * Render record filter results
 	 * Supports W: syntax for WHERE clause (file filtering)
 	 */
 
-	private async renderRecordFilterResults(container: HTMLElement, ): Promise<void> {
+	private async renderExpressionRecords(container: HTMLElement): Promise<void> {
 		try {
 			// Use FilterExpressionService.getMatchingRecords() - SINGLE SOURCE OF TRUTH
+			// Expression-based filtering doesn't have topic context - just raw expression matching
 			const matchingFiles = FilterExpressionService.getMatchingRecords(
 				this.parsedRecords,
 				this.filterExpression,
-				this.filterContext?.primaryTopic || null,
-				this.filterContext?.subject,
-				this.filterContext?.includesSubjectTag || false
+				null, // No primary topic for manual expressions
+				this.currentSubject || undefined,
+				false // No subject tag inclusion for manual expressions
 			);
 
 			if (matchingFiles.length === 0) {
@@ -928,7 +696,7 @@ export class RecordsRenderer {
 					const selectExpr = hasWhere ? expr.split(/\s+[Ww]:\s+/)[0].trim() : expr;
 					selectCompiled = FilterParser.compile(selectExpr);
 				} catch (error) {
-					console.error('[renderRecordFilterResults] Failed to compile SELECT for UI filtering:', error);
+					console.error('[renderExpressionRecords] Failed to compile SELECT for UI filtering:', error);
 				}
 			}
 
@@ -986,65 +754,83 @@ export class RecordsRenderer {
 				);
 			}
 
-			// Group records by file
-			const recordsByFile = new Map<string, Array<{ entry: ParsedEntry; file: ParsedFile }>>();
-			limitedFiles.forEach(({ entry, file }) => {
-				const filePath = file.filePath;
-				if (!recordsByFile.has(filePath)) {
-					recordsByFile.set(filePath, []);
-				}
-				recordsByFile.get(filePath)!.push({ entry, file });
+			// Use shared rendering logic
+			await this.renderRecordsByFile(container, limitedFiles);
+		} catch (error) {
+			container.createEl('div', {
+				text: 'Invalid filter expression',
+				cls: 'kh-widget-filter-error'
+			});
+		}
+	}
+
+
+	/**
+	 * Shared rendering: Group records by file and render with collapsible file headers
+	 */
+	private async renderRecordsByFile(
+		container: HTMLElement,
+		records: Array<{ entry: FlatEntry; file: ParsedFile }>
+	): Promise<void> {
+		// Group records by file
+		const recordsByFile = new Map<string, Array<{ entry: FlatEntry; file: ParsedFile }>>();
+		records.forEach(({ entry, file }) => {
+			const filePath = file.filePath;
+			if (!recordsByFile.has(filePath)) {
+				recordsByFile.set(filePath, []);
+			}
+			recordsByFile.get(filePath)!.push({ entry, file });
+		});
+
+		// Render grouped by file
+		for (const [filePath, entries] of recordsByFile) {
+			// File header (clickable to open file)
+			const fileGroup = container.createDiv({ cls: 'kh-widget-filter-file-group' });
+			const fileHeader = fileGroup.createDiv({ cls: 'kh-widget-filter-file-header' });
+			fileHeader.style.cursor = 'pointer';
+
+			// Check if this file is collapsed
+			const isCollapsed = this.collapsedFiles.has(filePath);
+
+			// Add toggle icon
+			const toggleIcon = fileHeader.createEl('span', {
+				cls: 'kh-header-toggle',
+				text: isCollapsed ? '▸' : '▾'
+			});
+			toggleIcon.style.marginRight = '4px';
+
+			fileHeader.createEl('span', {
+				text: getFileNameFromPath(filePath).replace(/\.md$/, ''),
+				cls: 'kh-widget-filter-file-name'
+			});
+			fileHeader.createEl('span', {
+				text: ` (${entries.length})`,
+				cls: 'kh-widget-filter-file-count'
 			});
 
-			// Render grouped by file
-			for (const [filePath, entries] of recordsByFile) {
-				// File header (clickable to open file)
-				const fileGroup = container.createDiv({ cls: 'kh-widget-filter-file-group' });
-				const fileHeader = fileGroup.createDiv({ cls: 'kh-widget-filter-file-header' });
-				fileHeader.style.cursor = 'pointer';
-
-				// Check if this file is collapsed
-				const isCollapsed = this.collapsedFiles.has(filePath);
-
-				// Add toggle icon
-				const toggleIcon = fileHeader.createEl('span', {
-					cls: 'kh-header-toggle',
-					text: isCollapsed ? '▸' : '▾'
-				});
-				toggleIcon.style.marginRight = '4px';
-
-				fileHeader.createEl('span', {
-					text: getFileNameFromPath(filePath).replace(/\.md$/, ''),
-					cls: 'kh-widget-filter-file-name'
-				});
-				fileHeader.createEl('span', {
-					text: ` (${entries.length})`,
-					cls: 'kh-widget-filter-file-count'
-				});
-
-				// Add click handler to toggle collapse/expand
-				fileHeader.addEventListener('click', async (e: MouseEvent) => {
-					// Command/Ctrl + click: open file
-					if (e.metaKey || e.ctrlKey) {
-						const file = this.app.vault.getAbstractFileByPath(filePath);
-						if (file instanceof TFile) {
-							await this.app.workspace.getLeaf(false).openFile(file);
-						}
-					} else {
-						// Regular click: toggle collapse/expand
-						if (this.collapsedFiles.has(filePath)) {
-							this.collapsedFiles.delete(filePath);
-						} else {
-							this.collapsedFiles.add(filePath);
-						}
-						// Re-render to show/hide entries
-						await this.renderFilterResults(container.closest('.kh-widget-filter') as HTMLElement);
+			// Add click handler to toggle collapse/expand
+			fileHeader.addEventListener('click', async (e: MouseEvent) => {
+				// Command/Ctrl + click: open file
+				if (e.metaKey || e.ctrlKey) {
+					const file = this.app.vault.getAbstractFileByPath(filePath);
+					if (file instanceof TFile) {
+						await this.app.workspace.getLeaf(false).openFile(file);
 					}
-				});
+				} else {
+					// Regular click: toggle collapse/expand
+					if (this.collapsedFiles.has(filePath)) {
+						this.collapsedFiles.delete(filePath);
+					} else {
+						this.collapsedFiles.add(filePath);
+					}
+					// Re-render to show/hide entries
+					await this.renderFilterResults(container.closest('.kh-widget-filter') as HTMLElement);
+				}
+			});
 
-				// Entries under this file - only render if not collapsed
-				if (!isCollapsed) {
-					const entriesContainer = fileGroup.createDiv({ cls: 'kh-widget-filter-entries' });
+			// Entries under this file - only render if not collapsed
+			if (!isCollapsed) {
+				const entriesContainer = fileGroup.createDiv({ cls: 'kh-widget-filter-entries' });
 
 				// Render all entries in PARALLEL - NO async in map, return promises directly
 				await Promise.all(entries.map(({ entry, file }) => {
@@ -1064,7 +850,6 @@ export class RecordsRenderer {
 						}
 						entryItem.createEl('span', { text: ' ', cls: 'kh-separator' });
 
-
 						// Make entry clickable - navigate to line in source file
 						entryItem.style.cursor = 'pointer';
 						entryItem.addEventListener('click', async () => {
@@ -1092,12 +877,11 @@ export class RecordsRenderer {
 							}
 						});
 
-
 						// Return promise directly, don't await
 						return KHEntry.renderKeywordEntry(
 							entryItem,
 							entry,
-					file,
+							file,
 							this.plugin,
 							true // compact mode for matrix
 						);
@@ -1114,7 +898,6 @@ export class RecordsRenderer {
 							this.plugin
 						);
 
-
 						// Make entry clickable - navigate to line in source file
 						entryItem.style.cursor = 'pointer';
 						entryItem.addEventListener('click', async () => {
@@ -1142,19 +925,13 @@ export class RecordsRenderer {
 							}
 						});
 
-					return Promise.resolve();
+						return Promise.resolve();
 					}
+					return Promise.resolve();
 				}));
-				}
 			}
-		} catch (error) {
-			container.createEl('div', {
-				text: 'Invalid filter expression',
-				cls: 'kh-widget-filter-error'
-			});
 		}
 	}
-
 
 	/**
 	 * Resolve which keywords should provide icons (uses centralized logic)
