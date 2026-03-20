@@ -761,19 +761,11 @@
 
       // Get keywords that should be parsed (PARSED or SPACED status)
       const keywordsToparse: string[] = [];
-      const aliasMap = new Map<string, string>();
 
       for (const category of $store.categories) {
         for (const keyword of category.keywords) {
           if (isCollected(keyword.collectingStatus)) {
             keywordsToparse.push(keyword.keyword);
-
-            // Add aliases to map
-            if (keyword.aliases && keyword.aliases.length > 0) {
-              for (const alias of keyword.aliases) {
-                aliasMap.set(alias, keyword.keyword);
-              }
-            }
           }
         }
       }
@@ -824,7 +816,7 @@
 
       for (const file of includedFiles) {
         try {
-          const parsedRecord = await recordParser.parseFile(file, keywordsToparse, aliasMap);
+          const parsedRecord = await recordParser.parseFile(file, keywordsToparse);
           parsedRecords.push(parsedRecord);
 
           // Count keywords in flat entries
@@ -1335,7 +1327,6 @@
                     <col style="width: 35px;" /> <!-- Priority -->
                     <col style="width: 30px;" /> <!-- Subkeywords -->
                     <col style="width: 70px;" /> <!-- Keyword -->
-                    <col style="width: 90px;" /> <!-- Aliases -->
                     <col style="width: auto;" /> <!-- Description -->
                     <col style="width: 45px;" /> <!-- Icon -->
                     <col style="width: 45px;" /> <!-- CSS class -->
@@ -1356,7 +1347,6 @@
                       <th title="Combine Priority">P</th>
                       <th title="Sub-keywords">⚙️</th>
                       <th>Keyword</th>
-                      <th>Aliases</th>
                       <th>Description</th>
                       <th>Icon</th>
                       <th>CSS</th>

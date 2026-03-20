@@ -168,19 +168,6 @@ export async function loadStore(): Promise<void> {
     needsMigration = true;
   }
 
-  // Migrate old comma-separated keywords to new keyword+aliases structure
-  settings.categories.forEach(category => {
-    category.keywords.forEach(kw => {
-      // Check if keyword contains commas (old format)
-      if (kw.keyword.includes(',') && !kw.aliases) {
-        const parts = kw.keyword.split(',').map(k => k.trim());
-        kw.keyword = parts[0];  // First part becomes the primary keyword
-        kw.aliases = parts.slice(1);  // Rest become aliases
-        needsMigration = true;
-      }
-    });
-  });
-
   // Set default collectingStatus and combinePriority for keywords that don't have them set
   settings.categories.forEach(category => {
     category.keywords.forEach(keyword => {

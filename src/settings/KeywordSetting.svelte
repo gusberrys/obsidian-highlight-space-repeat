@@ -200,21 +200,6 @@
     <input type="text" spellcheck="false" bind:value={keyword.keyword} on:change={updateKeyword} placeholder="Keyword" class="input-keyword" />
   </td>
 
-  <td class="td-aliases">
-    <input
-      type="text"
-      spellcheck="false"
-      value={keyword.aliases?.join(', ') || ''}
-      on:change={(e) => {
-        const val = e.currentTarget.value.trim();
-        keyword.aliases = val ? val.split(',').map(a => a.trim()).filter(a => a) : [];
-        updateKeyword();
-      }}
-      placeholder="Aliases"
-      class="input-aliases"
-    />
-  </td>
-
   <td class="td-description">
     <input type="text" spellcheck="false" bind:value={keyword.description} on:change={updateKeyword} placeholder="Description" class="input-description" />
   </td>
