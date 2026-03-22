@@ -32,7 +32,6 @@ const DEFAULT_SETTINGS: PluginSettings = {
           backgroundColor: '#2f0995',
           description: 'Equal to, equivalence',
           generateIcon: '🟰',
-          ccssc: 'eqa-text',
         },
         {
           keyword: 'tru',
@@ -60,7 +59,6 @@ const DEFAULT_SETTINGS: PluginSettings = {
           backgroundColor: '#0c730e',
           description: 'Positive aspect or benefit',
           generateIcon: '(+)',
-          ccssc: 'pos',
         },
         {
           keyword: 'neg',
@@ -101,7 +99,6 @@ const DEFAULT_SETTINGS: PluginSettings = {
           backgroundColor: '#000000',
           description: 'Development or devilish note',
           generateIcon: '',
-          ccssc: 'devilish-text',
         },
         {
           keyword: 'sto',
@@ -109,7 +106,6 @@ const DEFAULT_SETTINGS: PluginSettings = {
           backgroundColor: '#303030',
           description: 'Personal story or memory',
           generateIcon: '',
-          ccssc: 'me-text',
         },
       ],
     },

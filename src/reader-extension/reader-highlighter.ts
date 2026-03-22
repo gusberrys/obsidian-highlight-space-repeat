@@ -219,8 +219,7 @@ function getHighlightNode(
 
   // Apply ALL matched keywords' classes (MAIN and HELP)
   for (const kw of matchedKeywords) {
-    const cssClass = kw.ccssc && kw.ccssc.trim() !== "" ? kw.ccssc.trim() : kw.keyword;
-    parent.classList.add(cssClass);
+    parent.classList.add(kw.keyword);
   }
 
   // Apply VWord keywords as classes (for layout control only, not styling)

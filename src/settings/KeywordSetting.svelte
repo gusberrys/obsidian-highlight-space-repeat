@@ -208,10 +208,6 @@
     <input type="text" spellcheck="false" bind:value={keyword.generateIcon} on:change={updateKeyword} placeholder="Icon" class="input-icon" />
   </td>
 
-  <td class="td-css">
-    <input type="text" spellcheck="false" bind:value={keyword.ccssc} on:change={updateKeyword} placeholder="CSS" class="input-css" />
-  </td>
-
   <td class="td-colors">
     <div class="color-controls">
       <input type="color" bind:value={keyword.color} on:change={updateKeyword} title="Text color" />

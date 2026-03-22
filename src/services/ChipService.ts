@@ -55,7 +55,6 @@ export class ChipService {
 						icon: keywordStyle?.generateIcon || '🏷️',
 						backgroundColor: keywordStyle?.backgroundColor,
 						color: keywordStyle?.color,
-						cssClass: keywordStyle?.ccssc,
 						active: !item.unchecked // Unchecked flag sets active: false
 					});
 					break;

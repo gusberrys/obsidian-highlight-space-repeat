@@ -7,7 +7,6 @@ export type KeywordStyle = {
   backgroundColor: string;
   description?: string;
   generateIcon?: string;
-  ccssc?: string;
   collectingStatus?: CollectingStatus;  // How this keyword is collected: IGNORED, PARSED, or SPACED
   combinePriority?: CombinePriority;  // Priority: None/Style/Icon/StyleAndIcon
   showColor?: boolean;  // Whether to show the color (default: true)

@@ -9,12 +9,7 @@ export function generateKeywordCSS(categories: Category[]): string {
   categories.forEach(category => {
     category.keywords.forEach(keyword => {
       if (keyword.keyword && keyword.keyword.trim()) {
-        const keywordNames = keyword.keyword.split(',').map(k => k.trim());
-        keywordNames.forEach(kw => {
-          if (kw) {
-            keywordMap.set(kw, keyword);
-          }
-        });
+        keywordMap.set(keyword.keyword, keyword);
       }
     });
   });
@@ -22,28 +17,14 @@ export function generateKeywordCSS(categories: Category[]): string {
   // Generate CSS for each keyword
   categories.forEach(category => {
     category.keywords.forEach(keyword => {
-      const classNames: string[] = [];
-
-      // Add ccssc class if it exists
-      if (keyword.ccssc && keyword.ccssc.trim()) {
-        classNames.push(keyword.ccssc.trim());
-      }
-
-      // Add keyword name as class (for marks like <mark class="def">)
+      // Use keyword name as class (for marks like <mark class="def">)
       if (keyword.keyword && keyword.keyword.trim()) {
-        // Handle comma-separated keywords
-        const keywordNames = keyword.keyword.split(',').map(k => k.trim());
-        classNames.push(...keywordNames);
-      }
+        const className = keyword.keyword;
+        // Treat pure black (#000000 or #000) as transparent
+        const color = (keyword.color === '#000000' || keyword.color === '#000') ? 'transparent' : keyword.color;
+        const backgroundColor = (keyword.backgroundColor === '#000000' || keyword.backgroundColor === '#000') ? 'transparent' : keyword.backgroundColor;
 
-      // Generate CSS rules for all class names
-      classNames.forEach(className => {
-        if (className) {
-          // Treat pure black (#000000 or #000) as transparent
-          const color = (keyword.color === '#000000' || keyword.color === '#000') ? 'transparent' : keyword.color;
-          const backgroundColor = (keyword.backgroundColor === '#000000' || keyword.backgroundColor === '#000') ? 'transparent' : keyword.backgroundColor;
-
-          cssRules.push(`
+        cssRules.push(`
 .${className} {
   color: ${color} !important;
   background-color: ${backgroundColor} !important;
@@ -59,16 +40,16 @@ span.${className} {
   background-color: ${backgroundColor} !important;
 }`);
 
-          // Add ::before pseudo-element for icon if generateIcon exists
-          if (keyword.generateIcon && keyword.generateIcon.trim()) {
-            cssRules.push(`
+        // Add ::before pseudo-element for icon if generateIcon exists
+        if (keyword.generateIcon && keyword.generateIcon.trim()) {
+          cssRules.push(`
 mark.${className}::before {
   content: "${keyword.generateIcon}";
 }`);
-          }
+        }
 
-          // Add rule for list items following highlighted paragraphs
-          cssRules.push(`
+        // Add rule for list items following highlighted paragraphs
+        cssRules.push(`
 .el-p:has(.kh-highlighted.${className}) + .el-ul > ul,
 .el-p:has(.kh-highlighted.${className}) + .el-ol > ol {
   margin-top: 0px;
@@ -79,8 +60,7 @@ mark.${className}::before {
   color: ${color} !important;
   background-color: ${backgroundColor} !important;
 }`);
-        }
-      });
+      }
     });
   });
 

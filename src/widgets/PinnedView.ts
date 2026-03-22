@@ -30,20 +30,12 @@ export class PinnedView extends ItemView {
 
 	/**
 	 * Get the CSS class to use for a keyword entry
-	 * Uses keyword's configured CSS class (ccssc field) if available,
-	 * otherwise falls back to the keyword name
 	 * COPIED FROM MATRIX WIDGET
 	 */
 	private getKeywordClass(keywordName: string): string {
 		const keywordStyle = this.plugin.api.getKeywordStyle(keywordName);
 
-		// Use configured CSS class if it exists and is not empty
-		if (keywordStyle?.ccssc && keywordStyle.ccssc.trim()) {
-			return keywordStyle.ccssc.trim();
-		}
-
-		// Fallback to keyword name
-		return keywordName;
+		return keywordStyle?.keyword || keywordName;
 	}
 
 	/**

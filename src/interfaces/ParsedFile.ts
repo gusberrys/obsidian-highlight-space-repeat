@@ -24,6 +24,9 @@ export interface ParsedEntry {
 	/** Inline keywords extracted from <mark class="xxx"> tags (for filtering only) */
 	inlineKeywords?: string[];
 
+	/** Inline code languages extracted from `{language options} code` syntax (for filtering only) */
+	inlineCodeLanguages?: string[];
+
 	/** Language (for code blocks) */
 	language?: string;
 
@@ -40,6 +43,9 @@ export interface ParsedEntrySubItem {
 
 	/** Inline keywords extracted from <mark class="xxx"> tags (for filtering only) */
 	inlineKeywords?: string[];
+
+	/** Inline code languages extracted from `{language options} code` syntax (for filtering only) */
+	inlineCodeLanguages?: string[];
 
 	/** Sub-item content */
 	content: string;
@@ -99,6 +105,9 @@ export interface HeaderInfo {
 
 	/** Inline keywords extracted from <mark class="xxx"> tags (optional - for filtering only) */
 	inlineKeywords?: string[];
+
+	/** Inline code languages extracted from `{language options} code` syntax (for filtering only) */
+	inlineCodeLanguages?: string[];
 }
 
 /**
@@ -113,6 +122,7 @@ export interface FlatEntry {
 	type: 'keyword' | 'codeblock';
 	keywords?: string[];
 	inlineKeywords?: string[];
+	inlineCodeLanguages?: string[];
 	text: string;
 	lineNumber: number;
 	language?: string;

@@ -9,7 +9,6 @@ export interface ActiveChip {
 	icon?: string; // Emoji/icon
 	color?: string; // Text color
 	backgroundColor?: string; // Background color
-	cssClass?: string; // Optional custom CSS class
 	active: boolean; // Whether chip is currently active (clickable on/off)
 	badge?: string; // Badge icon (for category keywords)
 	isTemporary?: boolean; // Temporary chip created by "Show All" mode

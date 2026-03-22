@@ -39,9 +39,8 @@ class KeywordSuggestModal extends SuggestModal<KeywordWithCategory> {
       const matchDescription = keyword.description?.toLowerCase().includes(lowerQuery) || false;
       const matchCategory = keyword.categoryName.toLowerCase().includes(lowerQuery);
       const matchIcon = keyword.generateIcon?.toLowerCase().includes(lowerQuery) || false;
-      const matchCssClass = keyword.ccssc?.toLowerCase().includes(lowerQuery) || false;
 
-      return matchKeyword || matchDescription || matchCategory || matchIcon || matchCssClass;
+      return matchKeyword || matchDescription || matchCategory || matchIcon;
     });
   }
 
@@ -118,14 +117,11 @@ export const createInsertKeywordCommand: (app: App) => Command = (app: App) => (
     const selection = editor.getSelection();
 
     new KeywordSuggestModal(app, (keyword: KeywordStyle) => {
-      // Helper function to get the primary class name
-      const getClassName = (keyword: KeywordStyle) => {
-        return (keyword.ccssc && keyword.ccssc.trim()) ? keyword.ccssc.trim() : keyword.keyword.split(',')[0].trim();
-      };
+      const className = keyword.keyword;
 
       if (selection && selection.trim()) {
-        // If there's a selection, surround it with keyword `<mark class="b" x="📖 ">`
-        const newSelection = `<mark class="${getClassName(keyword)}" x="${keyword.generateIcon} "> ${selection} </mark>`;
+        // If there's a selection, surround it with keyword (icon displays via CSS ::before)
+        const newSelection = `<mark class="${className}"> ${selection} </mark>`;
         editor.replaceSelection(newSelection);
       } else {
         // No selection - use existing logic
@@ -145,21 +141,21 @@ export const createInsertKeywordCommand: (app: App) => Command = (app: App) => (
           if (headerMatch) {
             const headerPart = headerMatch[1]; // "# " or "## " etc
             const contentPart = headerMatch[2]; // rest of the line
-            newContent = `${headerPart}${keyword.keyword.split(",")[0].trim()} :: ${contentPart}`;
+            newContent = `${headerPart}${keyword.keyword} :: ${contentPart}`;
           } else {
             // Fallback if regex doesn't match
-            newContent = `${keyword.keyword.split(",")[0].trim()} :: ${line}`;
+            newContent = `${keyword.keyword} :: ${line}`;
           }
         } else if (/^\s*$/.test(line)) {
           // For empty lines: insert keyword with ::
-          newContent = `${keyword.keyword.split(",")[0].trim()} ::`;
+          newContent = `${keyword.keyword} ::`;
         } else {
           // For other lines: insert mark at cursor position
           const cursorPos = cursor.ch;
           const beforeCursor = line.substring(0, cursorPos);
           const afterCursor = line.substring(cursorPos);
 
-          newContent = beforeCursor + `<mark class="${getClassName(keyword)}" x="${keyword.generateIcon} ">` + afterCursor;
+          newContent = beforeCursor + `<mark class="${className}">` + afterCursor;
         }
 
         editor.setLine(cursor.line, newContent);
