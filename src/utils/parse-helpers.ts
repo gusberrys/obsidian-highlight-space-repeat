@@ -49,6 +49,9 @@ export function stripParsedRecordsForSave(parsedRecords: ParsedFile[]): any[] {
 				console.log('[stripParsedRecordsForSave] Entry has inlineKeywords:', entry.inlineKeywords, 'text:', entry.text.substring(0, 50));
 				stripped.inlineKeywords = entry.inlineKeywords;
 			}
+			if (entry.inlineCodeLanguages) {
+				stripped.inlineCodeLanguages = entry.inlineCodeLanguages;
+			}
 			if (entry.subItems) stripped.subItems = entry.subItems;
 
 			// Strip empty tags/keywords from headers
@@ -56,6 +59,7 @@ export function stripParsedRecordsForSave(parsedRecords: ParsedFile[]): any[] {
 				const h1: any = { text: entry.h1.text };
 				if (entry.h1.keywords && entry.h1.keywords.length > 0) h1.keywords = entry.h1.keywords;
 				if (entry.h1.inlineKeywords && entry.h1.inlineKeywords.length > 0) h1.inlineKeywords = entry.h1.inlineKeywords;
+				if (entry.h1.inlineCodeLanguages && entry.h1.inlineCodeLanguages.length > 0) h1.inlineCodeLanguages = entry.h1.inlineCodeLanguages;
 				if (entry.h1.tags && entry.h1.tags.length > 0) h1.tags = entry.h1.tags;
 				stripped.h1 = h1;
 			}
@@ -63,6 +67,7 @@ export function stripParsedRecordsForSave(parsedRecords: ParsedFile[]): any[] {
 				const h2: any = { text: entry.h2.text };
 				if (entry.h2.keywords && entry.h2.keywords.length > 0) h2.keywords = entry.h2.keywords;
 				if (entry.h2.inlineKeywords && entry.h2.inlineKeywords.length > 0) h2.inlineKeywords = entry.h2.inlineKeywords;
+				if (entry.h2.inlineCodeLanguages && entry.h2.inlineCodeLanguages.length > 0) h2.inlineCodeLanguages = entry.h2.inlineCodeLanguages;
 				if (entry.h2.tags && entry.h2.tags.length > 0) h2.tags = entry.h2.tags;
 				stripped.h2 = h2;
 			}
@@ -70,6 +75,7 @@ export function stripParsedRecordsForSave(parsedRecords: ParsedFile[]): any[] {
 				const h3: any = { text: entry.h3.text };
 				if (entry.h3.keywords && entry.h3.keywords.length > 0) h3.keywords = entry.h3.keywords;
 				if (entry.h3.inlineKeywords && entry.h3.inlineKeywords.length > 0) h3.inlineKeywords = entry.h3.inlineKeywords;
+				if (entry.h3.inlineCodeLanguages && entry.h3.inlineCodeLanguages.length > 0) h3.inlineCodeLanguages = entry.h3.inlineCodeLanguages;
 				if (entry.h3.tags && entry.h3.tags.length > 0) h3.tags = entry.h3.tags;
 				stripped.h3 = h3;
 			}

@@ -17,5 +17,5 @@ export interface ParserSettings {
  */
 export const DEFAULT_PARSER_SETTINGS: ParserSettings = {
 	excludePatterns: ['_/'],
-	parseInlines: false
+	parseInlines: true
 };
