@@ -32,7 +32,6 @@ const DEFAULT_SETTINGS: PluginSettings = {
           backgroundColor: '#2f0995',
           description: 'Equal to, equivalence',
           generateIcon: '🟰',
-          ccssc: 'eqa-text',
         },
         {
           keyword: 'tru',
@@ -60,7 +59,6 @@ const DEFAULT_SETTINGS: PluginSettings = {
           backgroundColor: '#0c730e',
           description: 'Positive aspect or benefit',
           generateIcon: '(+)',
-          ccssc: 'pos',
         },
         {
           keyword: 'neg',
@@ -101,7 +99,6 @@ const DEFAULT_SETTINGS: PluginSettings = {
           backgroundColor: '#000000',
           description: 'Development or devilish note',
           generateIcon: '',
-          ccssc: 'devilish-text',
         },
         {
           keyword: 'sto',
@@ -109,7 +106,6 @@ const DEFAULT_SETTINGS: PluginSettings = {
           backgroundColor: '#303030',
           description: 'Personal story or memory',
           generateIcon: '',
-          ccssc: 'me-text',
         },
       ],
     },
@@ -167,19 +163,6 @@ export async function loadStore(): Promise<void> {
     settings.parserSettings = DEFAULT_PARSER_SETTINGS;
     needsMigration = true;
   }
-
-  // Migrate old comma-separated keywords to new keyword+aliases structure
-  settings.categories.forEach(category => {
-    category.keywords.forEach(kw => {
-      // Check if keyword contains commas (old format)
-      if (kw.keyword.includes(',') && !kw.aliases) {
-        const parts = kw.keyword.split(',').map(k => k.trim());
-        kw.keyword = parts[0];  // First part becomes the primary keyword
-        kw.aliases = parts.slice(1);  // Rest become aliases
-        needsMigration = true;
-      }
-    });
-  });
 
   // Set default collectingStatus and combinePriority for keywords that don't have them set
   settings.categories.forEach(category => {

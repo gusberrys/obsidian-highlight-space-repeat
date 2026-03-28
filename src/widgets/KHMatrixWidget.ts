@@ -778,8 +778,10 @@ export class KHMatrixWidget extends ItemView {
 			const rowNum = rowIndex + 2;
 
 			// Common secondaries (main table columns)
-			commonSecondaries.forEach((secondaryTopic, colIndex) => {
-				const col = colIndex + 2;
+			commonSecondaries.forEach((secondaryTopic) => {
+				// Use ORIGINAL index from full secondaryTopics array (same as rendering)
+				const originalIndex = secondaryTopics.indexOf(secondaryTopic);
+				const col = originalIndex + 2;
 				const cellKey = `${rowNum}x${col}`;
 				const cell = new PrimarySecondaryCell(
 					this.currentSubject!,
@@ -825,6 +827,7 @@ export class KHMatrixWidget extends ItemView {
 				if (!otherPrimary.topicTag) return;
 
 				const cellKey = `PRIMARY:${clickedPrimary.id}:${otherPrimary.id}`;
+				console.log(`[recalculateMatrixCounts] Creating PRIMARY×PRIMARY cell: ${clickedPrimary.name} × ${otherPrimary.name} (key: ${cellKey}, tags: ${clickedPrimary.topicTag} × ${otherPrimary.topicTag})`);
 				const cell = new PrimaryPrimaryCell(
 					this.currentSubject!,
 					clickedPrimary,

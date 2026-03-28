@@ -535,12 +535,16 @@ export class FilterParser {
 	}
 
 	/**
-	 * Helper: Extract all languages from entry subItems
+	 * Helper: Extract all languages from entry (code blocks + inline code languages)
 	 */
 	private static getAllLanguages(entry: import('../interfaces/ParsedFile').ParsedEntry): string[] {
 		const languages: string[] = [];
 		if (entry.type === 'codeblock' && entry.language) {
 			languages.push(entry.language);
+		}
+		// Add inline code languages from entry
+		if (entry.inlineCodeLanguages) {
+			languages.push(...entry.inlineCodeLanguages);
 		}
 		if (entry.subItems) {
 			for (const subItem of entry.subItems) {
@@ -549,6 +553,10 @@ export class FilterParser {
 				}
 				if (subItem.nestedCodeBlock?.language) {
 					languages.push(subItem.nestedCodeBlock.language);
+				}
+				// Add inline code languages from subitem
+				if (subItem.inlineCodeLanguages) {
+					languages.push(...subItem.inlineCodeLanguages);
 				}
 			}
 		}
@@ -647,9 +655,12 @@ export class FilterParser {
 							results.add(keyword);
 						}
 					}
-				} else if (item.type === 'language' && entry.language) {
-					if (entry.language.toLowerCase() === item.value.toLowerCase()) {
-						results.add(entry.language);
+				} else if (item.type === 'language') {
+					const entryLanguages = FilterParser.getAllLanguages(entry);
+					for (const lang of entryLanguages) {
+						if (lang.toLowerCase() === item.value.toLowerCase()) {
+							results.add(lang);
+						}
 					}
 				}
 			}
@@ -711,7 +722,7 @@ export class FilterParser {
 			}
 		}
 
-		const languages = entry.language ? [entry.language] : [];
+		const languages = this.getAllLanguages(entry);
 		const filePath = entry.filePath || '';
 		const fileName = getFileNameFromPath(entry.filePath!) || '';
 		const fileTags = entry.fileTags || [];

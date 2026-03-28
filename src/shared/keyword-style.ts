@@ -3,12 +3,10 @@ import type { CombinePriority } from './combine-priority';
 
 export type KeywordStyle = {
   keyword: string;  // Primary keyword identifier (ID)
-  aliases?: string[];  // Alternative names/aliases for this keyword
   color: string;
   backgroundColor: string;
   description?: string;
   generateIcon?: string;
-  ccssc?: string;
   collectingStatus?: CollectingStatus;  // How this keyword is collected: IGNORED, PARSED, or SPACED
   combinePriority?: CombinePriority;  // Priority: None/Style/Icon/StyleAndIcon
   showColor?: boolean;  // Whether to show the color (default: true)
@@ -41,12 +39,3 @@ export interface Settings {
   badgeExcludedPaths?: string;  // Comma-separated list of paths where badges should not be shown (e.g., "_journal, templates")
   pathToSubjects?: string;  // Directory path where subject files are stored (e.g., "/kb" -> "/kb/work.md" for subject "work")
 }
-
-/**
- * Get all keyword names (primary keyword + aliases) for a KeywordStyle
- */
-export function getAllKeywordNames(keyword: KeywordStyle): string[] {
-  return [keyword.keyword, ...(keyword.aliases || [])];
-}
-
-

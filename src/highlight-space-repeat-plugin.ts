@@ -643,21 +643,11 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
 
     // Get keywords that should be parsed (PARSED or SPACED status)
     const keywordsToParse: string[] = [];
-    const aliasMap = new Map<string, string>();
 
     for (const category of settings.categories) {
       for (const keyword of category.keywords) {
         if (keyword.collectingStatus === 'PARSED' || keyword.collectingStatus === 'SPACED') {
           keywordsToParse.push(keyword.keyword);
-
-          // Add aliases to map (LOWERCASE for case-insensitive matching)
-          if (keyword.aliases && keyword.aliases.length > 0) {
-            for (const alias of keyword.aliases) {
-              const normalizedAlias = alias.toLowerCase();
-              aliasMap.set(normalizedAlias, keyword.keyword);
-              console.log(`[AliasMap] Registered alias: "${normalizedAlias}" → "${keyword.keyword}"`);
-            }
-          }
         }
       }
     }
@@ -692,7 +682,7 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     // Parse files
     const parsedRecords = [];
     for (const file of includedFiles) {
-      const parsed = await recordParser.parseFile(file, keywordsToParse, aliasMap);
+      const parsed = await recordParser.parseFile(file, keywordsToParse);
       parsedRecords.push(parsed);
     }
 

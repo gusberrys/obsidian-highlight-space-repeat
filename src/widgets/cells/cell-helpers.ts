@@ -65,6 +65,7 @@ export function collectHeadersForTopic(
  * Used by both PRIMARY_SECONDARY and PRIMARY_PRIMARY
  *
  * @param useFileLevelTagsOnly - true for PRIMARY_PRIMARY, false for PRIMARY_SECONDARY
+ * @param requiredSubjectTag - if provided, file must also have this tag (for andMode)
  */
 export function collectIntersectionHeaders(
 	allRecords: ParsedFile[],
@@ -72,13 +73,19 @@ export function collectIntersectionHeaders(
 	secondaryTopic: Topic,
 	getFileLevelTags: (record: ParsedFile) => string[],
 	getRecordTags: (record: ParsedFile) => string[],
-	useFileLevelTagsOnly: boolean
+	useFileLevelTagsOnly: boolean,
+	requiredSubjectTag?: string
 ): Map<string, HeaderGroup> {
 	const headers = new Map<string, HeaderGroup>();
 
 	for (const record of allRecords) {
 		// For primary×primary, use file-level tags only. For primary×secondary, use all tags
 		const fileTags = useFileLevelTagsOnly ? getFileLevelTags(record) : getRecordTags(record);
+
+		// If andMode requires subject tag, skip files without it
+		if (requiredSubjectTag && !fileTags.includes(requiredSubjectTag)) {
+			continue;
+		}
 
 		// Check if topics are on file level
 		const topic1InFile = primaryTopic.topicTag && fileTags.includes(primaryTopic.topicTag);

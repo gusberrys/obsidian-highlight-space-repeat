@@ -68,13 +68,9 @@
     const map = new Map();
     $settingsStore.categories.forEach(cat => {
       cat.keywords.forEach(kw => {
-        // Handle comma-separated keywords
-        const keywords = kw.keyword.split(',').map(k => k.trim());
-        keywords.forEach(k => {
-          if (k) {
-            map.set(k, kw);
-          }
-        });
+        if (kw.keyword) {
+          map.set(kw.keyword, kw);
+        }
       });
     });
     return map;
@@ -131,9 +127,8 @@
     const matchKeyword = keyword.keyword.toLowerCase().includes(searchLower);
     const matchDescription = keyword.description?.toLowerCase().includes(searchLower) || false;
     const matchIcon = keyword.generateIcon?.toLowerCase().includes(searchLower) || false;
-    const matchCssClass = keyword.ccssc?.toLowerCase().includes(searchLower) || false;
 
-    return matchKeyword || matchDescription || matchIcon || matchCssClass;
+    return matchKeyword || matchDescription || matchIcon;
   }
 
   // Get filtered keywords for a category
@@ -154,8 +149,7 @@
         const matchKeyword = kw.keyword.toLowerCase().includes(searchLower);
         const matchDescription = kw.description?.toLowerCase().includes(searchLower) || false;
         const matchIcon = kw.generateIcon?.toLowerCase().includes(searchLower) || false;
-        const matchCssClass = kw.ccssc?.toLowerCase().includes(searchLower) || false;
-        return matchKeyword || matchDescription || matchIcon || matchCssClass;
+        return matchKeyword || matchDescription || matchIcon;
       })
     };
   });
@@ -186,10 +180,11 @@
       return;
     }
 
-    // Get all unique keywords from categories (expand comma-separated)
+    // Get all unique keywords from categories
     const allKeywords = categories
       .flatMap(cat => cat.keywords)
-      .flatMap(kw => kw.keyword.split(',').map(k => k.trim()).filter(k => k));
+      .map(kw => kw.keyword)
+      .filter(k => k);
 
     const uniqueKeywords = [...new Set(allKeywords)];
     totalKeywordsForReference = uniqueKeywords.length;
@@ -326,24 +321,13 @@
       category.keywords.forEach(keyword => {
         if (keyword.keyword && keyword.keyword.trim()) {
           // Get all keyword names (comma-separated)
-          const keywordNames = keyword.keyword.split(',').map(k => k.trim()).filter(k => k);
-          const keywordStr = keywordNames.join(', ');
+          const keywordName = keyword.keyword;
 
-          // Determine which class to use for mark examples
-          const markClass = keyword.ccssc && keyword.ccssc.trim() ? keyword.ccssc.trim() : keywordNames[0];
+          // Build mark example
+          const markExample = `<mark class="${keywordName}"> ${keywordName} </mark>`;
 
-          // Build mark examples
-          let markExamples = '';
-
-          // Example 1: with icon in x attribute if available
-          if (keyword.generateIcon && keyword.generateIcon.trim()) {
-            markExamples += `<mark class="${markClass}" x="${keyword.generateIcon}"> ${keywordNames[0]} </mark>`;
-          } else {
-            markExamples += `<mark class="${markClass}"> ${keywordNames[0]} </mark>`;
-          }
-
-          // Add the line: keyword :: names  <mark>examples</mark>
-          content += `    - ${keywordNames[0]} :: ${keywordStr}  ${markExamples}\n`;
+          // Add the line: keyword :: name  <mark>example</mark>
+          content += `    - ${keywordName} :: ${keywordName}  ${markExample}\n`;
         }
       });
 
@@ -517,13 +501,9 @@
 
       // Collect keywords from this category only
       cat.keywords.forEach(kwDef => {
-        const expanded = kwDef.keyword.split(',').map(k => k.trim());
-        expanded.forEach(k => {
-          if (k) {
-            // Add individual keyword
-            keywords.add(k);
-          }
-        });
+        if (kwDef.keyword) {
+          keywords.add(kwDef.keyword);
+        }
       });
 
       // Combinable feature removed - no combination generation
@@ -761,19 +741,11 @@
 
       // Get keywords that should be parsed (PARSED or SPACED status)
       const keywordsToparse: string[] = [];
-      const aliasMap = new Map<string, string>();
 
       for (const category of $store.categories) {
         for (const keyword of category.keywords) {
           if (isCollected(keyword.collectingStatus)) {
             keywordsToparse.push(keyword.keyword);
-
-            // Add aliases to map
-            if (keyword.aliases && keyword.aliases.length > 0) {
-              for (const alias of keyword.aliases) {
-                aliasMap.set(alias, keyword.keyword);
-              }
-            }
           }
         }
       }
@@ -824,7 +796,7 @@
 
       for (const file of includedFiles) {
         try {
-          const parsedRecord = await recordParser.parseFile(file, keywordsToparse, aliasMap);
+          const parsedRecord = await recordParser.parseFile(file, keywordsToparse);
           parsedRecords.push(parsedRecord);
 
           // Count keywords in flat entries
@@ -1335,10 +1307,8 @@
                     <col style="width: 35px;" /> <!-- Priority -->
                     <col style="width: 30px;" /> <!-- Subkeywords -->
                     <col style="width: 70px;" /> <!-- Keyword -->
-                    <col style="width: 90px;" /> <!-- Aliases -->
                     <col style="width: auto;" /> <!-- Description -->
                     <col style="width: 45px;" /> <!-- Icon -->
-                    <col style="width: 45px;" /> <!-- CSS class -->
                     <col style="width: 80px;" /> <!-- Colors + Remove -->
                   </colgroup>
                   <thead>
@@ -1356,10 +1326,8 @@
                       <th title="Combine Priority">P</th>
                       <th title="Sub-keywords">⚙️</th>
                       <th>Keyword</th>
-                      <th>Aliases</th>
                       <th>Description</th>
                       <th>Icon</th>
-                      <th>CSS</th>
                       <th>Colors</th>
                     </tr>
                   </thead>

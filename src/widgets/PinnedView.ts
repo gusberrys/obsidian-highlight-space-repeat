@@ -30,20 +30,12 @@ export class PinnedView extends ItemView {
 
 	/**
 	 * Get the CSS class to use for a keyword entry
-	 * Uses keyword's configured CSS class (ccssc field) if available,
-	 * otherwise falls back to the keyword name
 	 * COPIED FROM MATRIX WIDGET
 	 */
 	private getKeywordClass(keywordName: string): string {
 		const keywordStyle = this.plugin.api.getKeywordStyle(keywordName);
 
-		// Use configured CSS class if it exists and is not empty
-		if (keywordStyle?.ccssc && keywordStyle.ccssc.trim()) {
-			return keywordStyle.ccssc.trim();
-		}
-
-		// Fallback to keyword name
-		return keywordName;
+		return keywordStyle?.keyword || keywordName;
 	}
 
 	/**
@@ -453,13 +445,11 @@ export class PinnedView extends ItemView {
 		try {
 			// Get keywords to parse from settings
 			const keywordsToParse = this.getKeywordsToParse();
-			const aliasMap = this.getAliasMap();
 
 			// Parse file directly
 			const parsedRecord = await this.parser.parseFile(
 				this.lastOpenedFile,
-				keywordsToParse,
-				aliasMap
+				keywordsToParse
 			);
 
 			return parsedRecord;
@@ -497,25 +487,6 @@ export class PinnedView extends ItemView {
 	 * Get alias map from settings
 	 * For Pinned View, include ALL keyword aliases
 	 */
-	private getAliasMap(): Map<string, string> {
-		const aliasMap = new Map<string, string>();
-		const categories = this.plugin.api.getCategories();
-
-		// Include ALL keyword aliases, not just PARSED/SPACED ones
-		for (const category of categories) {
-			for (const keyword of category.keywords) {
-				if (keyword.aliases && keyword.aliases.length > 0) {
-					for (const alias of keyword.aliases) {
-						const normalizedAlias = alias.toLowerCase();
-						aliasMap.set(normalizedAlias, keyword.keyword);
-					}
-				}
-			}
-		}
-
-		return aliasMap;
-	}
-
 	/**
 	 * Extract ALL headers with entries from a parsed record (for chip generation)
 	 */
