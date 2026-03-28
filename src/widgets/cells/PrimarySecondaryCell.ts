@@ -44,7 +44,8 @@ export class PrimarySecondaryCell extends MatrixCell {
 			this.secondaryTopic,
 			this.getFileLevelTags,
 			this.getRecordTags,
-			false // Use record-level tags for PRIMARY_SECONDARY
+			false, // Use record-level tags for PRIMARY_SECONDARY
+			undefined // No subject tag requirement for PRIMARY_SECONDARY headers
 		);
 	}
 

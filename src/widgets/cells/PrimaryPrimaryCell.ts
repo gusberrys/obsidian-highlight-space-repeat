@@ -31,20 +31,34 @@ export class PrimaryPrimaryCell extends MatrixCell {
 	protected doCollectFiles(allRecords: ParsedFile[]): ParsedFile[] {
 		if (!this.primaryTopic1.topicTag || !this.primaryTopic2.topicTag) return [];
 
-		return allRecords.filter(record => {
+		// If either topic has andMode enabled, also require subject tag
+		const requiresSubjectTag = (this.primaryTopic1.andMode || this.primaryTopic2.andMode) && this.subject.mainTag;
+
+		const filtered = allRecords.filter(record => {
 			const tags = this.getFileLevelTags(record);
-			return tags.includes(this.primaryTopic1.topicTag!) && tags.includes(this.primaryTopic2.topicTag!);
+			const hasBothPrimaryTags = tags.includes(this.primaryTopic1.topicTag!) && tags.includes(this.primaryTopic2.topicTag!);
+
+			if (requiresSubjectTag) {
+				return hasBothPrimaryTags && tags.includes(this.subject.mainTag!);
+			}
+			return hasBothPrimaryTags;
 		});
+
+		return filtered;
 	}
 
 	protected doCollectHeaders(allRecords: ParsedFile[]): Map<string, HeaderGroup> {
+		// If either topic has andMode enabled, require subject tag
+		const requiresSubjectTag = (this.primaryTopic1.andMode || this.primaryTopic2.andMode) && this.subject.mainTag;
+
 		return collectIntersectionHeaders(
 			allRecords,
 			this.primaryTopic1,
 			this.primaryTopic2,
 			this.getFileLevelTags,
 			this.getRecordTags,
-			true // Use file-level tags only for PRIMARY_PRIMARY
+			true, // Use file-level tags only for PRIMARY_PRIMARY
+			requiresSubjectTag ? this.subject.mainTag : undefined
 		);
 	}
 

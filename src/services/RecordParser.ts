@@ -52,13 +52,9 @@ export class RecordParser {
 		const regex = /`\{(\w+)\s*[^}]*\}\s*[^`]+`/g;
 		let match;
 
-		const shouldLog = text.includes('FUCK YOU') || text.includes('{python');
-		if (shouldLog) console.log('[RecordParser] extractInlineCodeLanguages - text:', text);
 		while ((match = regex.exec(text)) !== null) {
-			if (shouldLog) console.log('[RecordParser] extractInlineCodeLanguages - matched:', match[1]);
 			languages.push(match[1].toLowerCase());
 		}
-		if (shouldLog) console.log('[RecordParser] extractInlineCodeLanguages - result:', languages);
 
 		return languages;
 	}
@@ -679,22 +675,13 @@ export class RecordParser {
 		let inlineCodeLanguages: string[] | undefined;
 
 		const extractedInlineKws = this.extractInlineKeywords(text);
-		if (text.includes('node{}')) {
-			console.log('[Parser] NODE ENTRY - extractInlineKeywords returned:', extractedInlineKws, 'for text:', text);
-		}
 		if (extractedInlineKws.length > 0) {
 			inlineKeywords = [...new Set(extractedInlineKws)];
-			if (text.includes('node{}')) {
-				console.log('[Parser] NODE ENTRY - After resolveKeywords, inlineKeywords =', inlineKeywords);
-			}
 		}
 
 		const extractedCodeLangs = this.extractInlineCodeLanguages(text);
-		const shouldLog = text.includes('FUCK YOU') || text.includes('{python');
-		if (shouldLog) console.log('[RecordParser] parseKeywordEntry - extracted langs:', extractedCodeLangs, 'from text:', text.substring(0, 100));
 		if (extractedCodeLangs.length > 0) {
 			inlineCodeLanguages = [...new Set(extractedCodeLangs)];
-			if (shouldLog) console.log('[RecordParser] parseKeywordEntry - SET inlineCodeLanguages to:', inlineCodeLanguages);
 		}
 
 		// Collect sub-items
@@ -1158,8 +1145,6 @@ export class RecordParser {
 			break;
 		}
 
-		if (shouldLog) console.log('[RecordParser] parseKeywordEntry - BEFORE creating entry, inlineCodeLanguages:', inlineCodeLanguages);
-
 		const entry = {
 			type: 'keyword',
 			lineNumber: startIndex + 1,
@@ -1169,12 +1154,6 @@ export class RecordParser {
 			inlineCodeLanguages: inlineCodeLanguages && inlineCodeLanguages.length > 0 ? inlineCodeLanguages : undefined,
 			subItems: subItems.length > 0 ? subItems : undefined
 		};
-
-		if (shouldLog) console.log('[RecordParser] parseKeywordEntry - CREATED entry:', JSON.stringify(entry, null, 2));
-
-		if (text.includes('node{}')) {
-			console.log('[Parser] NODE ENTRY - Returning entry:', JSON.stringify(entry, null, 2));
-		}
 
 		return {
 			entry,

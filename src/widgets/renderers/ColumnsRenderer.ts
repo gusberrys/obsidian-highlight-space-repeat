@@ -111,7 +111,20 @@ export class ColumnsRenderer {
 		}
 
 		const files = cell.collectFiles(this.parsedRecords);
-		if (files.length === 0) return;
+		const headers = cell.collectHeaders(this.parsedRecords);
+
+		// For PRIMARY×PRIMARY columns, show if there are files OR headers
+		// For other columns, only show if there are files
+		const isPrimaryPrimary = cellKey.startsWith('PRIMARY:');
+		if (isPrimaryPrimary) {
+			if (files.length === 0 && headers.size === 0) {
+				return;
+			}
+		} else {
+			if (files.length === 0) {
+				return;
+			}
+		}
 
 		const column = columnsContainer.createDiv({
 			cls: isTotalsColumn ? 'kh-dashboard-column kh-dashboard-totals-column' : 'kh-dashboard-column'
