@@ -29,16 +29,10 @@ function getCollectingStatus(keywords: string[]): CollectingStatus | null {
 }
 
 /**
- * Load parsed records from JSON file
+ * Get parsed records from plugin RAM cache
  */
-async function loadParsedRecords(plugin: HighlightSpaceRepeatPlugin): Promise<ParsedFile[] | null> {
-	try {
-		const data = await plugin.app.vault.adapter.read(DATA_PATHS.PARSED_FILES);
-		return JSON.parse(data);
-	} catch (error) {
-		console.log('[RecordBadge] Failed to load parsed records:', error);
-		return null;
-	}
+function getParsedRecords(plugin: HighlightSpaceRepeatPlugin): ParsedFile[] | null {
+	return plugin.parsedRecords.length > 0 ? plugin.parsedRecords : null;
 }
 
 /**
@@ -392,7 +386,7 @@ export function addRecordBadgesToReadingView(element: HTMLElement, context: Mark
 			tooltip.classList.add('visible');
 
 			// Try to load the actual parsed entry
-			const parsedRecords = await loadParsedRecords(plugin);
+			const parsedRecords = getParsedRecords(plugin);
 			if (!parsedRecords) {
 				tooltip.innerHTML = '<pre>Error: Could not load parsed records</pre>';
 				return;
@@ -453,7 +447,7 @@ export function addRecordBadgesToReadingView(element: HTMLElement, context: Mark
 		// Add SRS preview badge (brain icon) - ONLY if there's something to hide
 		if (isSpaced(status)) {
 			// Load entry to check if there's something to hide
-			loadParsedRecords(plugin).then(parsedRecords => {
+			Promise.resolve(getParsedRecords(plugin)).then(parsedRecords => {
 				if (!parsedRecords) {
 					return;
 				}

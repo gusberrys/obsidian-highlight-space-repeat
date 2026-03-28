@@ -70,56 +70,10 @@ export class HeaderRenderer {
 
 	/**
 	 * Render chips content (flags moved to RecordsRenderer)
+	 * NOTE: Chips are now rendered in RecordsRenderer below the filter input
 	 */
 	private renderChipsAndFlags(chipsContainer: HTMLElement): void {
 		chipsContainer.empty();
-
-		if (this.activeChips.size === 0) {
-			return;
-		}
-
-		// Render active chips
-		const sortedChips = Array.from(this.activeChips.entries()).sort(([idA, chipA], [idB, chipB]) => {
-			// Category chips first
-			if (chipA.type === 'category' && chipB.type !== 'category') return -1;
-			if (chipA.type !== 'category' && chipB.type === 'category') return 1;
-			return 0;
-		});
-
-		sortedChips.forEach(([chipId, chip]) => {
-			const classList = [
-				'grid-keyword-chip',
-				chip.active ? 'active' : 'inactive',
-				chip.mode === 'exclude' ? 'excluded' : '',
-				chip.type === 'category' ? 'kh-category-master' : '',
-				chip.cssClass || ''
-			].filter(c => c).join(' ');
-
-			const chipEl = chipsContainer.createEl('button', { cls: classList });
-
-			if (chip.backgroundColor) {
-				chipEl.style.backgroundColor = chip.backgroundColor;
-			}
-			if (chip.color) {
-				chipEl.style.color = chip.color;
-			}
-
-			if (chip.icon) {
-				chipEl.createEl('span', {
-					cls: 'keyword-chip-icon',
-					text: chip.icon
-				});
-			}
-
-			chipEl.createEl('span', {
-				cls: 'keyword-chip-label',
-				text: chip.label
-			});
-
-			// Chip click handler
-			chipEl.onclick = () => {
-				this.onChipClick(chipId);
-			};
-		});
+		// Chips are now rendered in RecordsRenderer, not here
 	}
 }

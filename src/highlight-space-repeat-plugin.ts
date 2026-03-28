@@ -27,6 +27,9 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
   public srsManager!: SRSManager;
   public orphanManager!: OrphanManager;
 
+  // Parsed records cache (in RAM only)
+  public parsedRecords: any[] = [];
+
   /**
    * Public API for external plugins to access highlight space repeat functionality
    * Access via: app.plugins.plugins['obsidian-highlight-space-repeat'].api
@@ -679,17 +682,12 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       }
     }
 
-    // Parse files
-    const parsedRecords = [];
+    // Parse files and store in RAM
+    this.parsedRecords = [];
     for (const file of includedFiles) {
       const parsed = await recordParser.parseFile(file, keywordsToParse);
-      parsedRecords.push(parsed);
+      this.parsedRecords.push(parsed);
     }
-
-    // Save parsed records with space-saving optimizations
-    const { stripParsedRecordsForSave } = await import('./utils/parse-helpers');
-    const parsedRecordsForSave = stripParsedRecordsForSave(parsedRecords);
-    await this.app.vault.adapter.write(DATA_PATHS.PARSED_FILES, JSON.stringify(parsedRecordsForSave, null, 2));
 
     // Refresh views if open
     this.refreshPinnedView();

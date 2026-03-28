@@ -845,27 +845,9 @@
         }
       }
 
-      // Save parsed records to JSON file with space-saving optimizations
-      const { stripParsedRecordsForSave } = await import('../utils/parse-helpers');
-      const parsedRecordsForSave = stripParsedRecordsForSave(parsedRecords);
-      const jsonContent = JSON.stringify(parsedRecordsForSave, null, 2);
-
-      // Ensure app-data directory exists in plugin directory
-      const appDataPath = DATA_PATHS.DIR;
-      try {
-        if (!await plugin.app.vault.adapter.exists(appDataPath)) {
-          console.log('[SettingTab] Creating app-data directory:', appDataPath);
-          await plugin.app.vault.adapter.mkdir(appDataPath);
-        }
-
-        const filePath = DATA_PATHS.PARSED_FILES;
-        console.log('[SettingTab] Writing parsed-files.json with', parsedRecords.length, 'files');
-        await plugin.app.vault.adapter.write(filePath, jsonContent);
-        console.log('[SettingTab] Successfully wrote parsed-files.json');
-      } catch (error) {
-        console.error('[SettingTab] Error writing parsed-files.json:', error);
-        throw error;
-      }
+      // Store parsed records in plugin RAM cache
+      plugin.parsedRecords = parsedRecords;
+      console.log('[SettingTab] Stored', parsedRecords.length, 'files in RAM cache');
 
       // Create SRS cards for SPACED keywords
       let srsCardsCreated = 0;
@@ -944,18 +926,13 @@
     filterResult = null;
 
     try {
-      // Check if parsed-files.json exists
-      const parsedRecordsPath = DATA_PATHS.PARSED_FILES;
-      const exists = await plugin.app.vault.adapter.exists(parsedRecordsPath);
-
-      if (!exists) {
+      // Get parsed records from plugin RAM cache
+      if (plugin.parsedRecords.length === 0) {
         new Notice('No parsed records found. Please run "Scan Now" in the Parser tab first.');
         return;
       }
 
-      // Read parsed records
-      const jsonContent = await plugin.app.vault.adapter.read(parsedRecordsPath);
-      const parsedRecords: ParsedRecord[] = JSON.parse(jsonContent);
+      const parsedRecords: ParsedRecord[] = plugin.parsedRecords;
 
       // Split filter expression on W: to separate SELECT and WHERE parts
       const hasWhere = filterExpression.includes('W:');

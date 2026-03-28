@@ -114,7 +114,6 @@ export interface HeaderInfo {
  * Flat entry structure - combines entry data with full header context
  * Replaces hierarchical ParsedHeader structure for efficient filtering/rendering
  *
- * Note: filePath, fileTags are NOT stored in parsed-files.json.
  * They are added at runtime when the file is loaded (as references to ParsedFile properties).
  */
 export interface FlatEntry {

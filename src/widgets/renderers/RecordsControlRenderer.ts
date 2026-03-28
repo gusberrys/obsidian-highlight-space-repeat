@@ -7,6 +7,7 @@ import { setIcon } from 'obsidian';
 export class RecordsControlRenderer {
 	private filterExpression: string;
 	private filterText: string;
+	private filterType: 'F' | 'H' | 'R' | 'D' | null;
 	private trimSubItems: boolean;
 	private topRecordOnly: boolean;
 	private showAll: boolean;
@@ -15,6 +16,7 @@ export class RecordsControlRenderer {
 	private onExpressionSearch: (expression: string) => void;
 	private onExpressionInput: (expression: string) => void;
 	private onFilterTextChange: (text: string) => void;
+	private onFilterTypeChange: (type: 'F' | 'H' | 'R' | 'D') => void;
 	private onTrimToggle: () => void;
 	private onTopToggle: () => void;
 	private onShowAllToggle: () => void;
@@ -23,6 +25,7 @@ export class RecordsControlRenderer {
 		filterState: {
 			filterExpression: string;
 			filterText: string;
+			filterType: 'F' | 'H' | 'R' | 'D' | null;
 		},
 		flags: {
 			trimSubItems: boolean;
@@ -33,6 +36,7 @@ export class RecordsControlRenderer {
 			onExpressionSearch: (expression: string) => void;
 			onExpressionInput: (expression: string) => void;
 			onFilterTextChange: (text: string) => void;
+			onFilterTypeChange: (type: 'F' | 'H' | 'R' | 'D') => void;
 			onTrimToggle: () => void;
 			onTopToggle: () => void;
 			onShowAllToggle: () => void;
@@ -40,6 +44,7 @@ export class RecordsControlRenderer {
 	) {
 		this.filterExpression = filterState.filterExpression;
 		this.filterText = filterState.filterText;
+		this.filterType = filterState.filterType;
 		this.trimSubItems = flags.trimSubItems;
 		this.topRecordOnly = flags.topRecordOnly;
 		this.showAll = flags.showAll;
@@ -47,6 +52,7 @@ export class RecordsControlRenderer {
 		this.onExpressionSearch = callbacks.onExpressionSearch;
 		this.onExpressionInput = callbacks.onExpressionInput;
 		this.onFilterTextChange = callbacks.onFilterTextChange;
+		this.onFilterTypeChange = callbacks.onFilterTypeChange;
 		this.onTrimToggle = callbacks.onTrimToggle;
 		this.onTopToggle = callbacks.onTopToggle;
 		this.onShowAllToggle = callbacks.onShowAllToggle;
@@ -56,11 +62,11 @@ export class RecordsControlRenderer {
 	 * Render all controls (expression filter, flags, text search)
 	 */
 	render(container: HTMLElement): void {
-		// Records generating filter expression input
+		// Records generating filter expression input (includes file search at end)
 		this.renderExpressionFilter(container);
 
-		// Text filter for filtering results
-		this.renderTextFilter(container);
+		// Text filter now inline in expression filter
+		// this.renderTextFilter(container);
 	}
 
 	/**
@@ -74,12 +80,37 @@ export class RecordsControlRenderer {
 			}
 		});
 
-		const expressionLabel = expressionContainer.createEl('label', {
-			text: 'Records filter:',
+		// Filter type selector (F/H/R/D)
+		const filterTypeSelect = expressionContainer.createEl('select', {
+			cls: 'kh-filter-type-select',
 			attr: {
-				style: 'font-weight: 600; color: var(--text-muted); font-size: 0.9em; white-space: nowrap;'
+				style: 'font-weight: 600; color: var(--text-muted); font-size: 0.9em; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background-color: var(--background-primary);'
 			}
 		});
+
+		const typeOptions = [
+			{ value: 'F', label: 'F' },
+			{ value: 'H', label: 'H' },
+			{ value: 'R', label: 'R' }
+		];
+
+		typeOptions.forEach(opt => {
+			const option = filterTypeSelect.createEl('option', {
+				value: opt.value,
+				text: opt.label
+			});
+			if (opt.value === this.filterType) {
+				option.selected = true;
+			}
+		});
+
+		filterTypeSelect.addEventListener('change', () => {
+			const newType = filterTypeSelect.value as 'F' | 'H' | 'R' | 'D';
+			this.onFilterTypeChange(newType);
+		});
+
+		// Expression input and search button only enabled for Records (R)
+		const expressionEnabled = this.filterType === 'R';
 
 		const expressionInput = expressionContainer.createEl('input', {
 			type: 'text',
@@ -87,14 +118,15 @@ export class RecordsControlRenderer {
 			value: this.filterExpression || '',
 			placeholder: 'Filter expression...',
 			attr: {
-				style: 'flex: 1;'
+				style: 'flex: 1;' + (expressionEnabled ? '' : ' opacity: 0.3; cursor: not-allowed;')
 			}
 		});
+		expressionInput.disabled = !expressionEnabled;
 
 		const expressionSearchBtn = expressionContainer.createEl('button', {
 			text: '🔍',
 			cls: 'kh-widget-filter-search-btn',
-			title: `Filter Syntax Guide:
+			title: expressionEnabled ? `Filter Syntax Guide:
 
 MATCHING:
   .keyword - keyword match (e.g., .goa .def)
@@ -131,55 +163,116 @@ Examples:
   .goa.wor - entries with goa AND wor
   .goa AND (.f1 OR .f2) - goa with f1 or f2
   .goa AND !.f1 AND !.f2 - goa without f1 or f2
-  .goa \\t W: #kafka - top-level goa in #kafka files`
+  .goa \\t W: #kafka - top-level goa in #kafka files` : '[Only available for Records]',
+			attr: {
+				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: pointer;' + (expressionEnabled ? '' : ' opacity: 0.3; cursor: not-allowed;')
+			}
 		});
+		expressionSearchBtn.disabled = !expressionEnabled;
 
 		const performExpressionSearch = () => {
-			this.onExpressionSearch(expressionInput.value);
+			if (expressionEnabled) {
+				this.onExpressionSearch(expressionInput.value);
+			}
 		};
 
 		expressionInput.addEventListener('input', () => {
-			this.onExpressionInput(expressionInput.value);
+			if (expressionEnabled) {
+				this.onExpressionInput(expressionInput.value);
+			}
 		});
 
 		expressionInput.addEventListener('keydown', (e) => {
-			if (e.key === 'Enter') {
+			if (e.key === 'Enter' && expressionEnabled) {
 				performExpressionSearch();
 			}
 		});
 
 		expressionSearchBtn.addEventListener('click', performExpressionSearch);
 
-		// Flag toggle buttons (on same line as expression input)
+		// Flag toggle buttons (on same line as expression input) - only enabled for Records (R)
+		const flagsEnabled = this.filterType === 'R';
+
 		const trimToggle = expressionContainer.createEl('button', {
-			cls: 'kh-filter-toggle' + (this.trimSubItems ? ' active' : ''),
+			cls: 'kh-filter-toggle' + (this.trimSubItems ? ' kh-filter-toggle-active' : ''),
 			text: '💇',
-			title: 'Slim: Show only matching sub-items (\\s flag)',
+			title: 'Slim: Show only matching sub-items (\\s flag)' + (flagsEnabled ? '' : ' [Only available for Records]'),
 			attr: {
-				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: pointer;'
+				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: pointer;' + (flagsEnabled ? '' : ' opacity: 0.3; cursor: not-allowed;')
 			}
 		});
-		trimToggle.addEventListener('click', () => this.onTrimToggle());
+		trimToggle.disabled = !flagsEnabled;
+		trimToggle.addEventListener('click', () => {
+			if (flagsEnabled) this.onTrimToggle();
+		});
 
 		const topToggle = expressionContainer.createEl('button', {
-			cls: 'kh-filter-toggle' + (this.topRecordOnly ? ' active' : ''),
+			cls: 'kh-filter-toggle' + (this.topRecordOnly ? ' kh-filter-toggle-active' : ''),
 			text: '👑',
-			title: 'Top: Show only top-level matches (\\t flag)',
+			title: 'Top: Show only top-level matches (\\t flag)' + (flagsEnabled ? '' : ' [Only available for Records]'),
 			attr: {
-				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: pointer;'
+				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: pointer;' + (flagsEnabled ? '' : ' opacity: 0.3; cursor: not-allowed;')
 			}
 		});
-		topToggle.addEventListener('click', () => this.onTopToggle());
+		topToggle.disabled = !flagsEnabled;
+		topToggle.addEventListener('click', () => {
+			if (flagsEnabled) this.onTopToggle();
+		});
 
 		const showAllToggle = expressionContainer.createEl('button', {
-			cls: 'kh-filter-toggle' + (this.showAll ? ' active' : ''),
+			cls: 'kh-filter-toggle' + (this.showAll ? ' kh-filter-toggle-active' : ''),
 			text: '🅰️',
-			title: 'All: Ignore SELECT, show all WHERE matches (\\a flag)',
+			title: 'All: Ignore SELECT, show all WHERE matches (\\a flag)' + (flagsEnabled ? '' : ' [Only available for Records]'),
 			attr: {
-				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: pointer;'
+				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: pointer;' + (flagsEnabled ? '' : ' opacity: 0.3; cursor: not-allowed;')
 			}
 		});
+		showAllToggle.disabled = !flagsEnabled;
 		showAllToggle.addEventListener('click', () => this.onShowAllToggle());
+
+		// File search input at the end (small width, filter DOM directly)
+		const searchInput = expressionContainer.createEl('input', {
+			cls: 'kh-dashboard-file-search-input',
+			type: 'text',
+			placeholder: 'File search...',
+			value: this.filterText,
+			attr: {
+				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); width: 100px; background-color: var(--background-primary);'
+			}
+		});
+
+		// Filter DOM directly on input (no re-render)
+		searchInput.addEventListener('input', () => {
+			const searchText = searchInput.value.trim().toLowerCase();
+			const resultsContainer = document.querySelector('.kh-widget-filter-results');
+
+			if (!resultsContainer) return;
+
+			// Filter file items (check data-searchable attribute)
+			const fileItems = resultsContainer.querySelectorAll('.kh-widget-filter-item');
+			fileItems.forEach((item: HTMLElement) => {
+				const searchable = item.getAttribute('data-searchable') || '';
+				item.style.display = searchable.includes(searchText) ? '' : 'none';
+			});
+
+			// Filter header groups (show if header or any entry matches)
+			const headerGroups = resultsContainer.querySelectorAll('.kh-widget-filter-file-group');
+			headerGroups.forEach((group: HTMLElement) => {
+				const groupSearchable = group.getAttribute('data-searchable') || '';
+				const entries = group.querySelectorAll('.kh-widget-filter-entry');
+
+				let hasMatch = groupSearchable.includes(searchText);
+
+				entries.forEach((entry: HTMLElement) => {
+					const entrySearchable = entry.getAttribute('data-searchable') || '';
+					const entryMatches = entrySearchable.includes(searchText);
+					entry.style.display = entryMatches ? '' : 'none';
+					if (entryMatches) hasMatch = true;
+				});
+
+				group.style.display = hasMatch ? '' : 'none';
+			});
+		});
 	}
 
 	/**

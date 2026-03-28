@@ -72,19 +72,13 @@ export function addSRSSettings(containerEl: HTMLElement, plugin: HighlightSpaceR
 				.onClick(async () => {
 					new Notice('Scanning for orphans...');
 
-					// Load parsed records
-					const parsedRecordsPath = DATA_PATHS.PARSED_FILES;
-					const exists = await plugin.app.vault.adapter.exists(parsedRecordsPath);
-
-					if (!exists) {
+					// Get parsed records from plugin RAM cache
+					if (plugin.parsedRecords.length === 0) {
 						new Notice('No parsed records found. Run a scan first.', 5000);
 						return;
 					}
 
-					const content = await plugin.app.vault.adapter.read(parsedRecordsPath);
-					const parsedRecords = JSON.parse(content);
-
-					await plugin.orphanManager.detectOrphans(parsedRecords);
+					await plugin.orphanManager.detectOrphans(plugin.parsedRecords);
 
 					const newStats = plugin.srsManager.getStats();
 					new Notice(`Orphan detection complete. Found ${newStats.orphans} orphans.`);
@@ -105,19 +99,13 @@ export function addSRSSettings(containerEl: HTMLElement, plugin: HighlightSpaceR
 				.onClick(async () => {
 					new Notice('Attempting to reconnect orphans...');
 
-					// Load parsed records
-					const parsedRecordsPath = DATA_PATHS.PARSED_FILES;
-					const exists = await plugin.app.vault.adapter.exists(parsedRecordsPath);
-
-					if (!exists) {
+					// Get parsed records from plugin RAM cache
+					if (plugin.parsedRecords.length === 0) {
 						new Notice('No parsed records found. Run a scan first.', 5000);
 						return;
 					}
 
-					const content = await plugin.app.vault.adapter.read(parsedRecordsPath);
-					const parsedRecords = JSON.parse(content);
-
-					const reconnected = await plugin.orphanManager.attemptReconnection(parsedRecords);
+					const reconnected = await plugin.orphanManager.attemptReconnection(plugin.parsedRecords);
 
 					new Notice(`Reconnected ${reconnected} orphaned cards.`);
 

@@ -49,27 +49,11 @@ export class SRSReviewView extends ItemView {
 			return;
 		}
 
-		// Load parsed records
-		await this.loadParsedRecords();
+		// Load parsed records from plugin RAM cache
+		this.parsedRecords = this.plugin.parsedRecords;
 
 		new Notice(`Starting review session: ${this.cards.length} cards`);
 		await this.render();
-	}
-
-	/**
-	 * Load parsed records
-	 */
-	private async loadParsedRecords(): Promise<void> {
-		const parsedRecordsPath = DATA_PATHS.PARSED_FILES;
-		const exists = await this.app.vault.adapter.exists(parsedRecordsPath);
-
-		if (!exists) {
-			console.warn('[SRSReviewView] No parsed records found');
-			return;
-		}
-
-		const jsonContent = await this.app.vault.adapter.read(parsedRecordsPath);
-		this.parsedRecords = JSON.parse(jsonContent);
 	}
 
 	/**

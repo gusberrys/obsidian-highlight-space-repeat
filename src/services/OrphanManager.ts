@@ -16,7 +16,6 @@ export class OrphanManager {
 
 	/**
 	 * Scan database for orphaned cards
-	 * Run this after parsed-files.json is regenerated
 	 *
 	 * @param parsedRecords All parsed records from cache
 	 */

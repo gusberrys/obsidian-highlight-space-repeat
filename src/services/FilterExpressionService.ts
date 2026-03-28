@@ -22,7 +22,14 @@ export class FilterExpressionService {
 		includesSubjectTag: boolean = false
 	): Array<{ entry: import('../interfaces/ParsedFile').FlatEntry; file: ParsedFile }> {
 		if (!filterExpression || !filterExpression.trim()) {
-			return [];
+			// Empty expression = show all records
+			const allRecords: Array<{ entry: import('../interfaces/ParsedFile').FlatEntry; file: ParsedFile }> = [];
+			for (const file of parsedFiles) {
+				for (const entry of file.entries) {
+					allRecords.push({ entry, file });
+				}
+			}
+			return allRecords;
 		}
 
 		// Expand placeholders in expression
@@ -30,6 +37,17 @@ export class FilterExpressionService {
 
 		// Transform expression to add OR operators between keywords
 		const transformedExpr = this.transformFilterExpression(expandedExpr);
+
+		// If all chips were deactivated, transformed expression is empty - show all results
+		if (!transformedExpr || !transformedExpr.trim()) {
+			const allRecords: Array<{ entry: import('../interfaces/ParsedFile').FlatEntry; file: ParsedFile }> = [];
+			for (const file of parsedFiles) {
+				for (const entry of file.entries) {
+					allRecords.push({ entry, file });
+				}
+			}
+			return allRecords;
+		}
 
 		// Split on W: or w: to separate SELECT and WHERE clauses (case-insensitive)
 		const hasWhere = /\s+[Ww]:\s+/.test(transformedExpr);
@@ -157,7 +175,10 @@ export class FilterExpressionService {
 
 	/**
 	 * Transform filter expression to add OR operators between keywords
-	 * Example: ".def .inc :boo W: #tag" → ".def OR .inc OR :boo W: #tag"
+	 * Deactivated chips (_.keyword) are separated and ANDed as negations
+	 * Examples:
+	 *   ".def .inc :boo W: #tag" → ".def OR .inc OR :boo W: #tag"
+	 *   "_.pos .neg .goa" → "(.neg OR .goa) AND !.pos"
 	 */
 	static transformFilterExpression(expression: string): string {
 		// Remove modifiers from ENTIRE expression first (before splitting on W:)
@@ -231,32 +252,35 @@ export class FilterExpressionService {
 			}
 		}
 
-		// Join items with OR if they don't already have operators between them
+		// Filter out deactivated chips (just ignore them, don't exclude)
+		const activatedItems: string[] = [];
+
+		for (const item of transformedItems) {
+			if (!item.startsWith('_')) {
+				activatedItems.push(item);
+			}
+			// Deactivated items (starting with _) are simply ignored
+		}
+
+		// Join activated items with OR
 		let transformedSelect = '';
-		for (let j = 0; j < transformedItems.length; j++) {
-			const item = transformedItems[j];
-			const nextItem = transformedItems[j + 1];
+		for (let j = 0; j < activatedItems.length; j++) {
+			const item = activatedItems[j];
+			const nextItem = activatedItems[j + 1];
 
 			transformedSelect += item;
 
-			// Add OR between items if:
-			// - Not the last item
-			// - Current item is not an operator
-			// - Next item is not an operator
-			// - Current item is not an opening paren
-			// - Next item is not a closing paren
 			if (nextItem !== undefined &&
 				item !== 'AND' && item !== 'OR' &&
 				nextItem !== 'AND' && nextItem !== 'OR' &&
 				item !== '(' && nextItem !== ')') {
 				transformedSelect += ' OR ';
-			} else if (nextItem !== undefined) {
-				transformedSelect += ' ';
 			}
 		}
 
 		// Reconstruct expression
-		return whereExpr ? `${transformedSelect} W: ${whereExpr}` : transformedSelect;
+		const result = whereExpr ? `${transformedSelect} W: ${whereExpr}` : transformedSelect;
+		return result;
 	}
 
 	/**
@@ -266,11 +290,20 @@ export class FilterExpressionService {
 		let i = startPos;
 		if (i >= expr.length) return null;
 
-		const char = expr[i];
+		let char = expr[i];
+
+		// Check for deactivated chip prefix
+		let hasUnderscore = false;
+		if (char === '_') {
+			hasUnderscore = true;
+			i++;
+			if (i >= expr.length) return null;
+			char = expr[i]; // Get next character after underscore
+		}
 
 		// Keyword (.foo or .foo.bar)
 		if (char === '.') {
-			let value = '.';
+			let value = hasUnderscore ? '_.' : '.';
 			i++;
 			while (i < expr.length && /[a-zA-Z0-9_.-]/.test(expr[i])) {
 				value += expr[i];
@@ -281,7 +314,7 @@ export class FilterExpressionService {
 
 		// Tag (#foo)
 		if (char === '#') {
-			let value = '#';
+			let value = hasUnderscore ? '_#' : '#';
 			i++;
 			while (i < expr.length && /[a-zA-Z0-9_-]/.test(expr[i])) {
 				value += expr[i];
@@ -292,7 +325,7 @@ export class FilterExpressionService {
 
 		// Category (:foo)
 		if (char === ':') {
-			let value = ':';
+			let value = hasUnderscore ? '_:' : ':';
 			i++;
 			while (i < expr.length && /[a-zA-Z0-9_-]/.test(expr[i])) {
 				value += expr[i];
@@ -303,7 +336,7 @@ export class FilterExpressionService {
 
 		// Language (`java)
 		if (char === '`') {
-			let value = '`';
+			let value = hasUnderscore ? '_`' : '`';
 			i++;
 			while (i < expr.length && /[a-zA-Z0-9_-]/.test(expr[i])) {
 				value += expr[i];
@@ -314,7 +347,7 @@ export class FilterExpressionService {
 
 		// Path (/foo/bar)
 		if (char === '/') {
-			let value = '';
+			let value = hasUnderscore ? '_/' : '';
 			while (i < expr.length && /[a-zA-Z0-9_\-\/.]/.test(expr[i])) {
 				value += expr[i];
 				i++;
@@ -324,7 +357,7 @@ export class FilterExpressionService {
 
 		// File name (f"filename")
 		if (char === 'f' && i + 1 < expr.length && expr[i + 1] === '"') {
-			let value = 'f"';
+			let value = hasUnderscore ? '_f"' : 'f"';
 			i += 2;
 			while (i < expr.length && expr[i] !== '"') {
 				value += expr[i];
@@ -337,7 +370,7 @@ export class FilterExpressionService {
 
 		// Quoted text ("plaintext")
 		if (char === '"') {
-			let value = '"';
+			let value = hasUnderscore ? '_"' : '"';
 			i++;
 			while (i < expr.length && expr[i] !== '"') {
 				value += expr[i];
@@ -360,7 +393,7 @@ export class FilterExpressionService {
 				return { value: bareWord, endPos: i };
 			}
 			// Add . prefix for keywords
-			return { value: '.' + bareWord, endPos: i };
+			return { value: (hasUnderscore ? '_.' : '.') + bareWord, endPos: i };
 		}
 
 		return null;

@@ -248,7 +248,7 @@ export class SubjectDashboardView extends ItemView {
 						}
 
 						this.applyChipFiltering = false;
-						const allRecords = await this.loadParsedRecords();
+						const allRecords = this.getParsedRecords();
 						this.selectedRecords = allRecords;
 						this.selectedContext = `${topic.name}: ${recordCount} entries`;
 						this.selectedKeywordFilter = null;
@@ -590,7 +590,7 @@ export class SubjectDashboardView extends ItemView {
 
 			// If no records selected, use all records from current view
 			if (filteredRecords.length === 0) {
-				const allRecords = await this.loadParsedRecords();
+				const allRecords = this.getParsedRecords();
 
 				// Apply current subject filter
 				if (this.currentSubject?.mainTag) {
@@ -621,7 +621,7 @@ export class SubjectDashboardView extends ItemView {
 
 		// Auto-render chips and apply filter if there's an active filter expression
 		if (this.activeFilterExpression) {
-			const parsedRecords = await this.loadParsedRecords();
+			const parsedRecords = this.getParsedRecords();
 
 			// Wrapper to ensure chips are on separate line
 			const chipsWrapper = header.createDiv({ cls: 'kh-dashboard-chips-wrapper' });
@@ -1044,7 +1044,7 @@ export class SubjectDashboardView extends ItemView {
 
 
 				// Apply filter and update ONLY records section (don't re-render header!)
-				const parsedRecords = await this.loadParsedRecords();
+				const parsedRecords = this.getParsedRecords();
 				await this.applyFilterExpression(parsedRecords);
 				await this.updateRecordsSection();
 			});
@@ -1155,7 +1155,7 @@ export class SubjectDashboardView extends ItemView {
 
 
 				// Apply filter and update ONLY records section (don't re-render header!)
-				const parsedRecords = await this.loadParsedRecords();
+				const parsedRecords = this.getParsedRecords();
 				await this.applyFilterExpression(parsedRecords);
 				await this.updateRecordsSection();
 			});
@@ -1198,7 +1198,7 @@ export class SubjectDashboardView extends ItemView {
 
 
 				// Apply filter and update ONLY records section (don't re-render header!)
-				const parsedRecords = await this.loadParsedRecords();
+				const parsedRecords = this.getParsedRecords();
 				await this.applyFilterExpression(parsedRecords);
 				await this.updateRecordsSection();
 			});
@@ -1329,42 +1329,10 @@ export class SubjectDashboardView extends ItemView {
 
 
 	/**
-	 * Load parsed records from JSON file
-	 * IMPORTANT: Enriches entries with file-level metadata (fileTags, fileName, filePath)
-	 * required by FilterParser.evaluateFlatEntry
+	 * Get parsed records from plugin RAM cache
 	 */
-	private async loadParsedRecords(): Promise<ParsedFile[]> {
-		const parsedRecordsPath = DATA_PATHS.PARSED_FILES;
-		const exists = await this.plugin.app.vault.adapter.exists(parsedRecordsPath);
-
-		if (!exists) {
-			console.warn('[SubjectDashboardView] No parsed records found.');
-			return [];
-		}
-
-		const jsonContent = await this.plugin.app.vault.adapter.read(parsedRecordsPath);
-		const parsedFiles: ParsedFile[] = JSON.parse(jsonContent);
-
-		// Enrich entries with file-level metadata required by FilterParser.evaluateFlatEntry
-		for (const file of parsedFiles) {
-			// Normalize file tags - remove # prefix if present (FilterParser expects tags WITHOUT #)
-			const normalizedTags = file.tags.map(tag => tag.startsWith('#') ? tag.slice(1) : tag);
-
-			for (const entry of file.entries) {
-				// Add file-level metadata to each entry as required by FilterParser
-				(entry as any).fileTags = normalizedTags;
-				(entry as any).fileName = file.fileName;
-				(entry as any).filePath = file.filePath;
-
-				// Ensure entry.text exists for text filtering (W: "text")
-				// If entry.text is missing or empty, use empty string to avoid errors
-				if (!entry.text) {
-					entry.text = '';
-				}
-			}
-		}
-
-		return parsedFiles;
+	private getParsedRecords(): ParsedFile[] {
+		return this.plugin.parsedRecords;
 	}
 
 	/**
