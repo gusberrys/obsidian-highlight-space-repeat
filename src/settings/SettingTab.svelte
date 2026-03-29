@@ -845,71 +845,12 @@
         }
       }
 
-      // Save parsed records to JSON file with space-saving optimizations
-      const { stripParsedRecordsForSave } = await import('../utils/parse-helpers');
-      const parsedRecordsForSave = stripParsedRecordsForSave(parsedRecords);
-      const jsonContent = JSON.stringify(parsedRecordsForSave, null, 2);
+      // Store parsed records in plugin RAM cache
+      plugin.parsedRecords = parsedRecords;
+      console.log('[SettingTab] Stored', parsedRecords.length, 'files in RAM cache');
 
-      // Ensure app-data directory exists in plugin directory
-      const appDataPath = DATA_PATHS.DIR;
-      try {
-        if (!await plugin.app.vault.adapter.exists(appDataPath)) {
-          console.log('[SettingTab] Creating app-data directory:', appDataPath);
-          await plugin.app.vault.adapter.mkdir(appDataPath);
-        }
-
-        const filePath = DATA_PATHS.PARSED_FILES;
-        console.log('[SettingTab] Writing parsed-files.json with', parsedRecords.length, 'files');
-        await plugin.app.vault.adapter.write(filePath, jsonContent);
-        console.log('[SettingTab] Successfully wrote parsed-files.json');
-      } catch (error) {
-        console.error('[SettingTab] Error writing parsed-files.json:', error);
-        throw error;
-      }
-
-      // Create SRS cards for SPACED keywords
-      let srsCardsCreated = 0;
-      const spacedKeywords = new Set<string>();
-
-      // Get all keywords with SPACED status
-      for (const category of $store.categories || []) {
-        for (const keyword of category.keywords || []) {
-          if (isSpaced(keyword.collectingStatus)) {
-            spacedKeywords.add(keyword.keyword);
-          }
-        }
-      }
-
-      // Process flat entries for SRS cards
-      for (const record of parsedRecords) {
-        for (const entry of record.entries) {
-          if (entry.keywords) {
-            for (const kw of entry.keywords) {
-              if (spacedKeywords.has(kw)) {
-                // Create SRS card for this entry
-                plugin.srsManager.getCard(
-                  record.filePath,
-                  entry.lineNumber,
-                  kw,
-                  entry.type,
-                  entry
-                );
-                srsCardsCreated++;
-              }
-            }
-          }
-        }
-      }
-
-      // Save SRS database
-      await plugin.srsManager.save();
-
-      // Detect and cleanup orphans
-      await plugin.orphanManager.detectOrphans(parsedRecords);
-      const cleanedOrphans = await plugin.orphanManager.cleanupOldOrphans(90);
-
-      console.log(`[SRS] Created ${srsCardsCreated} SRS cards from SPACED keywords`);
-      console.log(`[SRS] Cleaned ${cleanedOrphans} old orphans`);
+      // SRS data is now stored directly in markdown files as HTML comments
+      // No need to create database cards - RecordParser extracts SRS comments during parsing
 
       // Build result
       scanResult = {
@@ -944,18 +885,13 @@
     filterResult = null;
 
     try {
-      // Check if parsed-files.json exists
-      const parsedRecordsPath = DATA_PATHS.PARSED_FILES;
-      const exists = await plugin.app.vault.adapter.exists(parsedRecordsPath);
-
-      if (!exists) {
+      // Get parsed records from plugin RAM cache
+      if (plugin.parsedRecords.length === 0) {
         new Notice('No parsed records found. Please run "Scan Now" in the Parser tab first.');
         return;
       }
 
-      // Read parsed records
-      const jsonContent = await plugin.app.vault.adapter.read(parsedRecordsPath);
-      const parsedRecords: ParsedRecord[] = JSON.parse(jsonContent);
+      const parsedRecords: ParsedRecord[] = plugin.parsedRecords;
 
       // Split filter expression on W: to separate SELECT and WHERE parts
       const hasWhere = filterExpression.includes('W:');
@@ -1855,24 +1791,6 @@
               }}
             >
               𒐺
-            </button>
-
-            <!-- Show All Toggle -->
-            <button
-              class="filter-toggle"
-              class:filter-toggle-active={filterExpression.includes('\\a')}
-              data-command="A"
-              title="Toggle Show All: Display all matching entries (\a modifier)"
-              on:click={() => {
-                if (filterExpression.includes('\\a')) {
-                  filterExpression = filterExpression.replace(/\\a/g, '').trim();
-                } else {
-                  filterExpression = (filterExpression + ' \\a').trim();
-                }
-                if (filterExpression.trim()) handleTestFilter();
-              }}
-            >
-              💯
             </button>
 
             <!-- Trim Subelement Toggle -->

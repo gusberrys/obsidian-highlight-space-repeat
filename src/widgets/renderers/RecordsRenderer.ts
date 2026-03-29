@@ -34,20 +34,26 @@ export class RecordsRenderer {
 	private activeChips: Map<string, ActiveChip>;
 	private trimSubItems: boolean;
 	private topRecordOnly: boolean;
-	private showAll: boolean;
 
 	// UI state
 	private collapsedFiles: Set<string>;
 	private expandedHeaders: Set<string>;
 
+	// Currently displayed records (updated after each render)
+	private currentlyDisplayedRecords: Array<{ entry: FlatEntry; file: ParsedFile }> = [];
+	private fileSearchText: string = '';
+
 	// Callbacks
 	private onFilterTextChange: (text: string) => void;
 	private onExpressionSearch: (expression: string) => void;
 	private onExpressionInput: (expression: string) => void;
+	private onFilterTypeChange: (type: 'F' | 'H' | 'R' | 'D') => void;
 	private onTrimToggle: () => void;
 	private onTopToggle: () => void;
-	private onShowAllToggle: () => void;
+	private onToggleAllFiles: () => void;
 	private onLegendToggle: () => void;
+	private onChipClick: (chipId: string) => void;
+	private onSRSReview: () => Promise<void>;
 
 	constructor(
 		app: App,
@@ -59,12 +65,12 @@ export class RecordsRenderer {
 			filterCell: MatrixCell | null;
 			filterExpression: string;
 			filterText: string;
+			fileSearchText: string;
 		},
 		uiFlags: {
 			activeChips: Map<string, ActiveChip>;
 			trimSubItems: boolean;
 			topRecordOnly: boolean;
-			showAll: boolean;
 		},
 		uiState: {
 			collapsedFiles: Set<string>;
@@ -74,10 +80,13 @@ export class RecordsRenderer {
 			onFilterTextChange: (text: string) => void;
 			onExpressionSearch: (expression: string) => void;
 			onExpressionInput: (expression: string) => void;
+			onFilterTypeChange: (type: 'F' | 'H' | 'R' | 'D') => void;
 			onTrimToggle: () => void;
 			onTopToggle: () => void;
-			onShowAllToggle: () => void;
+			onToggleAllFiles: () => void;
 			onLegendToggle: () => void;
+			onChipClick: (chipId: string) => void;
+			onSRSReview: () => Promise<void>;
 		}
 	) {
 		this.app = app;
@@ -89,11 +98,11 @@ export class RecordsRenderer {
 		this.filterCell = filterState.filterCell;
 		this.filterExpression = filterState.filterExpression;
 		this.filterText = filterState.filterText;
+		this.fileSearchText = filterState.fileSearchText;
 
 		this.activeChips = uiFlags.activeChips;
 		this.trimSubItems = uiFlags.trimSubItems;
 		this.topRecordOnly = uiFlags.topRecordOnly;
-		this.showAll = uiFlags.showAll;
 
 		this.collapsedFiles = uiState.collapsedFiles;
 		this.expandedHeaders = uiState.expandedHeaders;
@@ -101,10 +110,13 @@ export class RecordsRenderer {
 		this.onFilterTextChange = callbacks.onFilterTextChange;
 		this.onExpressionSearch = callbacks.onExpressionSearch;
 		this.onExpressionInput = callbacks.onExpressionInput;
+		this.onFilterTypeChange = callbacks.onFilterTypeChange;
 		this.onTrimToggle = callbacks.onTrimToggle;
 		this.onTopToggle = callbacks.onTopToggle;
-		this.onShowAllToggle = callbacks.onShowAllToggle;
+		this.onToggleAllFiles = callbacks.onToggleAllFiles;
 		this.onLegendToggle = callbacks.onLegendToggle;
+		this.onChipClick = callbacks.onChipClick;
+		this.onSRSReview = callbacks.onSRSReview;
 	}
 
 	/**
@@ -121,26 +133,118 @@ export class RecordsRenderer {
 		const controlRenderer = new RecordsControlRenderer(
 			{
 				filterExpression: this.filterExpression,
-				filterText: this.filterText
+				filterText: this.filterText,
+				filterType: this.filterType
 			},
 			{
 				trimSubItems: this.trimSubItems,
-				topRecordOnly: this.topRecordOnly,
-				showAll: this.showAll
+				topRecordOnly: this.topRecordOnly
 			},
 			{
 				onExpressionSearch: this.onExpressionSearch,
 				onExpressionInput: this.onExpressionInput,
 				onFilterTextChange: this.onFilterTextChange,
+				onFilterTypeChange: this.onFilterTypeChange,
 				onTrimToggle: this.onTrimToggle,
 				onTopToggle: this.onTopToggle,
-				onShowAllToggle: this.onShowAllToggle
+				onToggleAllFiles: this.onToggleAllFiles,
+				onSRSReview: this.onSRSReview,
+				onFileSearchChange: (searchText: string) => this.applyFileSearchFilter(searchText)
 			}
 		);
 		controlRenderer.render(filterSection);
 
+		// Render chips right after controls
+		this.renderChips(filterSection);
+
 		// Render results with text filter applied
 		await this.renderFilterResults(filterSection);
+	}
+
+	/**
+	 * Render chips section (dashboard filter chips)
+	 */
+	private renderChips(container: HTMLElement): void {
+		if (this.activeChips.size === 0) {
+			return;
+		}
+
+		const chipsContainer = container.createDiv({
+			cls: 'kh-dashboard-chips-container',
+			attr: {
+				style: 'display: flex; gap: 6px; flex-wrap: wrap;'
+			}
+		});
+
+		// Render active chips sorted by type
+		const sortedChips = Array.from(this.activeChips.entries()).sort(([idA, chipA], [idB, chipB]) => {
+			// Category chips first
+			if (chipA.type === 'category' && chipB.type !== 'category') return -1;
+			if (chipA.type !== 'category' && chipB.type === 'category') return 1;
+			return 0;
+		});
+
+		sortedChips.forEach(([chipId, chip]) => {
+			// Build class list to match SubjectDashboard
+			const isActivated = chip.mode === 'include';
+			const classList = [
+				'kh-dashboard-chip',
+				'grid-keyword-chip',
+				isActivated ? 'kh-chip-active' : '',
+				chip.type === 'category' ? 'kh-category-master' : ''
+			].filter(c => c).join(' ');
+
+			const chipEl = chipsContainer.createEl('button', { cls: classList });
+
+			// Title for tooltip
+			if (chip.type === 'category') {
+				chipEl.title = `Category: ${chip.label} (${chip.mode === 'include' ? 'activated' : 'deactivated'})`;
+			} else {
+				chipEl.title = `Keyword: ${chip.label} (${chip.mode === 'include' ? 'activated' : 'deactivated'})`;
+			}
+
+			// Inline styles to match SubjectDashboard
+			chipEl.style.padding = '4px 10px';
+			chipEl.style.borderRadius = '12px';
+			chipEl.style.border = '2px solid transparent';
+			chipEl.style.cursor = 'pointer';
+			chipEl.style.opacity = isActivated ? '1' : '0.3';
+			chipEl.style.filter = isActivated ? 'none' : 'grayscale(100%)';
+
+			if (chip.backgroundColor) {
+				chipEl.style.backgroundColor = chip.backgroundColor;
+			}
+			if (chip.color) {
+				chipEl.style.color = chip.color;
+			}
+
+			// Render icon as <mark class="kh-icon {keyword}">&nbsp;</mark>
+			if (chip.type === 'keyword') {
+				const iconMark = chipEl.createEl('mark', {
+					cls: `kh-icon ${chip.label}`,
+					text: '\u00A0' // &nbsp;
+				});
+			} else if (chip.type === 'category') {
+				// For category, show icon with "..." indicator
+				const iconSpan = chipEl.createEl('span');
+				iconSpan.textContent = chip.icon || '📁';
+				const indicatorSpan = chipEl.createEl('span');
+				indicatorSpan.textContent = '...';
+				indicatorSpan.style.fontSize = '0.8em';
+				indicatorSpan.style.opacity = '0.6';
+				indicatorSpan.style.marginLeft = '2px';
+			} else if (chip.type === 'codeblock') {
+				// For codeblock, show backtick + language name
+				chipEl.createEl('span', {
+					text: `\`${chip.label}`
+				});
+			}
+
+			// Chip click handler
+			chipEl.onclick = () => {
+				this.onChipClick(chipId);
+			};
+		});
 	}
 
 	/**
@@ -154,8 +258,6 @@ export class RecordsRenderer {
 		}
 
 		const resultsContainer = filterSection.createDiv({ cls: 'kh-widget-filter-results' });
-
-		console.log(`[WIDGET FILTER] Type: ${this.filterType}, Cell: ${!!this.filterCell}, Expression: ${this.filterExpression}`);
 
 		// Use cell-based rendering if we have a cell, otherwise use expression-based
 		if (this.filterCell) {
@@ -174,6 +276,38 @@ export class RecordsRenderer {
 			// (for manual text filters typed by user)
 			await this.renderExpressionRecords(resultsContainer);
 		}
+	}
+
+	/**
+	 * Get currently displayed records (with file search filter applied)
+	 */
+	public getCurrentlyDisplayedRecords(): Array<{ entry: FlatEntry; file: ParsedFile }> {
+		console.log('[RecordsRenderer] getCurrentlyDisplayedRecords called');
+		console.log('[RecordsRenderer] Base records:', this.currentlyDisplayedRecords.length);
+		console.log('[RecordsRenderer] File search text:', this.fileSearchText);
+
+		// If no file search, return all
+		if (!this.fileSearchText || this.fileSearchText.trim() === '') {
+			console.log('[RecordsRenderer] No file search, returning all records');
+			return this.currentlyDisplayedRecords;
+		}
+
+		// Apply file search filter
+		const query = this.fileSearchText.trim().toLowerCase();
+		const filtered = this.currentlyDisplayedRecords.filter(({ entry, file }) => {
+			return this.entryMatchesTextFilter(entry, file, query);
+		});
+
+		console.log('[RecordsRenderer] After file search filter:', filtered.length);
+		return filtered;
+	}
+
+	/**
+	 * Update file search text (called when file search input changes)
+	 */
+	public applyFileSearchFilter(searchText: string): void {
+		console.log('[RecordsRenderer] applyFileSearchFilter called with:', searchText);
+		this.fileSearchText = searchText;
 	}
 
 	/**
@@ -217,50 +351,46 @@ export class RecordsRenderer {
 	}
 
 	/**
-	 * Check if entry matches text filter
+	 * Check if entry matches text filter (must match EXACTLY how DOM filter works)
 	 */
 	private entryMatchesTextFilter(entry: FlatEntry, file: ParsedFile, filterText: string): boolean {
 		if (!filterText) return true;
 
 		const query = filterText.toLowerCase();
 
-		// Check file name
-		const fileName = getFileNameFromPath(file.filePath).replace('.md', '').toLowerCase();
-		if (fileName.includes(query)) return true;
+		// Build searchable string EXACTLY like the DOM does
+		const fileName = getFileNameFromPath(file.filePath).replace(/\.md$/, '');
+		const fileAliases = file.aliases?.join(' ') || '';
+		const fileTags = file.tags?.join(' ') || '';
+		const entryKeywords = entry.keywords?.join(' ') || '';
+		const h1Tags = entry.h1?.tags?.join(' ') || '';
+		const h2Tags = entry.h2?.tags?.join(' ') || '';
+		const h3Tags = entry.h3?.tags?.join(' ') || '';
+		const entryText = entry.text || '';
 
-		// Check aliases
-		if (file.aliases && file.aliases.length > 0) {
-			for (const alias of file.aliases) {
-				if (alias.toLowerCase().includes(query)) return true;
-			}
-		}
+		// Join all parts with space and lowercase (same as DOM)
+		const searchable = [fileName, fileAliases, fileTags, entryKeywords, h1Tags, h2Tags, h3Tags, entryText].join(' ').toLowerCase();
 
-		// Check entry text
-		if (entry.text && entry.text.toLowerCase().includes(query)) return true;
+		// Check if searchable string contains query (same as DOM)
+		const matches = searchable.includes(query);
 
-		// Check entry keywords
-		if (entry.keywords) {
-			if (entry.keywords.some(kw => kw.toLowerCase().includes(query))) return true;
-		}
+		console.log('[RecordsRenderer] Entry match check:', {
+			query,
+			fileName,
+			entryText: entryText.substring(0, 50),
+			matches
+		});
 
-		// Check subitems
-		if (entry.subItems) {
-			for (const subItem of entry.subItems) {
-				if (subItem.keywords && subItem.keywords.some(kw => kw.toLowerCase().includes(query))) return true;
-				if (subItem.content && subItem.content.toLowerCase().includes(query)) return true;
-			}
-		}
-
-		return false;
+		return matches;
 	}
 
 	/**
-	 * Render file filter results
+	 * Render file filter results with entries (like H mode shows headers with entries)
 	 */
 	private async renderFileFilterResults(container: HTMLElement): Promise<void> {
 		if (!this.filterCell) return;
 
-		// Get files from cell instead of manual filtering
+		// Get files from cell
 		let matchingFiles = this.filterCell.collectFiles(this.parsedRecords);
 
 		// Apply text filter
@@ -276,19 +406,19 @@ export class RecordsRenderer {
 			return;
 		}
 
-		matchingFiles.forEach(file => {
-			const fileItem = container.createDiv({ cls: 'kh-widget-filter-item' });
-			fileItem.createEl('span', {
-				text: getFileNameFromPath(file.filePath),
-				cls: 'kh-widget-filter-item-name'
-			});
-			fileItem.addEventListener('click', () => {
-				const obsidianFile = this.app.vault.getAbstractFileByPath(file.filePath);
-				if (obsidianFile) {
-					this.app.workspace.getLeaf().openFile(obsidianFile as any);
-				}
-			});
-		});
+		// Collect all entries from matching files (respecting chips)
+		const allEntries: Array<{ entry: FlatEntry; file: ParsedFile }> = [];
+		for (const file of matchingFiles) {
+			for (const entry of file.entries) {
+				allEntries.push({ entry, file });
+			}
+		}
+
+		// Store currently displayed records
+		this.currentlyDisplayedRecords = allEntries;
+
+		// Render files with their entries
+		await this.renderRecordsByFile(container, allEntries);
 	}
 
 	/**
@@ -316,16 +446,16 @@ export class RecordsRenderer {
 			filteredGroups.forEach((value, key) => headerGroups.set(key, value));
 		}
 
-		console.log(`[HEADER FILTER] Total header groups found: ${headerGroups.size}`);
-		if (headerGroups.size > 0) {
-			console.log(`  Headers:`);
-			for (const [key, group] of headerGroups.entries()) {
-				console.log(`    - ${key} (${group.entries.length} entries)`);
+		// Store currently displayed records
+		const allEntries: Array<{ entry: FlatEntry; file: ParsedFile }> = [];
+		for (const { file, entries } of headerGroups.values()) {
+			for (const entry of entries) {
+				allEntries.push({ entry, file });
 			}
 		}
+		this.currentlyDisplayedRecords = allEntries;
 
 		if (headerGroups.size === 0) {
-			console.log(`[HEADER FILTER] ❌ NO HEADERS FOUND - Showing empty message`);
 			container.createEl('div', {
 				text: 'No headers found',
 				cls: 'kh-widget-filter-empty'
@@ -343,8 +473,16 @@ export class RecordsRenderer {
 			const headerId = `${file.filePath}:${headerLevel}:${headerText}`;
 			const isExpanded = this.expandedHeaders.has(headerId);
 
-			// Header group container
+			// Header group container with searchable data attributes
 			const headerGroup = container.createDiv({ cls: 'kh-widget-filter-file-group' });
+
+			// Add searchable metadata as data attributes
+			const fileName = getFileNameFromPath(file.filePath).replace(/\.md$/, '');
+			const fileAliases = file.aliases?.join(' ') || '';
+			const fileTags = file.tags?.join(' ') || '';
+			const headerTags = headerInfo.tags?.join(' ') || '';
+			const allSearchable = [fileName, fileAliases, fileTags, headerTags, headerText].join(' ').toLowerCase();
+			headerGroup.setAttribute('data-searchable', allSearchable);
 
 			// Header with toggle
 			const headerItem = headerGroup.createDiv({ cls: 'kh-widget-filter-file-header' });
@@ -380,8 +518,7 @@ export class RecordsRenderer {
 			headerContent.style.alignItems = 'center';
 			headerContent.style.gap = '4px';
 
-			// Filename (truncated, without .md extension)
-			const fileName = getFileNameFromPath(file.filePath).replace(/\.md$/, '');
+			// Filename (truncated, without .md extension) - reuse fileName from line 457
 			headerContent.createEl('span', {
 				text: truncateFileName(fileName),
 				cls: 'kh-header-filename'
@@ -487,6 +624,14 @@ export class RecordsRenderer {
 							cls: `kh-widget-filter-entry ${primaryKeywordClass}`
 						});
 
+						// Add searchable metadata as data attributes (reuse fileName, fileAliases, fileTags from outer scope)
+						const entryKeywords = entry.keywords?.join(' ') || '';
+						const h1Tags = entry.h1?.tags?.join(' ') || '';
+						const h2Tags = entry.h2?.tags?.join(' ') || '';
+						const h3Tags = entry.h3?.tags?.join(' ') || '';
+						const entrySearchable = [fileName, fileAliases, fileTags, entryKeywords, h1Tags, h2Tags, h3Tags, entry.text].join(' ').toLowerCase();
+						entryItem.setAttribute('data-searchable', entrySearchable);
+
 						// Render icons from all keywords with Icon/StyleAndIcon priority
 						for (const iconKeyword of iconKeywords) {
 							const mark = entryItem.createEl('mark', { cls: `kh-icon ${iconKeyword}` });
@@ -532,6 +677,14 @@ export class RecordsRenderer {
 						});
 					} else if (entry.type === 'codeblock') {
 						const entryItem = entriesContainer.createDiv({ cls: 'kh-widget-filter-entry kh-widget-filter-codeblock' });
+
+						// Add searchable metadata as data attributes (reuse fileName, fileAliases, fileTags from outer scope)
+						const codeLanguage = entry.language || '';
+						const codeH1Tags = entry.h1?.tags?.join(' ') || '';
+						const codeH2Tags = entry.h2?.tags?.join(' ') || '';
+						const codeH3Tags = entry.h3?.tags?.join(' ') || '';
+						const codeSearchable = [fileName, fileAliases, fileTags, codeLanguage, codeH1Tags, codeH2Tags, codeH3Tags, entry.text].join(' ').toLowerCase();
+						entryItem.setAttribute('data-searchable', codeSearchable);
 
 						// Render code block with syntax highlighting (non-blocking)
 						const codeMarkdown = '```' + (entry.language || '') + '\n' + (entry.text || '') + '\n```';
@@ -591,6 +744,9 @@ export class RecordsRenderer {
 			);
 		}
 
+		// Store currently displayed records
+		this.currentlyDisplayedRecords = matchingRecords;
+
 		if (matchingRecords.length === 0) {
 			container.createEl('div', {
 				text: 'No records found',
@@ -619,6 +775,9 @@ export class RecordsRenderer {
 				this.entryMatchesTextFilter(entry, file, this.filterText)
 			);
 		}
+
+		// Store currently displayed records
+		this.currentlyDisplayedRecords = matchingRecords;
 
 		if (matchingRecords.length === 0) {
 			container.createEl('div', {
@@ -671,9 +830,14 @@ export class RecordsRenderer {
 						? this.filterExpression
 						: FilterExpressionService.transformFilterExpression(this.filterExpression);
 
-					const hasWhere = /\s+[Ww]:\s+/.test(expr);
-					const selectExpr = hasWhere ? expr.split(/\s+[Ww]:\s+/)[0].trim() : expr;
-					selectCompiled = FilterParser.compile(selectExpr);
+					// Skip compilation if expression is empty after transformation
+					if (!expr || !expr.trim()) {
+						selectCompiled = undefined;
+					} else {
+						const hasWhere = /\s+[Ww]:\s+/.test(expr);
+						const selectExpr = hasWhere ? expr.split(/\s+[Ww]:\s+/)[0].trim() : expr;
+						selectCompiled = FilterParser.compile(selectExpr);
+					}
 				} catch (error) {
 					console.error('[renderExpressionRecords] Failed to compile SELECT for UI filtering:', error);
 				}
@@ -681,40 +845,43 @@ export class RecordsRenderer {
 
 			// Apply topRecordOnly filter if enabled - remove records where match is only in sub-items
 			if (this.topRecordOnly && this.filterExpression && selectCompiled) {
+				const beforeTopFilter = limitedFiles.length;
 				limitedFiles = limitedFiles.filter(({ entry, file }) => {
 					// Keep codeblocks - they are always top-level entries
 					if (entry.type === 'codeblock') {
 						return true;
 					}
 					// For keyword entries, check if SELECT matches using ONLY top-level keywords
-					// Create a copy of entry with only top-level keywords (no subitems)
+					// Top-level = entry.keywords + entry.inlineKeywords (from main text)
+					// Exclude = sub-items (which have their own keywords and inlineKeywords)
 					const topLevelEntry: FlatEntry = {
 						...entry,
-						keywords: entry.keywords || []
-						// subItems are ignored for top-level matching
+						subItems: [] // Clear sub-items so their keywords/inlineKeywords are not checked
 					};
-					// Re-evaluate SELECT clause with top-level keywords only
+					// Re-evaluate SELECT clause with top-level data only (no sub-items)
 					return FilterParser.evaluateFlatEntry(selectCompiled.ast, topLevelEntry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers);
 				});
 			}
 
 			// Apply trim filter if enabled - filter sub-items to only those matching SELECT clause
 			if (this.trimSubItems && selectCompiled) {
+				const beforeTrimFilter = limitedFiles.length;
 				limitedFiles = limitedFiles.map(({ entry, file }) => {
 					if (entry.subItems && entry.subItems.length > 0) {
 						// Filter sub-items to only those matching the SELECT clause
 						const filteredSubItems = entry.subItems.filter(subItem => {
-							if (!subItem.keywords || subItem.keywords.length === 0) {
-								return false;
-							}
-							// Create a FlatEntry for this subitem with its own keywords
+							// Create a FlatEntry for this subitem with its own keywords and inline keywords
 							const subItemEntry: FlatEntry = {
 								...entry,
-								keywords: subItem.keywords,
-								text: subItem.content || ''
+								keywords: subItem.keywords || [],
+								inlineKeywords: subItem.inlineKeywords || [],
+								inlineCodeLanguages: subItem.inlineCodeLanguages || [],
+								text: subItem.content || '',
+								subItems: [] // Sub-items don't have their own sub-items
 							};
 							// Check if this subitem matches the SELECT clause
-							return FilterParser.evaluateFlatEntry(selectCompiled.ast, subItemEntry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers);
+							const matches = FilterParser.evaluateFlatEntry(selectCompiled.ast, subItemEntry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers);
+							return matches;
 						});
 
 						return {
@@ -728,16 +895,21 @@ export class RecordsRenderer {
 
 			// Apply text filter
 			if (this.filterText) {
+				const beforeTextFilter = limitedFiles.length;
 				limitedFiles = limitedFiles.filter(({ entry, file }) =>
 					this.entryMatchesTextFilter(entry, file, this.filterText)
 				);
 			}
 
+			// Store currently displayed records
+			this.currentlyDisplayedRecords = limitedFiles;
+
 			// Use shared rendering logic
 			await this.renderRecordsByFile(container, limitedFiles);
 		} catch (error) {
+			console.error('[renderExpressionRecords] ERROR:', error);
 			container.createEl('div', {
-				text: 'Invalid filter expression',
+				text: `Invalid filter expression: ${error.message || error}`,
 				cls: 'kh-widget-filter-error'
 			});
 		}
@@ -813,6 +985,11 @@ export class RecordsRenderer {
 
 				// Render all entries in PARALLEL - NO async in map, return promises directly
 				await Promise.all(entries.map(({ entry, file }) => {
+					// Define searchable data for this file
+					const fileName = getFileNameFromPath(file.filePath).replace(/\.md$/, '');
+					const fileAliases = file.aliases?.join(' ') || '';
+					const fileTags = file.tags?.join(' ') || '';
+
 					if (entry.type === 'keyword' && entry.keywords && entry.keywords.length > 0) {
 						// Resolve which keyword provides the icon based on combinePriority
 						const iconKeywords = this.resolveIconKeywords(entry.keywords);
@@ -821,6 +998,14 @@ export class RecordsRenderer {
 						const entryItem = entriesContainer.createDiv({
 							cls: `kh-widget-filter-entry ${primaryKeywordClass}`
 						});
+
+						// Add searchable metadata as data attributes (reuse fileName, fileAliases, fileTags from outer scope)
+						const entryKeywords = entry.keywords?.join(' ') || '';
+						const h1Tags = entry.h1?.tags?.join(' ') || '';
+						const h2Tags = entry.h2?.tags?.join(' ') || '';
+						const h3Tags = entry.h3?.tags?.join(' ') || '';
+						const entrySearchable = [fileName, fileAliases, fileTags, entryKeywords, h1Tags, h2Tags, h3Tags, entry.text].join(' ').toLowerCase();
+						entryItem.setAttribute('data-searchable', entrySearchable);
 
 						// Render icons from all keywords with Icon/StyleAndIcon priority
 						for (const iconKeyword of iconKeywords) {
@@ -867,6 +1052,14 @@ export class RecordsRenderer {
 
 					} else if (entry.type === 'codeblock') {
 						const entryItem = entriesContainer.createDiv({ cls: 'kh-widget-filter-entry kh-widget-filter-codeblock' });
+
+						// Add searchable metadata as data attributes (reuse fileName, fileAliases, fileTags from outer scope)
+						const codeLanguage = entry.language || '';
+						const codeH1Tags = entry.h1?.tags?.join(' ') || '';
+						const codeH2Tags = entry.h2?.tags?.join(' ') || '';
+						const codeH3Tags = entry.h3?.tags?.join(' ') || '';
+						const codeSearchable = [fileName, fileAliases, fileTags, codeLanguage, codeH1Tags, codeH2Tags, codeH3Tags, entry.text].join(' ').toLowerCase();
+						entryItem.setAttribute('data-searchable', codeSearchable);
 
 						// Render code block with syntax highlighting (non-blocking)
 						const codeMarkdown = '```' + (entry.language || '') + '\n' + (entry.text || '') + '\n```';

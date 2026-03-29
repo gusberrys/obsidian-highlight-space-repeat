@@ -603,9 +603,6 @@ export class FilterParser {
 					case 'h':
 						modifiers.enableHeaders = true;
 						break;
-					case 'a':
-						modifiers.showAll = true;
-						break;
 					case 's':
 						modifiers.trimSubelement = true;
 						break;

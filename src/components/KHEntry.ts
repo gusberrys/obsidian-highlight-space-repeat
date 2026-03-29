@@ -665,15 +665,25 @@ export class KHEntry {
 		const hasWikilinks = entry.text && /(?<!!)\[\[([^\]]+)\]\]/.test(entry.text); // Non-image wikilinks
 		const hasBlockquotes = entry.text && /^>\s+.+$/gm.test(entry.text);
 		const hasLaTeX = entry.text && /\$\$?.+?\$\$?/.test(entry.text); // LaTeX math expressions
+		const hasCodeWithParams = entry.text && /`\{[^}]+\}/.test(entry.text); // Inline code with parameters (code-styler syntax)
 
 		if (compact) {
 			// COMPACT MODE: Manual inline rendering for wikilinks (no block tags)
-			if (hasBlockquotes) {
-				// Blockquotes can use MarkdownRenderer
+
+			// Use MarkdownRenderer for blockquotes, code-styler syntax
+			if (hasBlockquotes || hasCodeWithParams) {
+				// Content needs markdown post-processors - use MarkdownRenderer
+				// Strip keyword markers (e.g., "def :: text" -> "text") since icons are added manually by RecordsRenderer/SRSReviewView
+				let textToRender = entry.text;
+				if (entry.keywords && entry.keywords.length > 0) {
+					// Match pattern: keyword1 keyword2 :: text (keywords can have dots: .def)
+					textToRender = textToRender.replace(/^[\w.]+(?:\s+[\w.]+)*\s*::\s*/, '');
+				}
+
 				const textEl = container.createSpan({ cls: 'kh-entry-text' });
 				await MarkdownRenderer.render(
 					plugin.app,
-					entry.text,
+					textToRender,
 					textEl,
 					record.filePath,
 					new Component() as any

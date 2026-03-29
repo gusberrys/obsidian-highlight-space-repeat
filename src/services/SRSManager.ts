@@ -1,376 +1,202 @@
 import { App } from 'obsidian';
-import { DATA_PATHS } from '../shared/data-paths';
-import { SRSCardData, SRSDatabase, ReviewButton, ReviewQuality, SRSStats } from '../interfaces/SRSData';
-import { ParsedEntry } from '../interfaces/ParsedFile';
-import { ContentHasher } from './ContentHasher';
+import { ReviewButton, ReviewQuality } from '../interfaces/SRSData';
+import { FlatEntry, ParsedFile } from '../interfaces/ParsedFile';
+import { isSpaced } from '../shared/collecting-status';
+import { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
 
 /**
- * SRS (Spaced Repetition System) Manager with fuzzy matching
- * Manages review data with content-based card identification
+ * SRS (Spaced Repetition System) Manager - File-based system
+ * SRS data stored as HTML comments directly in markdown files
  */
 export class SRSManager {
-	private database: SRSDatabase;
-	private dataPath: string;
-	private loaded: boolean = false;
-
-	constructor(private app: App, pluginDir: string) {
-		this.dataPath = DATA_PATHS.SRS_DATA;
-		this.database = this.createEmptyDatabase();
-	}
+	constructor(private app: App) {}
 
 	/**
-	 * Create empty database structure
+	 * Check if entry has any SPACED keywords
 	 */
-	private createEmptyDatabase(): SRSDatabase {
-		return {
-			version: '1.0.0',
-			cards: {},
-			hashIndex: {},
-			fileIndex: {},
-			orphans: {},
-			lastUpdated: new Date().toISOString(),
-			settings: {
-				showScores: true
+	private hasSpacedKeyword(entry: FlatEntry): boolean {
+		if (!entry.keywords || entry.keywords.length === 0) return false;
+
+		const categories = (HighlightSpaceRepeatPlugin as any).settings?.categories || [];
+
+		for (const keyword of entry.keywords) {
+			for (const category of categories) {
+				const keywordDef = category.keywords?.find((k: any) => k.keyword === keyword);
+				if (keywordDef && isSpaced(keywordDef.collectingStatus)) {
+					return true;
+				}
 			}
-		};
+		}
+
+		return false;
 	}
 
 	/**
-	 * Load SRS database from disk
+	 * Get entries due for review from parsed records
+	 * Includes:
+	 * 1. Entries with SRS data where nextReviewDate <= today
+	 * 2. Entries with SPACED keywords but no SRS data yet (new entries)
 	 */
-	async load(): Promise<void> {
-		try {
-			const adapter = this.app.vault.adapter;
-			if (await adapter.exists(this.dataPath)) {
-				const data = await adapter.read(this.dataPath);
-				this.database = JSON.parse(data);
+	getDueEntries(parsedRecords: ParsedFile[]): Array<{ entry: FlatEntry; file: ParsedFile }> {
+		const today = new Date();
+		today.setHours(0, 0, 0, 0); // Start of today
 
-				// Initialize settings if missing (backward compatibility)
-				if (!this.database.settings) {
-					this.database.settings = {
-						showScores: true
-					};
+		const dueEntries: Array<{ entry: FlatEntry; file: ParsedFile }> = [];
+		let newCount = 0;
+		let dueCount = 0;
+
+		for (const file of parsedRecords) {
+			for (const entry of file.entries) {
+				// Only keyword entries can have SRS data
+				if (entry.type !== 'keyword') {
+					continue;
 				}
 
-				// Rebuild indices for fast lookup
-				this.rebuildIndices();
+				if (entry.srs) {
+					// Has SRS data - check if due
+					const nextReview = new Date(entry.srs.next);
+					nextReview.setHours(0, 0, 0, 0);
 
-				const cardCount = Object.keys(this.database.cards).length;
-				const orphanCount = this.database.orphans ? Object.keys(this.database.orphans).length : 0;
-
-				console.log(`[SRS] Loaded ${cardCount} cards, ${orphanCount} orphans`);
-			} else {
-				console.log('[SRS] No existing database, starting fresh');
+					if (nextReview <= today) {
+						dueEntries.push({ entry, file });
+						dueCount++;
+					}
+				} else if (this.hasSpacedKeyword(entry)) {
+					// No SRS data yet, but has SPACED keyword - it's a new entry, due for first review
+					dueEntries.push({ entry, file });
+					newCount++;
+				}
 			}
-
-			this.loaded = true;
-		} catch (error) {
-			console.error('[SRS] Error loading database:', error);
-			this.database = this.createEmptyDatabase();
-			this.loaded = true;
 		}
+
+		return dueEntries;
 	}
 
 	/**
-	 * Save SRS database to disk
+	 * Get all entries with SRS data (for statistics)
+	 * Includes:
+	 * 1. Entries with SRS data (being tracked)
+	 * 2. Entries with SPACED keywords but no SRS data yet (new entries)
 	 */
-	async save(): Promise<void> {
+	getAllSRSEntries(parsedRecords: ParsedFile[]): Array<{ entry: FlatEntry; file: ParsedFile }> {
+		const allEntries: Array<{ entry: FlatEntry; file: ParsedFile }> = [];
+		let withSRS = 0;
+		let withoutSRS = 0;
+
+		for (const file of parsedRecords) {
+			for (const entry of file.entries) {
+				if (entry.type === 'keyword') {
+					// Include if has SRS data OR has SPACED keyword
+					if (entry.srs) {
+						allEntries.push({ entry, file });
+						withSRS++;
+					} else if (this.hasSpacedKeyword(entry)) {
+						allEntries.push({ entry, file });
+						withoutSRS++;
+					}
+				}
+			}
+		}
+
+		return allEntries;
+	}
+
+	/**
+	 * Review an entry using SM-2 algorithm and update the file
+	 * @param filePath Path to the file containing the entry
+	 * @param lineNumber Line number of the entry (1-based)
+	 * @param button Review button pressed
+	 */
+	async reviewEntry(filePath: string, lineNumber: number, button: ReviewButton): Promise<void> {
 		try {
-			this.database.lastUpdated = new Date().toISOString();
-			const adapter = this.app.vault.adapter;
+			// Read file content
+			const fileContent = await this.app.vault.adapter.read(filePath);
+			const lines = fileContent.split('\n');
 
-			// Ensure directory exists
-			const dir = this.dataPath.substring(0, this.dataPath.lastIndexOf('/'));
-			if (!await adapter.exists(dir)) {
-				await adapter.mkdir(dir);
+			// Find the entry line (convert to 0-based index)
+			const lineIndex = lineNumber - 1;
+			if (lineIndex < 0 || lineIndex >= lines.length) {
+				console.error(`[SRS] Invalid line number: ${lineNumber} in ${filePath}`);
+				return;
 			}
 
-			await adapter.write(this.dataPath, JSON.stringify(this.database, null, 2));
+			let entryLine = lines[lineIndex];
 
-			const cardCount = Object.keys(this.database.cards).length;
-			console.log(`[SRS] Saved ${cardCount} cards`);
+			// Extract existing SRS data
+			const srsMatch = entryLine.match(/<!--\s*srs:\s*(\{[^}]+\})\s*-->/);
+			let srsData: { ef: number; i: number; r: number; next: string };
+
+			if (srsMatch) {
+				// Parse existing SRS data
+				srsData = JSON.parse(srsMatch[1]);
+				// Remove old comment
+				entryLine = entryLine.replace(srsMatch[0], '').trim();
+			} else {
+				// Initialize new SRS data
+				srsData = {
+					ef: 2.5, // Initial ease factor
+					i: 0,    // Initial interval
+					r: 0,    // Initial repetitions
+					next: new Date().toISOString().split('T')[0] // Today
+				};
+			}
+
+			// Apply SM-2 algorithm
+			const quality = this.buttonToQuality(button);
+
+			// Update interval and repetitions
+			if (quality >= 3) {
+				// Correct response
+				if (srsData.r === 0) {
+					srsData.i = 1;
+				} else if (srsData.r === 1) {
+					srsData.i = 6;
+				} else {
+					srsData.i = Math.round(srsData.i * srsData.ef);
+				}
+				srsData.r++;
+			} else {
+				// Incorrect response - reset and show again today
+				srsData.r = 0;
+				srsData.i = 0;
+			}
+
+			// Update ease factor (minimum 1.3, rounded to 2 decimal places)
+			srsData.ef = Math.round(
+				Math.max(
+					1.3,
+					srsData.ef + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
+				) * 100
+			) / 100;
+
+			// Calculate next review date (YYYY-MM-DD format)
+			const nextReview = new Date();
+			nextReview.setDate(nextReview.getDate() + srsData.i);
+			srsData.next = nextReview.toISOString().split('T')[0];
+
+			// Format SRS comment (compact JSON on same line)
+			const srsComment = `<!-- srs: ${JSON.stringify(srsData)} -->`;
+
+			// Add comment to end of line
+			entryLine = `${entryLine} ${srsComment}`;
+
+			// Update line in file
+			lines[lineIndex] = entryLine;
+
+			// Write back to file
+			const updatedContent = lines.join('\n');
+			await this.app.vault.adapter.write(filePath, updatedContent);
+
+			console.log(`[SRS] Reviewed entry at ${filePath}:${lineNumber}`);
+			console.log(`  Quality: ${quality}, Interval: ${srsData.i} days, Ease: ${srsData.ef.toFixed(2)}, Next: ${srsData.next}`);
 		} catch (error) {
-			console.error('[SRS] Error saving database:', error);
+			console.error(`[SRS] Error reviewing entry:`, error);
+			throw error;
 		}
 	}
 
 	/**
-	 * Rebuild hash and file indices for fast lookup
-	 */
-	private rebuildIndices(): void {
-		this.database.hashIndex = {};
-		this.database.fileIndex = {};
-
-		for (const [cardId, card] of Object.entries(this.database.cards)) {
-			// Hash index
-			if (!this.database.hashIndex[card.contentHash]) {
-				this.database.hashIndex[card.contentHash] = [];
-			}
-			this.database.hashIndex[card.contentHash].push(cardId);
-
-			// File index
-			if (!this.database.fileIndex[card.filePath]) {
-				this.database.fileIndex[card.filePath] = [];
-			}
-			this.database.fileIndex[card.filePath].push(cardId);
-		}
-	}
-
-	/**
-	 * Generate card ID from components
-	 */
-	private generateCardId(
-		filePath: string,
-		lineNumber: number,
-		keyword: string,
-		type: 'keyword' | 'codeblock'
-	): string {
-		return `${filePath}::${lineNumber}::${keyword}::${type}`;
-	}
-
-	/**
-	 * Get or create SRS card with FUZZY MATCHING
-	 * This is the core fuzzy matching algorithm
-	 *
-	 * @param filePath File path where record is located
-	 * @param lineNumber Current line number
-	 * @param keyword Keyword being reviewed
-	 * @param type Record type
-	 * @param entry Full entry for content hash generation
-	 * @returns SRS card (existing or new)
-	 */
-	getCard(
-		filePath: string,
-		lineNumber: number,
-		keyword: string,
-		type: 'keyword' | 'codeblock',
-		entry: ParsedEntry
-	): SRSCardData {
-		const contentHash = ContentHasher.hashContent(entry.text);
-		const currentCardId = this.generateCardId(filePath, lineNumber, keyword, type);
-
-		// STEP 1: Try exact match (fast path)
-		if (this.database.cards[currentCardId]) {
-			const card = this.database.cards[currentCardId];
-
-			// Verify content hasn't changed
-			if (card.contentHash === contentHash) {
-				// Perfect match - same location, same content
-				return card;
-			} else {
-				// Content changed at this line - treat as new card
-				console.warn(`[SRS] Content changed at ${currentCardId}`);
-				console.warn(`  Old hash: ${card.contentHash}`);
-				console.warn(`  New hash: ${contentHash}`);
-				return this.createNewCard(filePath, lineNumber, keyword, type, entry);
-			}
-		}
-
-		// STEP 2: Fuzzy match by content hash (content moved)
-		const hashMatches = this.database.hashIndex[contentHash] || [];
-
-		for (const candidateId of hashMatches) {
-			const candidate = this.database.cards[candidateId];
-
-			// Match conditions:
-			// - Same file path
-			// - Same keyword
-			// - Same type
-			// - Same content hash
-			if (
-				candidate.filePath === filePath &&
-				candidate.keyword === keyword &&
-				candidate.type === type
-			) {
-				// FOUND! Content moved to different line
-				console.log(`[SRS] Fuzzy match found!`);
-				console.log(`  Old: ${candidateId}`);
-				console.log(`  New: ${currentCardId}`);
-				console.log(`  Line changed: ${candidate.lineNumber} → ${lineNumber}`);
-
-				// Reconnect card to new location
-				return this.reconnectCard(candidate, lineNumber, currentCardId);
-			}
-		}
-
-		// STEP 3: Check orphaned cards
-		const orphan = this.findOrphanedCard(filePath, keyword, type, contentHash);
-		if (orphan) {
-			console.log(`[SRS] Restored orphan card!`);
-			console.log(`  Old: ${orphan.cardId}`);
-			console.log(`  New: ${currentCardId}`);
-			return this.restoreOrphan(orphan, lineNumber, currentCardId);
-		}
-
-		// STEP 4: No match found, create new card
-		console.log(`[SRS] Creating new card: ${currentCardId}`);
-		return this.createNewCard(filePath, lineNumber, keyword, type, entry);
-	}
-
-	/**
-	 * Reconnect existing card to new location
-	 */
-	private reconnectCard(
-		card: SRSCardData,
-		newLineNumber: number,
-		newCardId: string
-	): SRSCardData {
-		const oldCardId = card.cardId;
-
-		// Remove old card
-		delete this.database.cards[oldCardId];
-
-		// Update card
-		card.lineNumber = newLineNumber;
-		card.cardId = newCardId;
-
-		// Add back with new ID
-		this.database.cards[newCardId] = card;
-
-		// Rebuild indices
-		this.rebuildIndices();
-
-		return card;
-	}
-
-	/**
-	 * Create new card with default SM-2 values
-	 */
-	private createNewCard(
-		filePath: string,
-		lineNumber: number,
-		keyword: string,
-		type: 'keyword' | 'codeblock',
-		entry: ParsedEntry
-	): SRSCardData {
-		const cardId = this.generateCardId(filePath, lineNumber, keyword, type);
-		const contentHash = ContentHasher.hashContent(entry.text);
-		const contentPreview = ContentHasher.getPreview(entry.text);
-
-		const card: SRSCardData = {
-			cardId,
-			filePath,
-			lineNumber,
-			keyword,
-			type,
-			contentHash,
-			contentPreview,
-			easeFactor: 2.5,
-			interval: 0,
-			repetitions: 0,
-			nextReviewDate: new Date().toISOString(),
-			totalReviews: 0,
-			lapseCount: 0
-		};
-
-		this.database.cards[cardId] = card;
-		this.rebuildIndices();
-
-		return card;
-	}
-
-	/**
-	 * Find orphaned card by content hash
-	 */
-	private findOrphanedCard(
-		filePath: string,
-		keyword: string,
-		type: 'keyword' | 'codeblock',
-		contentHash: string
-	): SRSCardData | null {
-		if (!this.database.orphans) {
-			return null;
-		}
-
-		for (const orphan of Object.values(this.database.orphans)) {
-			if (
-				orphan.filePath === filePath &&
-				orphan.keyword === keyword &&
-				orphan.type === type &&
-				orphan.contentHash === contentHash
-			) {
-				return orphan;
-			}
-		}
-
-		return null;
-	}
-
-	/**
-	 * Restore orphaned card to active cards
-	 */
-	private restoreOrphan(
-		orphan: SRSCardData,
-		newLineNumber: number,
-		newCardId: string
-	): SRSCardData {
-		// Remove from orphans
-		if (this.database.orphans) {
-			delete this.database.orphans[orphan.cardId];
-		}
-
-		// Update and add to active cards
-		orphan.lineNumber = newLineNumber;
-		orphan.cardId = newCardId;
-		this.database.cards[newCardId] = orphan;
-
-		this.rebuildIndices();
-
-		return orphan;
-	}
-
-	/**
-	 * Review card using SM-2 algorithm
-	 * Based on: https://www.supermemo.com/en/archives1990-2015/english/ol/sm2
-	 */
-	reviewCard(cardId: string, button: ReviewButton): void {
-		const card = this.database.cards[cardId];
-		if (!card) {
-			console.error(`[SRS] Card not found: ${cardId}`);
-			return;
-		}
-
-		const quality = this.buttonToQuality(button);
-
-		// Update statistics
-		card.totalReviews++;
-		card.lastReviewedDate = new Date().toISOString();
-
-		// SM-2 Algorithm
-		if (quality >= 3) {
-			// Correct response
-			if (card.repetitions === 0) {
-				card.interval = 1;
-			} else if (card.repetitions === 1) {
-				card.interval = 6;
-			} else {
-				card.interval = Math.round(card.interval * card.easeFactor);
-			}
-			card.repetitions++;
-		} else {
-			// Incorrect response - reset
-			card.repetitions = 0;
-			card.interval = 1;
-			card.lapseCount++;
-		}
-
-		// Update ease factor (minimum 1.3)
-		card.easeFactor = Math.max(
-			1.3,
-			card.easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
-		);
-
-		// Calculate next review date
-		const nextReview = new Date();
-		nextReview.setDate(nextReview.getDate() + card.interval);
-		card.nextReviewDate = nextReview.toISOString();
-
-		console.log(`[SRS] Reviewed ${cardId}:`);
-		console.log(`  Quality: ${quality}, Interval: ${card.interval} days, Ease: ${card.easeFactor.toFixed(2)}`);
-	}
-
-	/**
-	 * Convert review button to quality rating
+	 * Convert review button to quality rating (SM-2 algorithm)
 	 */
 	private buttonToQuality(button: ReviewButton): ReviewQuality {
 		switch (button) {
@@ -382,98 +208,61 @@ export class SRSManager {
 	}
 
 	/**
-	 * Get all cards due for review
+	 * Get SRS statistics from parsed records
 	 */
-	getDueCards(): SRSCardData[] {
-		const now = new Date();
-		return Object.values(this.database.cards).filter(card => {
-			const nextReview = new Date(card.nextReviewDate);
-			return nextReview <= now;
-		});
-	}
+	getStats(parsedRecords: ParsedFile[]): {
+		total: number;
+		due: number;
+		new: number;
+		avgEaseFactor: number;
+		avgInterval: number;
+	} {
+		const allEntries = this.getAllSRSEntries(parsedRecords);
+		const dueEntries = this.getDueEntries(parsedRecords);
 
-	/**
-	 * Get cards due for review filtered by keywords
-	 */
-	getFilteredDueCards(keywords: Set<string>): SRSCardData[] {
-		const dueCards = this.getDueCards();
-		return dueCards.filter(card => keywords.has(card.keyword));
-	}
+		// New entries = entries with no SRS data OR entries with r=0
+		const newEntries = allEntries.filter(({ entry }) => !entry.srs || entry.srs.r === 0);
 
-	/**
-	 * Get all cards for a specific file
-	 */
-	getCardsForFile(filePath: string): SRSCardData[] {
-		const cardIds = this.database.fileIndex[filePath] || [];
-		return cardIds.map(cardId => this.database.cards[cardId]).filter(card => card !== undefined);
-	}
+		let totalEase = 0;
+		let totalInterval = 0;
+		let entriesWithSRS = 0;
 
-	/**
-	 * Get statistics
-	 */
-	getStats(): SRSStats {
-		const cards = Object.values(this.database.cards);
-		const now = new Date();
-
-		const dueCards = cards.filter(c => new Date(c.nextReviewDate) <= now);
-		const newCards = cards.filter(c => c.totalReviews === 0);
-		const orphanCount = this.database.orphans ? Object.keys(this.database.orphans).length : 0;
-
-		const totalEase = cards.reduce((sum, c) => sum + c.easeFactor, 0);
-		const totalInterval = cards.reduce((sum, c) => sum + c.interval, 0);
+		for (const { entry } of allEntries) {
+			if (entry.srs) {
+				totalEase += entry.srs.ef;
+				totalInterval += entry.srs.i;
+				entriesWithSRS++;
+			} else {
+				// New entry - use default values for stats
+				totalEase += 2.5; // Default ease factor
+				totalInterval += 0; // Default interval
+			}
+		}
 
 		return {
-			total: cards.length,
-			due: dueCards.length,
-			new: newCards.length,
-			orphans: orphanCount,
-			avgEaseFactor: cards.length > 0 ? totalEase / cards.length : 2.5,
-			avgInterval: cards.length > 0 ? totalInterval / cards.length : 0
+			total: allEntries.length,
+			due: dueEntries.length,
+			new: newEntries.length,
+			avgEaseFactor: allEntries.length > 0 ? totalEase / allEntries.length : 2.5,
+			avgInterval: allEntries.length > 0 ? totalInterval / allEntries.length : 0
 		};
 	}
 
 	/**
-	 * Get database (for OrphanManager)
+	 * No-op methods for backward compatibility (used by plugin initialization)
 	 */
-	getDatabase(): SRSDatabase {
-		return this.database;
+	async load(): Promise<void> {
+		// SRS data now loaded from files during parsing - nothing to do
+		console.log('[SRS] Using file-based SRS system (no database to load)');
 	}
 
-	/**
-	 * Check if database is loaded
-	 */
+	async save(): Promise<void> {
+		// SRS data saved directly to files during review - nothing to do
+		console.log('[SRS] SRS data saved to files during review');
+	}
+
 	isLoaded(): boolean {
-		return this.loaded;
-	}
-
-	/**
-	 * Reset all cards (for testing)
-	 */
-	async resetAll(): Promise<void> {
-		this.database = this.createEmptyDatabase();
-		await this.save();
-		console.log('[SRS] Database reset');
-	}
-
-	/**
-	 * Get show scores setting (default true for backward compatibility)
-	 */
-	getShowScores(): boolean {
-		return this.database.settings?.showScores ?? true;
-	}
-
-	/**
-	 * Set show scores setting
-	 */
-	async setShowScores(value: boolean): Promise<void> {
-		if (!this.database.settings) {
-			this.database.settings = {
-				showScores: value
-			};
-		} else {
-			this.database.settings.showScores = value;
-		}
-		await this.save();
-		console.log(`[SRS] Show scores setting updated to: ${value}`);
+		// Always "loaded" since we read from files
+		return true;
 	}
 }

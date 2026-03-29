@@ -12,19 +12,10 @@ import { getFileNameFromPath } from '../utils/file-helpers';
 const DASHBOARD_CONTAINER_ID = 'kh-subject-dashboard-container';
 
 /**
- * Load parsed records from JSON file
+ * Get parsed records from plugin RAM cache
  */
-async function loadParsedRecords(plugin: HighlightSpaceRepeatPlugin): Promise<ParsedFile[]> {
-	const parsedRecordsPath = DATA_PATHS.PARSED_FILES;
-	const exists = await plugin.app.vault.adapter.exists(parsedRecordsPath);
-
-	if (!exists) {
-		console.warn('[SubjectDashboard] No parsed records found.');
-		return [];
-	}
-
-	const jsonContent = await plugin.app.vault.adapter.read(parsedRecordsPath);
-	return JSON.parse(jsonContent);
+function getParsedRecords(plugin: HighlightSpaceRepeatPlugin): ParsedFile[] {
+	return plugin.parsedRecords;
 }
 
 /**
@@ -176,8 +167,8 @@ export async function renderSubjectDashboard(
 		readingView.prepend(dashboardContainer);
 	}
 
-	// Load parsed records and topics
-	const parsedRecords = await loadParsedRecords(plugin);
+	// Get parsed records from plugin RAM cache
+	const parsedRecords = getParsedRecords(plugin);
 
 	// Check again after async operation - another call might have finished first
 	if (dashboardContainer.hasChildNodes()) {

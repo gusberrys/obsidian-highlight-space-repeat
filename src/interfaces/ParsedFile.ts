@@ -32,6 +32,18 @@ export interface ParsedEntry {
 
 	/** Sub-items (list items, code blocks) */
 	subItems?: ParsedEntrySubItem[];
+
+	/** SRS (Spaced Repetition System) data - extracted from HTML comment */
+	srs?: {
+		/** Ease factor (1.3-2.5+) */
+		ef: number;
+		/** Interval in days */
+		i: number;
+		/** Repetition count */
+		r: number;
+		/** Next review date (YYYY-MM-DD) */
+		next: string;
+	};
 }
 
 /**
@@ -114,7 +126,6 @@ export interface HeaderInfo {
  * Flat entry structure - combines entry data with full header context
  * Replaces hierarchical ParsedHeader structure for efficient filtering/rendering
  *
- * Note: filePath, fileTags are NOT stored in parsed-files.json.
  * They are added at runtime when the file is loaded (as references to ParsedFile properties).
  */
 export interface FlatEntry {
@@ -127,6 +138,18 @@ export interface FlatEntry {
 	lineNumber: number;
 	language?: string;
 	subItems?: ParsedEntrySubItem[];
+
+	// SRS (Spaced Repetition System) data - extracted from HTML comment
+	srs?: {
+		/** Ease factor (1.3-2.5+) */
+		ef: number;
+		/** Interval in days */
+		i: number;
+		/** Repetition count */
+		r: number;
+		/** Next review date (YYYY-MM-DD) */
+		next: string;
+	};
 
 	// Header context (optional - only if entry is under headers)
 	h1?: HeaderInfo;

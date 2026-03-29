@@ -27,11 +27,13 @@ export class KHMatrixWidget extends ItemView {
 	private cellInstances: Map<string, MatrixCell> = new Map();
 
 	// Widget filter state
-	private widgetFilterType: 'F' | 'H' | 'R' | 'D' | null = null;
+	private widgetFilterType: 'F' | 'H' | 'R' | 'D' | null = 'R'; // Default to Records
 	private widgetFilterCell: MatrixCell | null = null; // Cell-based filter (from clicking F/H/R/D counts)
 	private widgetFilterExpression: string = ''; // Manual text filter expression (from typing in text box)
 	private widgetFilterText: string = ''; // Text filter for entries (file name, aliases, keywords, content)
+	private widgetFileSearchText: string = ''; // File search input text (filters DOM and data)
 	private collapsedFiles: Set<string> = new Set(); // Track collapsed file groups in widget filter
+	private recordsRenderer: import('./renderers/RecordsRenderer').RecordsRenderer | null = null; // Reference to current records renderer
 
 	// Track expanded headers (using unique header identifier)
 	private expandedHeaders: Set<string> = new Set();
@@ -41,9 +43,14 @@ export class KHMatrixWidget extends ItemView {
 
 	// Chips and flags
 	private activeChips: Map<string, ActiveChip> = new Map();
+	private availableChips: { keywords: string[]; categories: string[]; codeblocks: string[] } = {
+		keywords: [],
+		categories: [],
+		codeblocks: []
+	};
+	private activeChipIds: Set<string> = new Set(); // Track which chips are active
 	private trimSubItems: boolean = false; // Filter sub-items to matching keywords only
 	private topRecordOnly: boolean = false; // Only show records where keyword is top-level
-	private showAll: boolean = false; // Show all records (ignore SELECT clause, apply only WHERE)
 	private showExpressions: boolean = true; // Show F/H/R filter expressions on cells
 	private showLegend: boolean = false; // Show/hide legend explaining color meanings
 
@@ -110,8 +117,17 @@ export class KHMatrixWidget extends ItemView {
 			// Sync global subject
 			HighlightSpaceRepeatPlugin.currentSubject = this.currentSubject;
 
+			// Load dashboard filter on subject change
+			this.loadDashboardFilterIntoExpression();
+
 			this.render();
 		});
+
+		// Load dashboard filter on initial render
+		if (this.subjects.length > 0 && !this.currentSubject) {
+			this.currentSubject = this.subjects[0];
+		}
+		this.loadDashboardFilterIntoExpression();
 
 		// Render initial state
 		this.render();
@@ -132,6 +148,9 @@ export class KHMatrixWidget extends ItemView {
 			const container = this.containerEl.children[1] as HTMLElement;
 			container.empty();
 			container.addClass('kh-matrix-widget');
+
+			// Update chips from dashboard filter
+			this.updateChipsFromDashboardFilter();
 
 			// ========================================
 			// PART 1: MATRIX HEADER
@@ -158,11 +177,9 @@ export class KHMatrixWidget extends ItemView {
 			}
 
 			// ========================================
-			// PART 4: RECORDS (when filter active)
+			// PART 4: RECORDS (always visible)
 			// ========================================
-			if (this.widgetFilterType && (this.widgetFilterCell || this.widgetFilterExpression)) {
-				await this.renderWidgetFilter(container);
-			}
+			await this.renderWidgetFilter(container);
 		} finally {
 			this.isRendering = false;
 		}
@@ -177,7 +194,6 @@ export class KHMatrixWidget extends ItemView {
 				activeChips: this.activeChips,
 				trimSubItems: this.trimSubItems,
 				topRecordOnly: this.topRecordOnly,
-				showAll: this.showAll,
 				showLegend: this.showLegend
 			},
 			{
@@ -191,17 +207,12 @@ export class KHMatrixWidget extends ItemView {
 					this.toggleFilterModifier('\\t', this.topRecordOnly);
 					this.render();
 				},
-				onShowAllToggle: () => {
-					this.showAll = !this.showAll;
-					this.toggleFilterModifier('\\a', this.showAll);
-					this.render();
-				},
 				onLegendToggle: () => {
 					this.showLegend = !this.showLegend;
 					this.render();
 				},
 				onChipClick: (chipId: string) => {
-					// Chip click functionality handled via active chips
+					this.handleChipClick(chipId);
 				}
 			}
 		);
@@ -214,13 +225,11 @@ export class KHMatrixWidget extends ItemView {
 	 * PART 4: Render widget filter (individual records display with search)
 	 */
 	private async renderWidgetFilter(container: HTMLElement): Promise<void> {
-		if (!this.widgetFilterType || (!this.widgetFilterCell && !this.widgetFilterExpression)) {
-			return; // Don't show filter if not active
-		}
+		// Filter is always visible (static)
 
-		const parsedRecords = await this.loadParsedRecords();
+		const parsedRecords = this.getParsedRecords();
 
-		const renderer = new RecordsRenderer(
+		this.recordsRenderer = new RecordsRenderer(
 			this.app,
 			this.plugin,
 			parsedRecords,
@@ -229,13 +238,13 @@ export class KHMatrixWidget extends ItemView {
 				filterType: this.widgetFilterType,
 				filterCell: this.widgetFilterCell,
 				filterExpression: this.widgetFilterExpression,
-				filterText: this.widgetFilterText
+				filterText: this.widgetFilterText,
+				fileSearchText: this.widgetFileSearchText
 			},
 			{
 				activeChips: this.activeChips,
 				trimSubItems: this.trimSubItems,
-				topRecordOnly: this.topRecordOnly,
-				showAll: this.showAll
+				topRecordOnly: this.topRecordOnly
 			},
 			{
 				collapsedFiles: this.collapsedFiles,
@@ -256,6 +265,11 @@ export class KHMatrixWidget extends ItemView {
 					this.widgetFilterExpression = expression;
 					this.syncButtonsFromExpression();
 				},
+				onFilterTypeChange: (type: 'F' | 'H' | 'R' | 'D') => {
+					console.log(`[KHMatrixWidget] Filter type changed to: ${type}`);
+					this.widgetFilterType = type;
+					this.render();
+				},
 				onTrimToggle: () => {
 					this.trimSubItems = !this.trimSubItems;
 					this.toggleFilterModifier('\\s', this.trimSubItems);
@@ -266,19 +280,63 @@ export class KHMatrixWidget extends ItemView {
 					this.toggleFilterModifier('\\t', this.topRecordOnly);
 					this.render();
 				},
-				onShowAllToggle: () => {
-					this.showAll = !this.showAll;
-					this.toggleFilterModifier('\\a', this.showAll);
-					this.render();
+				onToggleAllFiles: () => {
+					if (this.widgetFilterType === 'H') {
+						// Headers mode: expandedHeaders set (default collapsed)
+						// If some are expanded, collapse all. Otherwise, expand all.
+						if (this.expandedHeaders.size > 0) {
+							// Collapse all - clear expanded headers
+							this.expandedHeaders.clear();
+						} else {
+							// Expand all - collect all header IDs and add to expanded set
+							if (this.widgetFilterCell) {
+								const parsedRecords = this.getParsedRecords();
+								const headerGroups = this.widgetFilterCell.collectHeaders(parsedRecords);
+
+								for (const { file, headerText, headerLevel } of headerGroups.values()) {
+									const headerId = `${file.filePath}:${headerLevel}:${headerText}`;
+									this.expandedHeaders.add(headerId);
+								}
+							}
+						}
+					} else {
+						// Files mode: collapsedFiles set (default expanded)
+						// If all files are collapsed, unfold all. Otherwise, fold all.
+						const parsedRecords = this.getParsedRecords();
+						const allFilePaths = parsedRecords.map(f => f.filePath);
+						const allCollapsed = allFilePaths.length > 0 && allFilePaths.every(path => this.collapsedFiles.has(path));
+
+						if (allCollapsed) {
+							// Unfold all - clear collapsed files
+							this.collapsedFiles.clear();
+						} else {
+							// Fold all - add all files to collapsed
+							allFilePaths.forEach(path => this.collapsedFiles.add(path));
+						}
+					}
+					this.renderRecordsOnly();
 				},
 				onLegendToggle: () => {
 					this.showLegend = !this.showLegend;
 					this.render();
+				},
+				onChipClick: (chipId: string) => {
+					this.handleChipClick(chipId);
+				},
+				onSRSReview: async () => {
+					await this.startSRSReview();
+				},
+				onFileSearchChange: (searchText: string) => {
+					console.log('[KHMatrixWidget] File search changed:', searchText);
+					this.widgetFileSearchText = searchText;
+					if (this.recordsRenderer) {
+						this.recordsRenderer.applyFileSearchFilter(searchText);
+					}
 				}
 			}
 		);
 
-		await renderer.render(container);
+		await this.recordsRenderer.render(container);
 	}
 
 
@@ -520,8 +578,12 @@ export class KHMatrixWidget extends ItemView {
 			// Open subject columns
 			this.selectedRowId = 'orphans';
 		}
-		// Only re-render columns and records sections, not the matrix
-		this.renderColumnsAndRecords();
+		// Load dashboard filter into expression input
+		this.loadDashboardFilterIntoExpression();
+		// Clear filter cell so expression-based filtering is used
+		this.widgetFilterCell = null;
+		// Full render to update everything including filtered records
+		this.render();
 	}
 
 	/**
@@ -535,8 +597,12 @@ export class KHMatrixWidget extends ItemView {
 			// Open this primary's columns
 			this.selectedRowId = topicId;
 		}
-		// Only re-render columns and records sections, not the matrix
-		this.renderColumnsAndRecords();
+		// Load dashboard filter into expression input
+		this.loadDashboardFilterIntoExpression();
+		// Clear filter cell so expression-based filtering is used
+		this.widgetFilterCell = null;
+		// Full render to update everything including filtered records
+		this.render();
 	}
 
 	/**
@@ -557,10 +623,8 @@ export class KHMatrixWidget extends ItemView {
 			await this.renderMatrixColumns(container);
 		}
 
-		// Re-render records if filter is active
-		if (this.widgetFilterType && (this.widgetFilterCell || this.widgetFilterExpression)) {
-			await this.renderWidgetFilter(container);
-		}
+		// Re-render records (always visible, now includes chips)
+		await this.renderWidgetFilter(container);
 	}
 
 	/**
@@ -573,10 +637,8 @@ export class KHMatrixWidget extends ItemView {
 		const existingRecords = container.querySelector('.kh-widget-filter');
 		if (existingRecords) existingRecords.remove();
 
-		// Re-render records if filter is active
-		if (this.widgetFilterType && (this.widgetFilterCell || this.widgetFilterExpression)) {
-			await this.renderWidgetFilter(container);
-		}
+		// Re-render records (always visible)
+		await this.renderWidgetFilter(container);
 	}
 
 	/**
@@ -586,7 +648,7 @@ export class KHMatrixWidget extends ItemView {
 		if (!this.currentSubject) return;
 
 		// Load parsed records for count calculations
-		const parsedRecords = await this.loadParsedRecords();
+		const parsedRecords = this.getParsedRecords();
 
 		const renderer = new MatrixRenderer(
 			this.currentSubject,
@@ -614,6 +676,10 @@ export class KHMatrixWidget extends ItemView {
 					this.currentSubject = this.subjects.find(s => s.id === subjectId) || null;
 					// Sync global subject
 					HighlightSpaceRepeatPlugin.currentSubject = this.currentSubject;
+					// Load dashboard filter into expression
+					this.loadDashboardFilterIntoExpression();
+					// Clear filter cell so expression-based filtering is used
+					this.widgetFilterCell = null;
 					if (this.currentSubject) {
 						await this.recalculateMatrixCounts();
 					} else {
@@ -634,7 +700,7 @@ export class KHMatrixWidget extends ItemView {
 		if (!this.selectedRowId || !this.currentSubject) return;
 
 		// Load parsed records
-		const parsedRecords = await this.loadParsedRecords();
+		const parsedRecords = this.getParsedRecords();
 
 		const renderer = new ColumnsRenderer(
 			this.currentSubject,
@@ -663,46 +729,10 @@ export class KHMatrixWidget extends ItemView {
 	}
 
 	/**
-	 * Open Subject Dashboard View with current subject selected
+	 * Get parsed records from plugin RAM cache
 	 */
-	private async loadParsedRecords(): Promise<ParsedFile[]> {
-		const parsedRecordsPath = DATA_PATHS.PARSED_FILES;
-		const exists = await this.app.vault.adapter.exists(parsedRecordsPath);
-
-		if (!exists) {
-			console.warn('[KHMatrixWidget] No parsed records found. Please run scan in settings.');
-			return [];
-		}
-
-		const jsonContent = await this.app.vault.adapter.read(parsedRecordsPath);
-		const parsedFiles: ParsedFile[] = JSON.parse(jsonContent);
-
-		// Add file context references and defaults to each entry (not stored on disk, only in RAM)
-		for (const file of parsedFiles) {
-			// Default empty arrays for optional fields
-			if (!file.aliases) file.aliases = [];
-
-			for (const entry of file.entries) {
-				entry.filePath = file.filePath;
-				entry.fileTags = file.tags;
-
-				// Default empty arrays for header keywords/tags
-				if (entry.h1) {
-					if (!entry.h1.keywords) entry.h1.keywords = [];
-					if (!entry.h1.tags) entry.h1.tags = [];
-				}
-				if (entry.h2) {
-					if (!entry.h2.keywords) entry.h2.keywords = [];
-					if (!entry.h2.tags) entry.h2.tags = [];
-				}
-				if (entry.h3) {
-					if (!entry.h3.keywords) entry.h3.keywords = [];
-					if (!entry.h3.tags) entry.h3.tags = [];
-				}
-			}
-		}
-
-		return parsedFiles;
+	private getParsedRecords(): ParsedFile[] {
+		return this.plugin.parsedRecords;
 	}
 
 
@@ -717,7 +747,7 @@ export class KHMatrixWidget extends ItemView {
 		const secondaryTopics = this.currentSubject!.secondaryTopics || [];
 
 		// Load freshly parsed records
-		const parsedFiles = await this.loadParsedRecords();
+		const parsedFiles = this.getParsedRecords();
 
 		// Clear and recreate cell instances
 		this.cellInstances.clear();
@@ -844,61 +874,61 @@ export class KHMatrixWidget extends ItemView {
 	}
 
 	/**
-	 * Update SRS button tooltip with due card count
+	 * Update SRS button tooltip with due entry count
 	 * IMPORTANT: Respects filter flags (\s trim, \t top-only, \a show-all)
 	 */
 	private async updateSRSButtonTooltip(button: HTMLElement): Promise<void> {
 		try {
 			const filterExpr = this.getCurrentFilterExpression();
-			const parsedFiles = await this.loadParsedRecords();
-			const allCards = Object.values(this.plugin.srsManager.getDatabase().cards);
-			let filteredCards = [];
+			const parsedFiles = this.getParsedRecords();
+			const allEntries = this.plugin.srsManager.getAllSRSEntries(parsedFiles);
+			const dueEntries = this.plugin.srsManager.getDueEntries(parsedFiles);
+
+			let filteredAllEntries = allEntries;
+			let filteredDueEntries = dueEntries;
 
 			if (!filterExpr) {
 				// Use subject filter if available
 				if (this.currentSubject && this.currentSubject.mainTag) {
 					const subjectTag = this.currentSubject.mainTag.replace(/^#/, '');
-					for (const card of allCards) {
-						const record = parsedFiles.find((r: any) => r.filePath === card.filePath);
-						if (record) {
-							const fileTags = this.getRecordTags(record);
-							if (fileTags.includes(`#${subjectTag}`)) {
-								filteredCards.push(card);
-							}
-						}
-					}
+					filteredAllEntries = allEntries.filter(({ file }) => {
+						const fileTags = this.getRecordTags(file);
+						return fileTags.includes(`#${subjectTag}`);
+					});
+					filteredDueEntries = dueEntries.filter(({ file }) => {
+						const fileTags = this.getRecordTags(file);
+						return fileTags.includes(`#${subjectTag}`);
+					});
 				}
 			} else {
 				// Use same filtering logic as startSRSReview
 				const matchingEntries = await this.getFilteredEntries(parsedFiles, filterExpr);
 
-				// Get SRS cards for these specific entries
-				for (const { entry, file } of matchingEntries) {
-					if (entry.keywords && entry.keywords.length > 0) {
-						for (const keyword of entry.keywords) {
-							const cardId = `${file.filePath}::${entry.lineNumber}::${keyword}::${entry.type}`;
-							const card = allCards.find(c => c.cardId === cardId);
-							if (card) {
-								filteredCards.push(card);
-							}
-						}
-					}
-				}
+				// Intersect with SRS entries
+				filteredAllEntries = allEntries.filter(({ entry: srsEntry, file: srsFile }) =>
+					matchingEntries.some(({ entry: matchEntry, file: matchFile }) =>
+						matchEntry.lineNumber === srsEntry.lineNumber &&
+						matchFile.filePath === srsFile.filePath
+					)
+				);
+
+				filteredDueEntries = dueEntries.filter(({ entry: dueEntry, file: dueFile }) =>
+					matchingEntries.some(({ entry: matchEntry, file: matchFile }) =>
+						matchEntry.lineNumber === dueEntry.lineNumber &&
+						matchFile.filePath === dueFile.filePath
+					)
+				);
 			}
 
-			if (filteredCards.length === 0) {
-				button.title = 'SRS Review: No cards found (mark keywords as SPACED)';
+			if (filteredAllEntries.length === 0) {
+				button.title = 'SRS Review: No entries with SRS data found';
 				return;
 			}
 
-			// Count due cards
-			const today = new Date().toISOString().split('T')[0];
-			const dueCards = filteredCards.filter(card => card.nextReviewDate <= today);
-
-			if (dueCards.length === 0) {
-				button.title = `SRS Review: No cards due today (${filteredCards.length} total cards)`;
+			if (filteredDueEntries.length === 0) {
+				button.title = `SRS Review: No entries due today (${filteredAllEntries.length} total)`;
 			} else {
-				button.title = `SRS Review: ${dueCards.length} cards due for review (${filteredCards.length} total)`;
+				button.title = `SRS Review: ${filteredDueEntries.length} entries due for review (${filteredAllEntries.length} total)`;
 			}
 		} catch (error) {
 			console.error('[KHMatrixWidget] Error updating SRS tooltip:', error);
@@ -911,77 +941,47 @@ export class KHMatrixWidget extends ItemView {
 	 * IMPORTANT: Respects filter flags (\s trim, \t top-only, \a show-all)
 	 */
 	public async startSRSReview(): Promise<void> {
-		// Get current filter expression
-		const filterExpr = this.getCurrentFilterExpression();
+		console.log('[KHMatrixWidget] startSRSReview called');
 
-		// Load parsed records
-		const parsedFiles = await this.loadParsedRecords();
+		// Get currently displayed records from the RecordsRenderer
+		if (!this.recordsRenderer) {
+			new Notice('No records renderer available');
+			return;
+		}
 
-		// Get all SRS cards
-		const allCards = Object.values(this.plugin.srsManager.getDatabase().cards);
+		const displayedRecords = this.recordsRenderer.getCurrentlyDisplayedRecords();
+		console.log('[SRS] Currently displayed records:', displayedRecords.length);
 
-		let filteredCards = [];
+		// Get all due entries
+		const parsedFiles = this.getParsedRecords();
+		const dueEntries = this.plugin.srsManager.getDueEntries(parsedFiles);
+		console.log('[SRS] Total due entries:', dueEntries.length);
 
-		if (!filterExpr) {
-			// No filter active - use subject filter if available
-			if (this.currentSubject && this.currentSubject.mainTag) {
-				const subjectTag = this.currentSubject.mainTag.replace(/^#/, '');
-				// Get all cards from files with this subject tag
-				for (const card of allCards) {
-					const record = parsedFiles.find((r: any) => r.filePath === card.filePath);
-					if (record) {
-						const fileTags = this.getRecordTags(record);
-						if (fileTags.includes(`#${subjectTag}`)) {
-							filteredCards.push(card);
-						}
-					}
-				}
+		// Intersect: only due entries that are also currently displayed
+		const displayedDueEntries = dueEntries.filter(({ entry: dueEntry, file: dueFile }) =>
+			displayedRecords.some(
+				({ entry: displayedEntry, file: displayedFile }) =>
+					displayedEntry.lineNumber === dueEntry.lineNumber &&
+					displayedFile.filePath === dueFile.filePath
+			)
+		);
+
+		console.log('[SRS] Displayed due entries:', displayedDueEntries.length);
+
+		if (displayedDueEntries.length === 0) {
+			const allSRSEntries = this.plugin.srsManager.getAllSRSEntries(parsedFiles);
+			if (dueEntries.length > 0) {
+				new Notice(`${dueEntries.length} entries due, but none are currently displayed.`);
+			} else if (allSRSEntries.length === 0) {
+				new Notice('No entries have SRS data yet. To start: review an entry and rate it (Again/Hard/Good/Easy).');
 			} else {
-				new Notice('No filter active. Click on a count badge or select a subject.');
-				return;
+				new Notice(`No entries due for review today. ${allSRSEntries.length} entries being tracked.`);
 			}
-		} else {
-			// Get filtered entries using EXACT same logic as renderRecordFilterResults
-			const matchingEntries = await this.getFilteredEntries(parsedFiles, filterExpr);
-
-			if (matchingEntries.length === 0) {
-				new Notice('No matching entries found.');
-				return;
-			}
-
-			// Now get SRS cards for these specific entries
-			for (const { entry, file } of matchingEntries) {
-				if (entry.keywords && entry.keywords.length > 0) {
-					// For each keyword in the entry, check if there's an SRS card
-					for (const keyword of entry.keywords) {
-						const cardId = `${file.filePath}::${entry.lineNumber}::${keyword}::${entry.type}`;
-						const card = allCards.find(c => c.cardId === cardId);
-						if (card) {
-							filteredCards.push(card);
-						}
-					}
-				}
-			}
-		}
-
-		if (filteredCards.length === 0) {
-			new Notice('No SRS cards found. Mark keywords as SPACED and rescan.');
 			return;
 		}
 
-		// Filter to only DUE cards
-		const today = new Date().toISOString().split('T')[0];
-		const dueCards = filteredCards.filter(card => card.nextReviewDate <= today);
-
-		if (dueCards.length === 0) {
-			new Notice(`Found ${filteredCards.length} cards, but none are due for review today.`);
-			return;
-		}
-
-		new Notice(`Starting SRS review: ${dueCards.length} cards due (${filteredCards.length} total)`);
-
-		// Start review session with DUE cards only
-		await this.plugin.activateSRSReviewView(dueCards);
+		new Notice(`Starting SRS review: ${displayedDueEntries.length} entries due`);
+		await this.plugin.activateSRSReviewView(displayedDueEntries);
 	}
 
 	/**
@@ -996,12 +996,10 @@ export class KHMatrixWidget extends ItemView {
 			// EXTRACT FLAGS from expression before transformation
 			const hasTrimFlag = /\\s/.test(filterExpression);
 			const hasTopFlag = /\\t/.test(filterExpression);
-			const hasShowAllFlag = /\\a/.test(filterExpression);
 
 			// Use flags from expression OR from instance variables (buttons)
 			const trimSubItems = hasTrimFlag || this.trimSubItems;
 			const topRecordOnly = hasTopFlag || this.topRecordOnly;
-			const showAll = hasShowAllFlag || this.showAll;
 
 			// Transform expression (same as renderRecordFilterResults)
 			const hasExplicitOperators = /\b(AND|OR)\b/.test(filterExpression);
@@ -1058,12 +1056,6 @@ export class KHMatrixWidget extends ItemView {
 						if (!whereMatches) {
 							continue;
 						}
-					}
-
-					// If showAll is active, ignore SELECT clause and show all matching WHERE
-					if (showAll && whereCompiled) {
-						matchingFiles.push({ entry, file });
-						continue;
 					}
 
 					// Then apply SELECT clause
@@ -1210,7 +1202,376 @@ export class KHMatrixWidget extends ItemView {
 	private syncButtonsFromExpression(): void {
 		this.trimSubItems = this.widgetFilterExpression.includes('\\s');
 		this.topRecordOnly = this.widgetFilterExpression.includes('\\t');
-		this.showAll = this.widgetFilterExpression.includes('\\a');
+	}
+
+	/**
+	 * Extract keywords/categories/languages from SELECT clause of filter expression
+	 * Returns objects with {value, mode} where mode is 'include' or 'exclude'
+	 */
+	private extractChipsFromFilterExpression(expression: string): { keywords: Array<{value: string, mode: 'include' | 'exclude'}>, categoryIds: Array<{value: string, mode: 'include' | 'exclude'}>, languages: Array<{value: string, mode: 'include' | 'exclude'}> } {
+		if (!expression || expression.trim() === '') {
+			return { keywords: [], categoryIds: [], languages: [] };
+		}
+
+		// Extract SELECT clause (everything before W:)
+		let selectClause = expression;
+		if (expression.includes('W:')) {
+			const parts = expression.split(/W:/);
+			selectClause = parts[0].replace(/^S:/, '').trim();
+		} else if (expression.startsWith('S:')) {
+			selectClause = expression.substring(2).trim();
+		}
+
+		// Remove modifiers from selectClause
+		selectClause = selectClause.replace(/\\[sat]/g, '').trim();
+
+		if (!selectClause) {
+			return { keywords: [], categoryIds: [], languages: [] };
+		}
+
+		const keywords: Array<{value: string, mode: 'include' | 'exclude'}> = [];
+		const categoryIds: Array<{value: string, mode: 'include' | 'exclude'}> = [];
+		const languages: Array<{value: string, mode: 'include' | 'exclude'}> = [];
+
+		// Split by space and OR to get individual tokens
+		const tokens = selectClause.split(/\s+/).filter(t => t.length > 0 && t !== 'OR' && t !== 'AND');
+
+		for (const token of tokens) {
+			// Detect exclude mode (starts with _)
+			const isExclude = token.startsWith('_');
+			const cleanToken = isExclude ? token.substring(1) : token;
+			const mode: 'include' | 'exclude' = isExclude ? 'exclude' : 'include';
+
+			// Category syntax: :category-id or _:category-id
+			if (cleanToken.startsWith(':')) {
+				const categoryId = cleanToken.substring(1);
+				if (!categoryIds.find(c => c.value === categoryId)) {
+					categoryIds.push({ value: categoryId, mode });
+				}
+			}
+			// Language syntax: `language or _`language
+			else if (cleanToken.startsWith('`')) {
+				const language = cleanToken.substring(1);
+				if (!languages.find(l => l.value === language)) {
+					languages.push({ value: language, mode });
+				}
+			}
+			// Keyword syntax: .keyword or _.keyword
+			else if (cleanToken.startsWith('.')) {
+				const keyword = cleanToken.substring(1);
+				if (!keywords.find(k => k.value === keyword)) {
+					keywords.push({ value: keyword, mode });
+				}
+			}
+		}
+
+		return { keywords, categoryIds, languages };
+	}
+
+	/**
+	 * Handle chip click - 2-state toggle: activated (.pos) ↔ deactivated (_.pos)
+	 */
+	private handleChipClick(chipId: string): void {
+		const chip = this.activeChips.get(chipId);
+		if (!chip) return;
+
+		// Get chip syntax (without prefix)
+		let chipBase = '';
+		if (chip.type === 'category') {
+			chipBase = chipId.replace('category:', '');
+		} else if (chip.type === 'keyword') {
+			chipBase = chip.label;
+		} else if (chip.type === 'codeblock') {
+			chipBase = chip.label;
+		}
+
+		// Get prefix for chip type
+		let prefix = '';
+		if (chip.type === 'category') {
+			prefix = ':';
+		} else if (chip.type === 'keyword') {
+			prefix = '.';
+		} else if (chip.type === 'codeblock') {
+			prefix = '`';
+		}
+
+		const includeChip = `${prefix}${chipBase}`;
+		const excludeChip = `_${prefix}${chipBase}`;
+
+		// 2-state toggle: activated (.pos) ↔ deactivated (_.pos)
+		if (chip.mode === 'include') {
+			// Currently activated: Change to deactivated
+			this.widgetFilterExpression = this.removeChipFromExpression(
+				this.widgetFilterExpression || '',
+				includeChip
+			);
+			this.widgetFilterExpression = this.addChipToExpression(
+				this.widgetFilterExpression || '',
+				excludeChip
+			);
+			chip.mode = 'exclude';
+		} else {
+			// Currently deactivated: Change to activated
+			this.widgetFilterExpression = this.removeChipFromExpression(
+				this.widgetFilterExpression || '',
+				excludeChip
+			);
+			this.widgetFilterExpression = this.addChipToExpression(
+				this.widgetFilterExpression || '',
+				includeChip
+			);
+			chip.mode = 'include';
+		}
+
+		// Update chip state in map
+		this.activeChips.set(chipId, chip);
+
+		console.log('[handleChipClick] Updated widgetFilterExpression:', this.widgetFilterExpression);
+
+		this.syncButtonsFromExpression();
+
+		// Clear filter cell so expression-based filtering is used
+		this.widgetFilterCell = null;
+
+		// Re-render records section to show updated chip states and filtered results
+		this.renderRecordsOnly();
+	}
+
+	/**
+	 * Save subject data to store
+	 */
+	private async saveSubjectData(): Promise<void> {
+		if (!this.currentSubject) return;
+
+		// Update the subject in the subjects array
+		const index = this.subjects.findIndex(s => s.id === this.currentSubject!.id);
+		if (index !== -1) {
+			this.subjects[index] = this.currentSubject;
+		}
+
+		// Save to store
+		await subjectsStore.update({ subjects: this.subjects });
+	}
+
+	/**
+	 * Get SELECT clause from filter expression
+	 */
+	private getSelectClause(expression: string): string {
+		if (!expression) return '';
+
+		let selectClause = expression;
+		if (expression.includes('W:')) {
+			const parts = expression.split(/\s+W:\s+/);
+			selectClause = parts[0];
+		}
+
+		// Remove S: prefix if present
+		if (selectClause.startsWith('S:')) {
+			selectClause = selectClause.substring(2).trim();
+		}
+
+		return selectClause;
+	}
+
+	/**
+	 * Add a chip to the filter expression
+	 * Uses implicit OR (space-separated): .def .foo not .def OR .foo
+	 */
+	private addChipToExpression(expression: string, chip: string): string {
+		if (!expression || expression.trim() === '') {
+			return chip;
+		}
+
+		// Check if chip already exists
+		const selectClause = this.getSelectClause(expression);
+		const tokens = selectClause.split(/\s+/).filter(t => t.length > 0 && t !== 'OR' && t !== 'AND');
+
+		if (tokens.includes(chip)) {
+			return expression; // Already in expression
+		}
+
+		// Add chip to SELECT clause with space (implicit OR)
+		const whereMatch = expression.match(/\s+W:\s+/);
+		if (whereMatch) {
+			const parts = expression.split(/\s+W:\s+/);
+			const newSelect = parts[0] + ' ' + chip;
+			return newSelect + ' W: ' + parts[1];
+		} else {
+			return expression + ' ' + chip;
+		}
+	}
+
+	/**
+	 * Remove a chip from the filter expression
+	 * Handles both implicit (space-separated) and explicit (OR/AND) formats
+	 */
+	private removeChipFromExpression(expression: string, chip: string): string {
+		if (!expression) return '';
+
+		// Get SELECT and WHERE clauses
+		const whereMatch = expression.match(/\s+W:\s+/);
+		let selectClause = expression;
+		let whereClause = '';
+
+		if (whereMatch) {
+			const parts = expression.split(/\s+W:\s+/);
+			selectClause = parts[0];
+			whereClause = parts[1] || '';
+		}
+
+		// Remove chip from SELECT clause
+		let tokens = selectClause.split(/\s+/).filter(t => t.length > 0);
+
+		// Filter out the chip to remove
+		tokens = tokens.filter(t => t !== chip);
+
+		// Clean up orphaned OR/AND operators
+		const cleaned: string[] = [];
+		for (let i = 0; i < tokens.length; i++) {
+			const token = tokens[i];
+			if (token === 'OR' || token === 'AND') {
+				// Only keep if there's a term before and after
+				if (i > 0 && i < tokens.length - 1 &&
+					tokens[i - 1] !== 'OR' && tokens[i - 1] !== 'AND' &&
+					tokens[i + 1] !== 'OR' && tokens[i + 1] !== 'AND') {
+					cleaned.push(token);
+				}
+			} else {
+				cleaned.push(token);
+			}
+		}
+
+		const newSelect = cleaned.join(' ');
+
+		// Reconstruct expression
+		if (whereClause) {
+			return newSelect ? `${newSelect} W: ${whereClause}` : `W: ${whereClause}`;
+		}
+		return newSelect;
+	}
+
+	/**
+	 * Update chips from dashboard filter or current widget expression
+	 * Called when selectedRowId changes or on initial render
+	 */
+	private updateChipsFromDashboardFilter(): void {
+		// Use current widget expression if available (manual search), otherwise dashboard filter
+		let filterExpression: string | undefined = this.widgetFilterExpression;
+
+		// If no manual expression, get dashboard filter based on selected row
+		if (!filterExpression || filterExpression.trim() === '') {
+			if (this.selectedRowId === 'orphans' && this.currentSubject) {
+				// Subject row selected - use subject's dashboard filter
+				filterExpression = this.currentSubject.dashOnlyFilterExp;
+			} else if (this.selectedRowId && this.currentSubject) {
+				// Primary topic row selected - use that topic's dashboard filter
+				const primaryTopic = this.currentSubject.primaryTopics?.find(t => t.id === this.selectedRowId);
+				if (primaryTopic) {
+					filterExpression = primaryTopic.dashOnlyFilterExpSide;
+				}
+			} else if (this.currentSubject) {
+				// No row selected - use subject's dashboard filter
+				filterExpression = this.currentSubject.dashOnlyFilterExp;
+			}
+		}
+
+		if (!filterExpression) {
+			this.activeChips.clear();
+			this.activeChipIds.clear();
+			return;
+		}
+
+		// Extract chips from filter expression
+		const chips = this.extractChipsFromFilterExpression(filterExpression);
+
+		// Clear previous chips
+		this.activeChips.clear();
+		this.activeChipIds.clear();
+
+		// Build chips directly from current expression (not from accumulated palette)
+		chips.categoryIds.forEach(({value, mode}) => {
+			const category = HighlightSpaceRepeatPlugin.settings.categories?.find((c: any) => c.id === value);
+			if (category) {
+				const chipId = `category:${value}`;
+				this.activeChipIds.add(chipId);
+				this.activeChips.set(chipId, {
+					id: chipId,
+					type: 'category',
+					label: (category as any).name || value,
+					icon: (category as any).icon || '📁',
+					active: true,
+					mode: mode,
+					backgroundColor: (category as any).bgColor,
+					color: (category as any).color
+				});
+			}
+		});
+
+		chips.keywords.forEach(({value, mode}) => {
+			// Find keyword definition in categories
+			let keywordDef: any = null;
+			for (const category of HighlightSpaceRepeatPlugin.settings.categories || []) {
+				keywordDef = category.keywords?.find((k: any) => k.keyword === value);
+				if (keywordDef) break;
+			}
+
+			if (keywordDef) {
+				const chipId = `keyword:${value}`;
+				this.activeChipIds.add(chipId);
+				this.activeChips.set(chipId, {
+					id: chipId,
+					type: 'keyword',
+					label: value,
+					icon: keywordDef.icon,
+					active: true,
+					mode: mode,
+					backgroundColor: keywordDef.bgColor,
+					color: keywordDef.color
+				});
+			}
+		});
+
+		chips.languages.forEach(({value, mode}) => {
+			const chipId = `codeblock:${value}`;
+			this.activeChipIds.add(chipId);
+			this.activeChips.set(chipId, {
+				id: chipId,
+				type: 'codeblock',
+				label: value,
+				icon: '```',
+				active: true,
+				mode: mode
+			});
+		});
+	}
+
+	/**
+	 * Load dashboard filter expression into widget filter expression
+	 * Called when subject or row selection changes
+	 */
+	private loadDashboardFilterIntoExpression(): void {
+		// Get dashboard filter based on selected row
+		let dashFilterExpression: string | undefined;
+
+		if (this.selectedRowId === 'orphans' && this.currentSubject) {
+			// Subject row selected - use subject's dashboard filter
+			dashFilterExpression = this.currentSubject.dashOnlyFilterExp;
+		} else if (this.selectedRowId && this.currentSubject) {
+			// Primary topic row selected - use that topic's dashboard filter
+			const primaryTopic = this.currentSubject.primaryTopics?.find(t => t.id === this.selectedRowId);
+			if (primaryTopic) {
+				dashFilterExpression = primaryTopic.dashOnlyFilterExpSide;
+			}
+		} else if (this.currentSubject) {
+			// No row selected - use subject's dashboard filter
+			dashFilterExpression = this.currentSubject.dashOnlyFilterExp;
+		}
+
+		// Load into widget filter expression
+		if (dashFilterExpression) {
+			this.widgetFilterExpression = dashFilterExpression;
+			this.syncButtonsFromExpression();
+		}
 	}
 
 }

@@ -13,7 +13,6 @@ import { PinnedView, PINNED_VIEW_TYPE } from './widgets/PinnedView';
 import { SRSReviewView, SRS_REVIEW_VIEW_TYPE } from './widgets/SRSReviewView';
 import { SubjectDashboardView, SUBJECT_DASHBOARD_VIEW_TYPE } from './widgets/SubjectDashboardView';
 import { SRSManager } from './services/SRSManager';
-import { OrphanManager } from './services/OrphanManager';
 import { renderSubjectDashboard } from './reader/subject-dashboard';
 
 export class HighlightSpaceRepeatPlugin extends Plugin {
@@ -23,9 +22,11 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
   // Track registered subject selection command IDs for cleanup
   private subjectCommandIds: string[] = [];
 
-  // SRS (Spaced Repetition System) managers
+  // SRS (Spaced Repetition System) manager
   public srsManager!: SRSManager;
-  public orphanManager!: OrphanManager;
+
+  // Parsed records cache (in RAM only)
+  public parsedRecords: any[] = [];
 
   /**
    * Public API for external plugins to access highlight space repeat functionality
@@ -170,9 +171,8 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
 
     // Initialize SRS (Spaced Repetition System)
     console.log('[Keyword Highlighter] Initializing SRS...');
-    this.srsManager = new SRSManager(this.app, this.manifest.dir || '.obsidian/plugins/obsidian-highlight-space-repeat');
+    this.srsManager = new SRSManager(this.app);
     await this.srsManager.load();
-    this.orphanManager = new OrphanManager(this.app, this.srsManager);
     console.log('[Keyword Highlighter] SRS initialized');
 
     // Register subject selection commands
@@ -279,31 +279,20 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     // Add command to start SRS review
     this.addCommand({
       id: 'srs-review-due',
-      name: 'SRS: Review Due Cards',
+      name: 'SRS: Review Due Entries',
       callback: async () => {
-        const dueCards = this.srsManager.getDueCards();
-        await this.activateSRSReviewView(dueCards);
+        const dueEntries = this.srsManager.getDueEntries(this.parsedRecords);
+        await this.activateSRSReviewView(dueEntries);
       }
     });
 
-    // Add command to review all cards
+    // Add command to review all entries
     this.addCommand({
       id: 'srs-review-all',
-      name: 'SRS: Review All Cards',
+      name: 'SRS: Review All Entries',
       callback: async () => {
-        const allCards = Object.values(this.srsManager.getDatabase().cards);
-        await this.activateSRSReviewView(allCards);
-      }
-    });
-
-    // Add command to toggle SRS show scores
-    this.addCommand({
-      id: 'srs-toggle-show-scores',
-      name: 'SRS: Toggle Show/Hide Scores',
-      callback: async () => {
-        const currentValue = this.srsManager.getShowScores();
-        await this.srsManager.setShowScores(!currentValue);
-        new Notice(`SRS Score display ${!currentValue ? 'enabled' : 'disabled'}`);
+        const allEntries = this.srsManager.getAllSRSEntries(this.parsedRecords);
+        await this.activateSRSReviewView(allEntries);
       }
     });
 
@@ -318,27 +307,26 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
           return;
         }
 
-        // Get all cards for this file
-        const allFileCards = this.srsManager.getCardsForFile(activeFile.path);
-        if (allFileCards.length === 0) {
-          new Notice('No SRS cards found in this file. Mark keywords as SPACED and rescan.');
+        // Get all SRS entries for this file
+        const allEntries = this.srsManager.getAllSRSEntries(this.parsedRecords);
+        const allFileEntries = allEntries.filter(({ file }) => file.filePath === activeFile.path);
+
+        if (allFileEntries.length === 0) {
+          new Notice('No SRS entries found in this file.');
           return;
         }
 
-        // Filter for due cards only
-        const now = new Date();
-        const dueCards = allFileCards.filter(card => {
-          const nextReview = new Date(card.nextReviewDate);
-          return nextReview <= now;
-        });
+        // Filter for due entries only
+        const dueEntries = this.srsManager.getDueEntries(this.parsedRecords);
+        const dueFileEntries = dueEntries.filter(({ file }) => file.filePath === activeFile.path);
 
-        if (dueCards.length === 0) {
-          new Notice(`No cards due in this file. Total cards: ${allFileCards.length}`);
+        if (dueFileEntries.length === 0) {
+          new Notice(`No entries due in this file. Total entries: ${allFileEntries.length}`);
           return;
         }
 
-        // Start review session with due cards only
-        await this.activateSRSReviewView(dueCards);
+        // Start review session with due entries only
+        await this.activateSRSReviewView(dueFileEntries);
       }
     });
 
@@ -409,27 +397,26 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
         return;
       }
 
-      // Get all cards for this file
-      const allFileCards = this.srsManager.getCardsForFile(activeFile.path);
-      if (allFileCards.length === 0) {
-        new Notice('No SRS cards found in this file. Mark keywords as SPACED and rescan.');
+      // Get all SRS entries for this file
+      const allEntries = this.srsManager.getAllSRSEntries(this.parsedRecords);
+      const allFileEntries = allEntries.filter(({ file }) => file.filePath === activeFile.path);
+
+      if (allFileEntries.length === 0) {
+        new Notice('No SRS entries found in this file.');
         return;
       }
 
-      // Filter for due cards only
-      const now = new Date();
-      const dueCards = allFileCards.filter(card => {
-        const nextReview = new Date(card.nextReviewDate);
-        return nextReview <= now;
-      });
+      // Filter for due entries only
+      const dueEntries = this.srsManager.getDueEntries(this.parsedRecords);
+      const dueFileEntries = dueEntries.filter(({ file }) => file.filePath === activeFile.path);
 
-      if (dueCards.length === 0) {
-        new Notice(`No cards due in this file. Total cards: ${allFileCards.length}`);
+      if (dueFileEntries.length === 0) {
+        new Notice(`No entries due in this file. Total entries: ${allFileEntries.length}`);
         return;
       }
 
-      // Start review session with due cards only
-      await this.activateSRSReviewView(dueCards);
+      // Start review session with due entries only
+      await this.activateSRSReviewView(dueFileEntries);
     });
 
     // Add ribbon icon for editing current subject
@@ -557,7 +544,7 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     }
   }
 
-  async activateSRSReviewView(cards: any[]) {
+  async activateSRSReviewView(entries: Array<{ entry: any; file: any }>) {
     const { workspace } = this.app;
 
     let leaf: WorkspaceLeaf | null = null;
@@ -584,7 +571,7 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       // Start the session
       const view = leaf.view as SRSReviewView;
       if (view && view.startSession) {
-        await view.startSession(cards);
+        await view.startSession(entries);
       }
     }
   }
@@ -679,17 +666,12 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       }
     }
 
-    // Parse files
-    const parsedRecords = [];
+    // Parse files and store in RAM
+    this.parsedRecords = [];
     for (const file of includedFiles) {
       const parsed = await recordParser.parseFile(file, keywordsToParse);
-      parsedRecords.push(parsed);
+      this.parsedRecords.push(parsed);
     }
-
-    // Save parsed records with space-saving optimizations
-    const { stripParsedRecordsForSave } = await import('./utils/parse-helpers');
-    const parsedRecordsForSave = stripParsedRecordsForSave(parsedRecords);
-    await this.app.vault.adapter.write(DATA_PATHS.PARSED_FILES, JSON.stringify(parsedRecordsForSave, null, 2));
 
     // Refresh views if open
     this.refreshPinnedView();

@@ -29,16 +29,10 @@ function getCollectingStatus(keywords: string[]): CollectingStatus | null {
 }
 
 /**
- * Load parsed records from JSON file
+ * Get parsed records from plugin RAM cache
  */
-async function loadParsedRecords(plugin: HighlightSpaceRepeatPlugin): Promise<ParsedFile[] | null> {
-	try {
-		const data = await plugin.app.vault.adapter.read(DATA_PATHS.PARSED_FILES);
-		return JSON.parse(data);
-	} catch (error) {
-		console.log('[RecordBadge] Failed to load parsed records:', error);
-		return null;
-	}
+function getParsedRecords(plugin: HighlightSpaceRepeatPlugin): ParsedFile[] | null {
+	return plugin.parsedRecords.length > 0 ? plugin.parsedRecords : null;
 }
 
 /**
@@ -93,14 +87,16 @@ function entryToYaml(entry: ParsedEntry): string {
  * Check if text has any SRS-testable patterns
  */
 function hasTestablePatterns(text: string): boolean {
-	// Check for {{...}}, `code`, :::, or **bold**
+	// Check for {{...}}, `code`, <code>, <u>, :::, or **bold**
 	const hasCurly = /\{\{[^}]+\}\}/.test(text);
 	const hasCode = /`[^`]+`/.test(text);
 	const hasCodeBlock = /```[\s\S]+?```/.test(text);
+	const hasCodeTag = /<code>[\s\S]+?<\/code>/i.test(text);
+	const hasUTag = /<u>[\s\S]+?<\/u>/i.test(text);
 	const hasTriple = /:::/.test(text);
 	const hasBold = /\*\*[^*]+\*\*/.test(text);
 
-	return hasCurly || hasCode || hasCodeBlock || hasTriple || hasBold;
+	return hasCurly || hasCode || hasCodeBlock || hasCodeTag || hasUTag || hasTriple || hasBold;
 }
 
 /**
@@ -157,7 +153,7 @@ function isEntryAtTopLevel(entry: FlatEntry): boolean {
 
 /**
  * SRS Pattern Hiding Logic
- * Priority: {{}} > ::: > backticks/code > bold
+ * Priority: {{}} > ::: > backticks/code/u tags > bold
  */
 function getHighestPriorityPattern(text: string): 'curly' | 'code' | 'triple' | 'bold' | null {
 	// Priority 1: {{content}}
@@ -170,8 +166,8 @@ function getHighestPriorityPattern(text: string): 'curly' | 'code' | 'triple' | 
 		return 'triple';
 	}
 
-	// Priority 3: `code` or ```code blocks```
-	if (/`[^`]+`/.test(text) || /```[\s\S]+?```/.test(text)) {
+	// Priority 3: `code`, ```code blocks```, <code>code</code>, or <u>code</u>
+	if (/`[^`]+`/.test(text) || /```[\s\S]+?```/.test(text) || /<code>[\s\S]+?<\/code>/i.test(text) || /<u>[\s\S]+?<\/u>/i.test(text)) {
 		return 'code';
 	}
 
@@ -195,11 +191,13 @@ function hideContent(text: string): string {
 		return parts[0] || text;
 	}
 
-	// Priority 3: `code` - replace with ___
-	if (/`[^`]+`/.test(text) || /```[\s\S]+?```/.test(text)) {
+	// Priority 3: `code`, ```code blocks```, <code>code</code>, or <u>code</u> - replace with ___
+	if (/`[^`]+`/.test(text) || /```[\s\S]+?```/.test(text) || /<code>[\s\S]+?<\/code>/i.test(text) || /<u>[\s\S]+?<\/u>/i.test(text)) {
 		return text
 			.replace(/```[\s\S]+?```/g, '___')
-			.replace(/`[^`]+`/g, '___');
+			.replace(/`[^`]+`/g, '___')
+			.replace(/<code>[\s\S]+?<\/code>/gi, '___')
+			.replace(/<u>[\s\S]+?<\/u>/gi, '___');
 	}
 
 	// Priority 4: **bold** - replace with *___*
@@ -392,7 +390,7 @@ export function addRecordBadgesToReadingView(element: HTMLElement, context: Mark
 			tooltip.classList.add('visible');
 
 			// Try to load the actual parsed entry
-			const parsedRecords = await loadParsedRecords(plugin);
+			const parsedRecords = getParsedRecords(plugin);
 			if (!parsedRecords) {
 				tooltip.innerHTML = '<pre>Error: Could not load parsed records</pre>';
 				return;
@@ -449,83 +447,5 @@ export function addRecordBadgesToReadingView(element: HTMLElement, context: Mark
 
 		// Insert badge at the beginning of the container
 		container.insertBefore(badgeEl, container.firstChild);
-
-		// Add SRS preview badge (brain icon) - ONLY if there's something to hide
-		if (isSpaced(status)) {
-			// Load entry to check if there's something to hide
-			loadParsedRecords(plugin).then(parsedRecords => {
-				if (!parsedRecords) {
-					return;
-				}
-
-				const fileRecord = parsedRecords.find(record => record.filePath === currentPath);
-				if (!fileRecord) {
-					return;
-				}
-
-				const entry = findEntryByLineNumber(fileRecord, lineNumber);
-				if (!entry) {
-					return;
-				}
-
-				// Check for 6 cases where brain should show:
-				// 1-4: Has testable patterns ({{, `, :::, **)
-				const hasPatterns = entryHasTestableContent(entry);
-
-				// 5: Entry is at top level (no header) → hide filename
-				const atTopLevel = isEntryAtTopLevel(entry);
-
-				// 6: Entry is under header with same keyword → hide header
-				const headerWithKeyword = findHeaderWithKeyword(entry, keywords[0]);
-
-				// Show brain ONLY if one of the 6 cases is true
-				const shouldShowBrain = hasPatterns || atTopLevel || headerWithKeyword !== null;
-
-				if (!shouldShowBrain) {
-					return;
-				}
-
-				const srsBadgeEl = document.createElement('span');
-				srsBadgeEl.className = 'reading-view-srs-badge';
-				srsBadgeEl.textContent = '🧠';
-
-				// Store file path and line number as data attributes
-				srsBadgeEl.setAttribute('data-file-path', currentPath);
-				srsBadgeEl.setAttribute('data-line-number', lineNumber.toString());
-
-				// Create tooltip for SRS preview
-				const srsTooltip = document.createElement('div');
-				srsTooltip.className = 'srs-badge-tooltip';
-				srsTooltip.innerHTML = '<pre>Loading preview...</pre>';
-				srsBadgeEl.appendChild(srsTooltip);
-
-				// Load SRS preview on hover
-				srsBadgeEl.addEventListener('mouseenter', async () => {
-					srsTooltip.classList.add('visible');
-
-					// Get filename without extension for context
-					const fileNameWithoutExt = getFileNameFromPath(fileRecord.filePath).replace(/\.[^/.]+$/, '');
-
-					// Determine context: header if available, otherwise filename if at top level
-					let contextToUse: string | undefined = undefined;
-					if (headerWithKeyword) {
-						contextToUse = headerWithKeyword;
-					} else if (atTopLevel) {
-						contextToUse = fileNameWithoutExt;
-					}
-
-					// Convert entry to SRS preview with hidden patterns
-					const preview = entryToSRSPreview(entry, contextToUse, undefined);
-					srsTooltip.innerHTML = `<div class="srs-preview-header">SRS Preview (patterns hidden):</div><pre>${preview}</pre>`;
-				});
-
-				srsBadgeEl.addEventListener('mouseleave', () => {
-					srsTooltip.classList.remove('visible');
-				});
-
-				// Insert SRS badge after the record badge
-				container.insertBefore(srsBadgeEl, badgeEl.nextSibling);
-			});
-		}
 	});
 }

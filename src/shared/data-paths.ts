@@ -14,6 +14,6 @@ export const DATA_PATHS = {
   get SUBJECTS() { return `${_pluginDir}/app-data/subjects.json`; },
   get CODEBLOCKS() { return `${_pluginDir}/app-data/codeblocks.json`; },
   get VWORD_SETTINGS() { return `${_pluginDir}/app-data/vword-settings.json`; },
-  get PARSED_FILES() { return `${_pluginDir}/app-data/parsed-files.json`; },
-  get SRS_DATA() { return `${_pluginDir}/app-data/srs-data.json`; },
+  // PARSED_FILES removed - parsed records now stored in RAM only (plugin.parsedRecords)
+  // SRS_DATA removed - SRS data now stored as HTML comments in markdown files
 };
