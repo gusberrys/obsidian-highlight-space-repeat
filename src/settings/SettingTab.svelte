@@ -849,49 +849,8 @@
       plugin.parsedRecords = parsedRecords;
       console.log('[SettingTab] Stored', parsedRecords.length, 'files in RAM cache');
 
-      // Create SRS cards for SPACED keywords
-      let srsCardsCreated = 0;
-      const spacedKeywords = new Set<string>();
-
-      // Get all keywords with SPACED status
-      for (const category of $store.categories || []) {
-        for (const keyword of category.keywords || []) {
-          if (isSpaced(keyword.collectingStatus)) {
-            spacedKeywords.add(keyword.keyword);
-          }
-        }
-      }
-
-      // Process flat entries for SRS cards
-      for (const record of parsedRecords) {
-        for (const entry of record.entries) {
-          if (entry.keywords) {
-            for (const kw of entry.keywords) {
-              if (spacedKeywords.has(kw)) {
-                // Create SRS card for this entry
-                plugin.srsManager.getCard(
-                  record.filePath,
-                  entry.lineNumber,
-                  kw,
-                  entry.type,
-                  entry
-                );
-                srsCardsCreated++;
-              }
-            }
-          }
-        }
-      }
-
-      // Save SRS database
-      await plugin.srsManager.save();
-
-      // Detect and cleanup orphans
-      await plugin.orphanManager.detectOrphans(parsedRecords);
-      const cleanedOrphans = await plugin.orphanManager.cleanupOldOrphans(90);
-
-      console.log(`[SRS] Created ${srsCardsCreated} SRS cards from SPACED keywords`);
-      console.log(`[SRS] Cleaned ${cleanedOrphans} old orphans`);
+      // SRS data is now stored directly in markdown files as HTML comments
+      // No need to create database cards - RecordParser extracts SRS comments during parsing
 
       // Build result
       scanResult = {

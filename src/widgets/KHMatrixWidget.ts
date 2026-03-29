@@ -31,7 +31,9 @@ export class KHMatrixWidget extends ItemView {
 	private widgetFilterCell: MatrixCell | null = null; // Cell-based filter (from clicking F/H/R/D counts)
 	private widgetFilterExpression: string = ''; // Manual text filter expression (from typing in text box)
 	private widgetFilterText: string = ''; // Text filter for entries (file name, aliases, keywords, content)
+	private widgetFileSearchText: string = ''; // File search input text (filters DOM and data)
 	private collapsedFiles: Set<string> = new Set(); // Track collapsed file groups in widget filter
+	private recordsRenderer: import('./renderers/RecordsRenderer').RecordsRenderer | null = null; // Reference to current records renderer
 
 	// Track expanded headers (using unique header identifier)
 	private expandedHeaders: Set<string> = new Set();
@@ -227,7 +229,7 @@ export class KHMatrixWidget extends ItemView {
 
 		const parsedRecords = this.getParsedRecords();
 
-		const renderer = new RecordsRenderer(
+		this.recordsRenderer = new RecordsRenderer(
 			this.app,
 			this.plugin,
 			parsedRecords,
@@ -236,7 +238,8 @@ export class KHMatrixWidget extends ItemView {
 				filterType: this.widgetFilterType,
 				filterCell: this.widgetFilterCell,
 				filterExpression: this.widgetFilterExpression,
-				filterText: this.widgetFilterText
+				filterText: this.widgetFilterText,
+				fileSearchText: this.widgetFileSearchText
 			},
 			{
 				activeChips: this.activeChips,
@@ -319,11 +322,21 @@ export class KHMatrixWidget extends ItemView {
 				},
 				onChipClick: (chipId: string) => {
 					this.handleChipClick(chipId);
+				},
+				onSRSReview: async () => {
+					await this.startSRSReview();
+				},
+				onFileSearchChange: (searchText: string) => {
+					console.log('[KHMatrixWidget] File search changed:', searchText);
+					this.widgetFileSearchText = searchText;
+					if (this.recordsRenderer) {
+						this.recordsRenderer.applyFileSearchFilter(searchText);
+					}
 				}
 			}
 		);
 
-		await renderer.render(container);
+		await this.recordsRenderer.render(container);
 	}
 
 
@@ -861,61 +874,61 @@ export class KHMatrixWidget extends ItemView {
 	}
 
 	/**
-	 * Update SRS button tooltip with due card count
+	 * Update SRS button tooltip with due entry count
 	 * IMPORTANT: Respects filter flags (\s trim, \t top-only, \a show-all)
 	 */
 	private async updateSRSButtonTooltip(button: HTMLElement): Promise<void> {
 		try {
 			const filterExpr = this.getCurrentFilterExpression();
 			const parsedFiles = this.getParsedRecords();
-			const allCards = Object.values(this.plugin.srsManager.getDatabase().cards);
-			let filteredCards = [];
+			const allEntries = this.plugin.srsManager.getAllSRSEntries(parsedFiles);
+			const dueEntries = this.plugin.srsManager.getDueEntries(parsedFiles);
+
+			let filteredAllEntries = allEntries;
+			let filteredDueEntries = dueEntries;
 
 			if (!filterExpr) {
 				// Use subject filter if available
 				if (this.currentSubject && this.currentSubject.mainTag) {
 					const subjectTag = this.currentSubject.mainTag.replace(/^#/, '');
-					for (const card of allCards) {
-						const record = parsedFiles.find((r: any) => r.filePath === card.filePath);
-						if (record) {
-							const fileTags = this.getRecordTags(record);
-							if (fileTags.includes(`#${subjectTag}`)) {
-								filteredCards.push(card);
-							}
-						}
-					}
+					filteredAllEntries = allEntries.filter(({ file }) => {
+						const fileTags = this.getRecordTags(file);
+						return fileTags.includes(`#${subjectTag}`);
+					});
+					filteredDueEntries = dueEntries.filter(({ file }) => {
+						const fileTags = this.getRecordTags(file);
+						return fileTags.includes(`#${subjectTag}`);
+					});
 				}
 			} else {
 				// Use same filtering logic as startSRSReview
 				const matchingEntries = await this.getFilteredEntries(parsedFiles, filterExpr);
 
-				// Get SRS cards for these specific entries
-				for (const { entry, file } of matchingEntries) {
-					if (entry.keywords && entry.keywords.length > 0) {
-						for (const keyword of entry.keywords) {
-							const cardId = `${file.filePath}::${entry.lineNumber}::${keyword}::${entry.type}`;
-							const card = allCards.find(c => c.cardId === cardId);
-							if (card) {
-								filteredCards.push(card);
-							}
-						}
-					}
-				}
+				// Intersect with SRS entries
+				filteredAllEntries = allEntries.filter(({ entry: srsEntry, file: srsFile }) =>
+					matchingEntries.some(({ entry: matchEntry, file: matchFile }) =>
+						matchEntry.lineNumber === srsEntry.lineNumber &&
+						matchFile.filePath === srsFile.filePath
+					)
+				);
+
+				filteredDueEntries = dueEntries.filter(({ entry: dueEntry, file: dueFile }) =>
+					matchingEntries.some(({ entry: matchEntry, file: matchFile }) =>
+						matchEntry.lineNumber === dueEntry.lineNumber &&
+						matchFile.filePath === dueFile.filePath
+					)
+				);
 			}
 
-			if (filteredCards.length === 0) {
-				button.title = 'SRS Review: No cards found (mark keywords as SPACED)';
+			if (filteredAllEntries.length === 0) {
+				button.title = 'SRS Review: No entries with SRS data found';
 				return;
 			}
 
-			// Count due cards
-			const today = new Date().toISOString().split('T')[0];
-			const dueCards = filteredCards.filter(card => card.nextReviewDate <= today);
-
-			if (dueCards.length === 0) {
-				button.title = `SRS Review: No cards due today (${filteredCards.length} total cards)`;
+			if (filteredDueEntries.length === 0) {
+				button.title = `SRS Review: No entries due today (${filteredAllEntries.length} total)`;
 			} else {
-				button.title = `SRS Review: ${dueCards.length} cards due for review (${filteredCards.length} total)`;
+				button.title = `SRS Review: ${filteredDueEntries.length} entries due for review (${filteredAllEntries.length} total)`;
 			}
 		} catch (error) {
 			console.error('[KHMatrixWidget] Error updating SRS tooltip:', error);
@@ -928,77 +941,47 @@ export class KHMatrixWidget extends ItemView {
 	 * IMPORTANT: Respects filter flags (\s trim, \t top-only, \a show-all)
 	 */
 	public async startSRSReview(): Promise<void> {
-		// Get current filter expression
-		const filterExpr = this.getCurrentFilterExpression();
+		console.log('[KHMatrixWidget] startSRSReview called');
 
-		// Load parsed records
+		// Get currently displayed records from the RecordsRenderer
+		if (!this.recordsRenderer) {
+			new Notice('No records renderer available');
+			return;
+		}
+
+		const displayedRecords = this.recordsRenderer.getCurrentlyDisplayedRecords();
+		console.log('[SRS] Currently displayed records:', displayedRecords.length);
+
+		// Get all due entries
 		const parsedFiles = this.getParsedRecords();
+		const dueEntries = this.plugin.srsManager.getDueEntries(parsedFiles);
+		console.log('[SRS] Total due entries:', dueEntries.length);
 
-		// Get all SRS cards
-		const allCards = Object.values(this.plugin.srsManager.getDatabase().cards);
+		// Intersect: only due entries that are also currently displayed
+		const displayedDueEntries = dueEntries.filter(({ entry: dueEntry, file: dueFile }) =>
+			displayedRecords.some(
+				({ entry: displayedEntry, file: displayedFile }) =>
+					displayedEntry.lineNumber === dueEntry.lineNumber &&
+					displayedFile.filePath === dueFile.filePath
+			)
+		);
 
-		let filteredCards = [];
+		console.log('[SRS] Displayed due entries:', displayedDueEntries.length);
 
-		if (!filterExpr) {
-			// No filter active - use subject filter if available
-			if (this.currentSubject && this.currentSubject.mainTag) {
-				const subjectTag = this.currentSubject.mainTag.replace(/^#/, '');
-				// Get all cards from files with this subject tag
-				for (const card of allCards) {
-					const record = parsedFiles.find((r: any) => r.filePath === card.filePath);
-					if (record) {
-						const fileTags = this.getRecordTags(record);
-						if (fileTags.includes(`#${subjectTag}`)) {
-							filteredCards.push(card);
-						}
-					}
-				}
+		if (displayedDueEntries.length === 0) {
+			const allSRSEntries = this.plugin.srsManager.getAllSRSEntries(parsedFiles);
+			if (dueEntries.length > 0) {
+				new Notice(`${dueEntries.length} entries due, but none are currently displayed.`);
+			} else if (allSRSEntries.length === 0) {
+				new Notice('No entries have SRS data yet. To start: review an entry and rate it (Again/Hard/Good/Easy).');
 			} else {
-				new Notice('No filter active. Click on a count badge or select a subject.');
-				return;
+				new Notice(`No entries due for review today. ${allSRSEntries.length} entries being tracked.`);
 			}
-		} else {
-			// Get filtered entries using EXACT same logic as renderRecordFilterResults
-			const matchingEntries = await this.getFilteredEntries(parsedFiles, filterExpr);
-
-			if (matchingEntries.length === 0) {
-				new Notice('No matching entries found.');
-				return;
-			}
-
-			// Now get SRS cards for these specific entries
-			for (const { entry, file } of matchingEntries) {
-				if (entry.keywords && entry.keywords.length > 0) {
-					// For each keyword in the entry, check if there's an SRS card
-					for (const keyword of entry.keywords) {
-						const cardId = `${file.filePath}::${entry.lineNumber}::${keyword}::${entry.type}`;
-						const card = allCards.find(c => c.cardId === cardId);
-						if (card) {
-							filteredCards.push(card);
-						}
-					}
-				}
-			}
-		}
-
-		if (filteredCards.length === 0) {
-			new Notice('No SRS cards found. Mark keywords as SPACED and rescan.');
 			return;
 		}
 
-		// Filter to only DUE cards
-		const today = new Date().toISOString().split('T')[0];
-		const dueCards = filteredCards.filter(card => card.nextReviewDate <= today);
-
-		if (dueCards.length === 0) {
-			new Notice(`Found ${filteredCards.length} cards, but none are due for review today.`);
-			return;
-		}
-
-		new Notice(`Starting SRS review: ${dueCards.length} cards due (${filteredCards.length} total)`);
-
-		// Start review session with DUE cards only
-		await this.plugin.activateSRSReviewView(dueCards);
+		new Notice(`Starting SRS review: ${displayedDueEntries.length} entries due`);
+		await this.plugin.activateSRSReviewView(displayedDueEntries);
 	}
 
 	/**

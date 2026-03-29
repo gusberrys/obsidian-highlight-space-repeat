@@ -668,7 +668,11 @@ export class RecordParser {
 			continuationIndex++;
 		}
 
-		const text = textLines.join('\n').trim();
+		let text = textLines.join('\n').trim();
+
+		// Extract SRS data from HTML comment
+		const { srsData, cleanText } = this.extractSRSComment(text);
+		text = cleanText;
 
 		// Extract inline keywords from <mark> tags and inline code languages (always enabled)
 		let inlineKeywords: string[] | undefined;
@@ -1152,7 +1156,8 @@ export class RecordParser {
 			keywords: keywords.length > 0 ? keywords : undefined,
 			inlineKeywords: inlineKeywords && inlineKeywords.length > 0 ? inlineKeywords : undefined,
 			inlineCodeLanguages: inlineCodeLanguages && inlineCodeLanguages.length > 0 ? inlineCodeLanguages : undefined,
-			subItems: subItems.length > 0 ? subItems : undefined
+			subItems: subItems.length > 0 ? subItems : undefined,
+			srs: srsData
 		};
 
 		return {
@@ -1190,5 +1195,47 @@ export class RecordParser {
 			},
 			nextIndex: i
 		};
+	}
+
+	/**
+	 * Extract SRS data from HTML comment in text
+	 * Format: <!-- srs: {"ef":2.5,"i":7,"r":3,"next":"2026-03-30"} -->
+	 * Returns: { srsData, cleanText }
+	 */
+	private extractSRSComment(text: string): {
+		srsData: { ef: number; i: number; r: number; next: string } | undefined;
+		cleanText: string
+	} {
+		// Match HTML comment with srs data
+		const srsMatch = text.match(/<!--\s*srs:\s*(\{[^}]+\})\s*-->/);
+
+		if (!srsMatch) {
+			return { srsData: undefined, cleanText: text };
+		}
+
+		try {
+			// Parse JSON data
+			const srsData = JSON.parse(srsMatch[1]);
+
+			// Validate required fields
+			if (
+				typeof srsData.ef === 'number' &&
+				typeof srsData.i === 'number' &&
+				typeof srsData.r === 'number' &&
+				typeof srsData.next === 'string'
+			) {
+				// Round ef to 2 decimal places (clean up floating-point precision issues)
+				srsData.ef = Math.round(srsData.ef * 100) / 100;
+
+				// Remove SRS comment from text
+				const cleanText = text.replace(srsMatch[0], '').trim();
+				return { srsData, cleanText };
+			}
+		} catch (error) {
+			// Invalid JSON - ignore
+			console.warn('[RecordParser] Invalid SRS comment:', srsMatch[0]);
+		}
+
+		return { srsData: undefined, cleanText: text };
 	}
 }

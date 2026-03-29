@@ -1,22 +1,18 @@
 import { App, ItemView, WorkspaceLeaf, Notice, ButtonComponent, MarkdownView } from 'obsidian';
-import { DATA_PATHS } from '../shared/data-paths';
 import type { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
-import { SRSCardData, ReviewButton } from '../interfaces/SRSData';
-import { ParsedEntry, ParsedFile, FlatEntry } from '../interfaces/ParsedFile';
+import { ReviewButton } from '../interfaces/SRSData';
+import { ParsedFile, FlatEntry } from '../interfaces/ParsedFile';
 import { KHEntry } from '../components/KHEntry';
-import { getFileNameFromPath } from '../utils/file-helpers';
-import { getAllKeywords } from '../utils/parse-helpers';
 
 export const SRS_REVIEW_VIEW_TYPE = 'kh-srs-review-view';
 
 /**
- * SRS Review View - displays cards in right sidebar
+ * SRS Review View - displays entries in right sidebar
  */
 export class SRSReviewView extends ItemView {
 	private plugin: HighlightSpaceRepeatPlugin;
-	private cards: SRSCardData[] = [];
+	private entries: Array<{ entry: FlatEntry; file: ParsedFile }> = [];
 	private currentIndex: number = 0;
-	private parsedRecords: ParsedFile[] = [];
 	private isAnswerShown: boolean = false;
 	private contentContainer: HTMLElement | null = null;
 
@@ -38,95 +34,47 @@ export class SRSReviewView extends ItemView {
 	}
 
 	/**
-	 * Start review session with cards
+	 * Start review session with entries
 	 */
-	async startSession(cards: SRSCardData[]): Promise<void> {
-		this.cards = cards;
+	async startSession(entries: Array<{ entry: FlatEntry; file: ParsedFile }>): Promise<void> {
+		this.entries = entries;
 		this.currentIndex = 0;
 
-		if (this.cards.length === 0) {
-			new Notice('No cards due for review!');
+		if (this.entries.length === 0) {
+			new Notice('No entries due for review!');
 			return;
 		}
 
-		// Load parsed records from plugin RAM cache
-		this.parsedRecords = this.plugin.parsedRecords;
-
-		new Notice(`Starting review session: ${this.cards.length} cards`);
+		new Notice(`Starting review session: ${this.entries.length} entries`);
 		await this.render();
 	}
 
 	/**
-	 * Find entry for card
-	 */
-	private findEntry(card: SRSCardData): { entry: FlatEntry; record: ParsedFile } | null {
-		const record = this.parsedRecords.find(r => r.filePath === card.filePath);
-		if (!record) return null;
-
-		// Entries are now flat in record.entries
-		const entry = record.entries.find(e =>
-			e.lineNumber === card.lineNumber &&
-			e.keywords?.includes(card.keyword)
-		);
-
-		if (!entry) return null;
-
-		return { entry, record };
-	}
-
-	/**
-	 * Render current card
+	 * Render current entry
 	 */
 	private async render(): Promise<void> {
 		const container = this.containerEl.children[1];
 		container.empty();
 		container.addClass('srs-review-view');
 
-		if (this.currentIndex >= this.cards.length) {
+		if (this.currentIndex >= this.entries.length) {
 			// Session complete
 			await this.plugin.srsManager.save();
 			container.createEl('div', {
 				cls: 'srs-session-complete',
-				text: `✅ Review session complete! Reviewed ${this.cards.length} cards.`
+				text: `✅ Review session complete! Reviewed ${this.entries.length} entries.`
 			});
 			return;
 		}
 
-		const card = this.cards[this.currentIndex];
-		const found = this.findEntry(card);
-
-		let entry: FlatEntry;
-		let record: ParsedFile;
-
-		if (found) {
-			entry = found.entry;
-			record = found.record;
-		} else {
-			// Fallback
-			entry = {
-				type: card.type,
-				lineNumber: card.lineNumber,
-				text: card.contentPreview,
-				keywords: [card.keyword],
-				filePath: card.filePath,
-
-				fileTags: []
-			};
-			record = {
-				filePath: card.filePath,
-
-				tags: [],
-								aliases: [],
-				entries: []
-			};
-		}
+		const { entry, file } = this.entries[this.currentIndex];
 
 		// Progress indicator with info icon
 		const progressContainer = container.createDiv({ cls: 'srs-progress-container' });
 
 		const progressText = progressContainer.createSpan({
 			cls: 'srs-progress',
-			text: `Card ${this.currentIndex + 1} of ${this.cards.length}`
+			text: `Entry ${this.currentIndex + 1} of ${this.entries.length}`
 		});
 
 		// Info icon with tooltip
@@ -147,66 +95,56 @@ export class SRSReviewView extends ItemView {
 			'Shift+1/2/3/4 = Answer & Close'
 		);
 
-		// Card info
+		// Entry info
 		const infoContainer = container.createDiv({ cls: 'srs-card-info' });
 
-		// Keyword badge
-		const keywordStyle = this.plugin.api.getKeywordStyle(card.keyword);
-		const keywordBadge = infoContainer.createSpan({ cls: 'srs-keyword-badge' });
-		keywordBadge.textContent = `${keywordStyle?.generateIcon || '🏷️'} ${card.keyword}`;
+		// Check if context (filename/header) is being used as the answer
+		const contextIsAnswer = this.isContextUsedAsAnswer(entry, file);
 
-		if (keywordStyle?.backgroundColor) {
-			keywordBadge.style.backgroundColor = keywordStyle.backgroundColor;
-		}
-		if (keywordStyle?.color) {
-			keywordBadge.style.color = keywordStyle.color;
+		// File path - hide when answer is hidden if context is the answer
+		if (!contextIsAnswer || this.isAnswerShown) {
+			const filePathDiv = infoContainer.createDiv({ cls: 'srs-file-path' });
+			const fileName = file.filePath.split('/').pop() || file.filePath;
+			filePathDiv.textContent = fileName;
 		}
 
-		// Type badge
-		const typeBadge = infoContainer.createSpan({ cls: 'srs-type-badge' });
-		typeBadge.textContent = card.type;
-
-		// File path - just display, clicking on content will navigate
-		const filePath = infoContainer.createDiv({ cls: 'srs-file-path' });
-		const fileName = card.filePath.split('/').pop() || card.filePath;
-		filePath.textContent = fileName;
-
-		// Header context
-		const headerText = this.findHeaderContext(entry, record);
-		if (headerText) {
-			const headerContext = infoContainer.createDiv({ cls: 'srs-header-context' });
-			headerContext.textContent = headerText;
+		// Header context - hide when answer is hidden if context is the answer
+		if (!contextIsAnswer || this.isAnswerShown) {
+			const headerText = this.findHeaderContext(entry, file);
+			if (headerText) {
+				const headerContext = infoContainer.createDiv({ cls: 'srs-header-context' });
+				headerContext.textContent = headerText;
+			}
 		}
 
 		// Content container - make it clickable to navigate to record
 		this.contentContainer = container.createDiv({ cls: 'srs-content-container' });
 		this.contentContainer.style.cursor = 'pointer';
 		this.contentContainer.addEventListener('click', async () => {
-			await this.openFile(card);
+			await this.openFile(file.filePath, entry.lineNumber);
 		});
-		await this.renderContent(card, entry, record);
+		await this.renderContent(entry, file);
 
-		// Check if card has anything to hide
-		const hasContentToHide = this.hasAnythingToHide(entry, record, card);
+		// Check if entry has anything to hide
+		const hasContentToHide = this.hasAnythingToHide(entry, file);
 
 		// Show Answer button - only if there's something to hide
 		if (hasContentToHide) {
 			const answerButtonContainer = container.createDiv({ cls: 'srs-answer-button-container' });
 			const answerButton = new ButtonComponent(answerButtonContainer)
 				.setButtonText('Show Answer')
-				.onClick(() => this.toggleAnswer(card, entry, record));
+				.onClick(() => this.toggleAnswer(entry, file));
 		}
 
-		// Stats - only show if enabled
-		if (this.plugin.srsManager.getShowScores()) {
+		// Stats - show SRS data if available
+		if (entry.srs) {
 			const statsContainer = container.createDiv({ cls: 'srs-stats-container' });
 
-			this.createStatItem(statsContainer, 'Reviews', card.totalReviews.toString());
-			this.createStatItem(statsContainer, 'Interval', `${card.interval} days`);
-			this.createStatItem(statsContainer, 'Ease Factor', card.easeFactor.toFixed(2));
-			this.createStatItem(statsContainer, 'Lapses', card.lapseCount.toString());
+			this.createStatItem(statsContainer, 'Interval', `${entry.srs.i} days`);
+			this.createStatItem(statsContainer, 'Ease Factor', entry.srs.ef.toFixed(2));
+			this.createStatItem(statsContainer, 'Repetitions', entry.srs.r.toString());
 
-			const nextReview = new Date(card.nextReviewDate);
+			const nextReview = new Date(entry.srs.next);
 			const nextReviewText = this.formatDate(nextReview);
 			this.createStatItem(statsContainer, 'Next Review', nextReviewText);
 		}
@@ -214,10 +152,10 @@ export class SRSReviewView extends ItemView {
 		// Review buttons
 		const buttonContainer = container.createDiv({ cls: 'srs-button-container' });
 
-		this.createReviewButton(buttonContainer, 'Again', 'again', 'srs-btn-again', card);
-		this.createReviewButton(buttonContainer, 'Hard', 'hard', 'srs-btn-hard', card);
-		this.createReviewButton(buttonContainer, 'Good', 'good', 'srs-btn-good', card);
-		this.createReviewButton(buttonContainer, 'Easy', 'easy', 'srs-btn-easy', card);
+		this.createReviewButton(buttonContainer, 'Again', 'again', 'srs-btn-again', entry, file);
+		this.createReviewButton(buttonContainer, 'Hard', 'hard', 'srs-btn-hard', entry, file);
+		this.createReviewButton(buttonContainer, 'Good', 'good', 'srs-btn-good', entry, file);
+		this.createReviewButton(buttonContainer, 'Easy', 'easy', 'srs-btn-easy', entry, file);
 
 		// Keyboard shortcuts hint - adjust based on whether Show Answer button is shown
 		const hintContainer = container.createDiv({ cls: 'srs-keyboard-hint' });
@@ -231,26 +169,26 @@ export class SRSReviewView extends ItemView {
 	/**
 	 * Open file at line and navigate to record (same pattern as Matrix view)
 	 */
-	private async openFile(card: SRSCardData): Promise<void> {
-		const file = this.app.vault.getAbstractFileByPath(card.filePath);
+	private async openFile(filePath: string, lineNumber: number): Promise<void> {
+		const file = this.app.vault.getAbstractFileByPath(filePath);
 		if (!file) {
-			new Notice(`File not found: ${card.filePath}`);
+			new Notice(`File not found: ${filePath}`);
 			return;
 		}
 
 		// Open the file (or focus if already open) with line state
 		const leaf = this.app.workspace.getLeaf(false);
 		await leaf.openFile(file as any, {
-			eState: { line: card.lineNumber }
+			eState: { line: lineNumber }
 		});
 
 		// Get the editor and navigate to the specific line
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (view && view.editor) {
 			// Set cursor to the beginning of the line
-			view.editor.setCursor({ line: card.lineNumber, ch: 0 });
+			view.editor.setCursor({ line: lineNumber, ch: 0 });
 			// Scroll to a few lines above the target to ensure visibility with padding
-			const scrollToLine = Math.max(0, card.lineNumber - 3);
+			const scrollToLine = Math.max(0, lineNumber - 3);
 			// Scroll the line into view
 			view.editor.scrollIntoView({
 				from: { line: scrollToLine, ch: 0 },
@@ -262,12 +200,12 @@ export class SRSReviewView extends ItemView {
 	/**
 	 * Render content with optional hiding (processes all levels of content)
 	 */
-	private async renderContent(card: SRSCardData, entry: FlatEntry, record: ParsedFile): Promise<void> {
+	private async renderContent(entry: FlatEntry, file: ParsedFile): Promise<void> {
 		if (!this.contentContainer) return;
 
 		this.contentContainer.empty();
 
-		if (card.type === 'codeblock') {
+		if (entry.type === 'codeblock') {
 			let displayText = entry.text;
 			if (!this.isAnswerShown) {
 				displayText = this.hideContent(displayText);
@@ -281,18 +219,31 @@ export class SRSReviewView extends ItemView {
 				code.addClass(`language-${entry.language}`);
 			}
 		} else {
-			// Process entry and all sub-items recursively
-			const displayEntry = this.processEntryForDisplay(entry, record, card);
+			if (this.isAnswerShown) {
+				// When answer is shown: render entry directly using KHEntry (compact mode)
+				// This uses the same rendering as matrix view - compact, clean, with all plugin support
+				await KHEntry.renderKeywordEntry(
+					this.contentContainer,
+					entry,
+					file,
+					this.plugin,
+					true  // compact mode
+				);
+			} else {
+				// When answer is hidden: process entry to hide patterns, then render in compact mode
+				const displayEntry = this.processEntryForDisplay(entry, file);
 
-			await KHEntry.renderKeywordEntry(
-				this.contentContainer,
-				displayEntry,
-				record,
-				this.plugin,
-				false
-			);
+				await KHEntry.renderKeywordEntry(
+					this.contentContainer,
+					displayEntry,
+					file,
+					this.plugin,
+					true  // compact mode (consistent padding with answer)
+				);
+			}
 		}
 	}
+
 
 	/**
 	 * Check if text has testable patterns
@@ -301,14 +252,42 @@ export class SRSReviewView extends ItemView {
 		return /\{\{[^}]+\}\}/.test(text) ||
 		       /`[^`]+`/.test(text) ||
 		       /```[\s\S]+?```/.test(text) ||
+		       /<code>[\s\S]+?<\/code>/i.test(text) ||
+		       /<u>[\s\S]+?<\/u>/i.test(text) ||
 		       /:::/.test(text) ||
 		       /\*\*[^*]+\*\*/.test(text);
 	}
 
 	/**
+	 * Check if context (filename/header) is being used as the answer
+	 * Returns true when entry has no explicit patterns, meaning context will be added as bold
+	 */
+	private isContextUsedAsAnswer(entry: FlatEntry, file: ParsedFile): boolean {
+		// Check if main text has patterns
+		if (this.hasTestablePatterns(entry.text)) {
+			return false;
+		}
+
+		// Check if any sub-item has patterns
+		if (entry.subItems) {
+			for (const subItem of entry.subItems) {
+				if (this.hasTestablePatterns(subItem.content)) {
+					return false;
+				}
+				if (subItem.nestedCodeBlock && this.hasTestablePatterns(subItem.nestedCodeBlock.content)) {
+					return false;
+				}
+			}
+		}
+
+		// No explicit patterns found - context will be used as answer
+		return true;
+	}
+
+	/**
 	 * Check if entry has anything to hide (testable patterns or context)
 	 */
-	private hasAnythingToHide(entry: FlatEntry, record: ParsedFile, card: SRSCardData): boolean {
+	private hasAnythingToHide(entry: FlatEntry, file: ParsedFile): boolean {
 		// Check main text for patterns
 		if (this.hasTestablePatterns(entry.text)) {
 			return true;
@@ -328,7 +307,9 @@ export class SRSReviewView extends ItemView {
 
 		// If no patterns, check if there's context (header or filename)
 		const atTopLevel = this.isEntryAtTopLevel(entry);
-		const headerWithKeyword = this.findHeaderWithKeyword(entry, card.keyword);
+		const headerWithKeyword = entry.keywords && entry.keywords.length > 0
+			? this.findHeaderWithKeyword(entry, entry.keywords[0])
+			: null;
 
 		// Has context to hide if there's a matching header OR entry is at top level
 		return headerWithKeyword !== null || atTopLevel;
@@ -349,6 +330,17 @@ export class SRSReviewView extends ItemView {
 	/**
 	 * Find header with same keyword
 	 */
+	/**
+	 * Get all keywords from a header (including inline keywords and code languages)
+	 */
+	private getAllKeywords(header: { keywords?: string[]; inlineKeywords?: string[]; inlineCodeLanguages?: string[] }): string[] {
+		return [
+			...(header.keywords || []),
+			...(header.inlineKeywords || []),
+			...(header.inlineCodeLanguages || [])
+		];
+	}
+
 	private findHeaderWithKeyword(entry: FlatEntry, keyword: string): string | null {
 		// Check each header level (h1, h2, h3) for the keyword
 		const headerLevels = [
@@ -359,7 +351,7 @@ export class SRSReviewView extends ItemView {
 
 		for (const headerLevel of headerLevels) {
 			const header = headerLevel!.info;
-			const headerKeywords = getAllKeywords(header);
+			const headerKeywords = this.getAllKeywords(header);
 			const headerHasKeyword = headerKeywords.includes(keyword);
 			if (headerHasKeyword) {
 				// Return text if available, otherwise return keywords joined
@@ -373,7 +365,7 @@ export class SRSReviewView extends ItemView {
 	/**
 	 * Process entry and all sub-items for display (recursive hiding)
 	 */
-	private processEntryForDisplay(entry: FlatEntry, record: ParsedFile, card: SRSCardData): FlatEntry {
+	private processEntryForDisplay(entry: FlatEntry, file: ParsedFile): FlatEntry {
 		let mainText = entry.text;
 
 		// Check if entry has testable patterns
@@ -399,21 +391,22 @@ export class SRSReviewView extends ItemView {
 			// Check if entry is at top level
 			const atTopLevel = this.isEntryAtTopLevel(entry);
 
-			// Check if header has same keyword
-			const headerWithKeyword = this.findHeaderWithKeyword(entry, card.keyword);
+			// Check if header has same keyword (use first keyword)
+			const firstKeyword = entry.keywords && entry.keywords.length > 0 ? entry.keywords[0] : null;
+			const headerWithKeyword = firstKeyword ? this.findHeaderWithKeyword(entry, firstKeyword) : null;
 
 			if (headerWithKeyword) {
 				// Use header as context
 				mainText = `**${headerWithKeyword}**: ${mainText}`;
 			} else if (atTopLevel) {
 				// Use filename as context
-				const fileNameWithoutExt = getFileNameFromPath(record.filePath).replace(/\.[^/.]+$/, '');
+				const fileNameWithoutExt = file.filePath.split('/').pop()?.replace(/\.[^/.]+$/, '') || 'file';
 				mainText = `**${fileNameWithoutExt}**: ${mainText}`;
 			}
 		}
 
 		// Check if there's anything to hide
-		const hasContentToHide = this.hasAnythingToHide(entry, record, card);
+		const hasContentToHide = this.hasAnythingToHide(entry, file);
 
 		// Helper to get numeric priority (lower = higher priority)
 		const getPatternPriority = (pattern: 'curly' | 'code' | 'triple' | 'bold' | null): number => {
@@ -493,15 +486,11 @@ export class SRSReviewView extends ItemView {
 	/**
 	 * Toggle answer visibility
 	 */
-	private async toggleAnswer(card: SRSCardData, entry: FlatEntry, record: ParsedFile): Promise<void> {
+	private async toggleAnswer(entry: FlatEntry, file: ParsedFile): Promise<void> {
 		this.isAnswerShown = !this.isAnswerShown;
 
-		const answerButton = this.containerEl.querySelector('.srs-answer-button-container button');
-		if (answerButton) {
-			answerButton.textContent = this.isAnswerShown ? 'Hide Answer' : 'Show Answer';
-		}
-
-		await this.renderContent(card, entry, record);
+		// Re-render entire card to update info section (file path/header visibility)
+		await this.render();
 	}
 
 	/**
@@ -518,8 +507,8 @@ export class SRSReviewView extends ItemView {
 			return 'triple';
 		}
 
-		// Priority 3: `code` or ```code blocks```
-		if (/`[^`]+`/.test(text) || /```[\s\S]+?```/.test(text)) {
+		// Priority 3: `code`, ```code blocks```, <code>code</code>, or <u>code</u>
+		if (/`[^`]+`/.test(text) || /```[\s\S]+?```/.test(text) || /<code>[\s\S]+?<\/code>/i.test(text) || /<u>[\s\S]+?<\/u>/i.test(text)) {
 			return 'code';
 		}
 
@@ -533,7 +522,7 @@ export class SRSReviewView extends ItemView {
 
 	/**
 	 * Hide content based on pattern
-	 * Priority: {{}} > ::: > backticks > bold
+	 * Priority: {{}} > ::: > backticks/code/u tags > bold
 	 */
 	private hideContent(text: string): string {
 		// Priority 1: {{content}} - replace with ___
@@ -547,11 +536,13 @@ export class SRSReviewView extends ItemView {
 			return parts[0] || text;
 		}
 
-		// Priority 3: `code` - replace with ___
-		if (/`[^`]+`/.test(text) || /```[\s\S]+?```/.test(text)) {
+		// Priority 3: `code`, ```code blocks```, <code>code</code>, or <u>code</u> - replace with ___
+		if (/`[^`]+`/.test(text) || /```[\s\S]+?```/.test(text) || /<code>[\s\S]+?<\/code>/i.test(text) || /<u>[\s\S]+?<\/u>/i.test(text)) {
 			return text
 				.replace(/```[\s\S]+?```/g, '___')
-				.replace(/`[^`]+`/g, '___');
+				.replace(/`[^`]+`/g, '___')
+				.replace(/<code>[\s\S]+?<\/code>/gi, '___')
+				.replace(/<u>[\s\S]+?<\/u>/gi, '___');
 		}
 
 		// Priority 4: **bold** - replace with *___*
@@ -598,34 +589,38 @@ export class SRSReviewView extends ItemView {
 		label: string,
 		button: ReviewButton,
 		className: string,
-		card: SRSCardData
+		entry: FlatEntry,
+		file: ParsedFile
 	): void {
 		new ButtonComponent(container)
 			.setButtonText(label)
 			.setCta()
 			.setClass(className)
-			.onClick(() => this.handleReview(button, card));
+			.onClick(() => this.handleReview(button, entry, file));
 	}
 
 	/**
 	 * Handle review
 	 */
-	private async handleReview(button: ReviewButton, card: SRSCardData): Promise<void> {
-		this.plugin.srsManager.reviewCard(card.cardId, button);
+	private async handleReview(button: ReviewButton, entry: FlatEntry, file: ParsedFile): Promise<void> {
+		// Review the entry (updates file with new SRS comment)
+		await this.plugin.srsManager.reviewEntry(file.filePath, entry.lineNumber, button);
 
+		// Calculate estimated next interval for user feedback
+		const srs = entry.srs || { ef: 2.5, i: 0, r: 0 };
 		const intervals = {
 			again: 1,
 			hard: 6,
-			good: card.interval * card.easeFactor,
-			easy: card.interval * card.easeFactor * 1.3
+			good: srs.i * srs.ef,
+			easy: srs.i * srs.ef * 1.3
 		};
 		const nextInterval = Math.round(intervals[button]);
-		new Notice(`Reviewed as "${button}". Next review in ${nextInterval} days. (${this.currentIndex + 1}/${this.cards.length})`);
+		new Notice(`Reviewed as "${button}". Next review in ~${nextInterval} days. (${this.currentIndex + 1}/${this.entries.length})`);
 
-		// Reset answer state for next card
+		// Reset answer state for next entry
 		this.isAnswerShown = false;
 
-		// Move to next card
+		// Move to next entry
 		this.currentIndex++;
 		await this.render();
 	}
@@ -677,36 +672,36 @@ export class SRSReviewView extends ItemView {
 					}
 				}
 			} else if (evt.key === '1') {
-				const card = this.cards[this.currentIndex];
-				if (card) {
-					this.handleReview('again', card);
+				const current = this.entries[this.currentIndex];
+				if (current) {
+					this.handleReview('again', current.entry, current.file);
 					if (evt.shiftKey) {
 						// Shift+1 = Answer and close
 						this.leaf.detach();
 					}
 				}
 			} else if (evt.key === '2') {
-				const card = this.cards[this.currentIndex];
-				if (card) {
-					this.handleReview('hard', card);
+				const current = this.entries[this.currentIndex];
+				if (current) {
+					this.handleReview('hard', current.entry, current.file);
 					if (evt.shiftKey) {
 						// Shift+2 = Answer and close
 						this.leaf.detach();
 					}
 				}
 			} else if (evt.key === '3') {
-				const card = this.cards[this.currentIndex];
-				if (card) {
-					this.handleReview('good', card);
+				const current = this.entries[this.currentIndex];
+				if (current) {
+					this.handleReview('good', current.entry, current.file);
 					if (evt.shiftKey) {
 						// Shift+3 = Answer and close
 						this.leaf.detach();
 					}
 				}
 			} else if (evt.key === '4') {
-				const card = this.cards[this.currentIndex];
-				if (card) {
-					this.handleReview('easy', card);
+				const current = this.entries[this.currentIndex];
+				if (current) {
+					this.handleReview('easy', current.entry, current.file);
 					if (evt.shiftKey) {
 						// Shift+4 = Answer and close
 						this.leaf.detach();

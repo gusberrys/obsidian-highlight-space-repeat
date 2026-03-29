@@ -15,5 +15,5 @@ export const DATA_PATHS = {
   get CODEBLOCKS() { return `${_pluginDir}/app-data/codeblocks.json`; },
   get VWORD_SETTINGS() { return `${_pluginDir}/app-data/vword-settings.json`; },
   // PARSED_FILES removed - parsed records now stored in RAM only (plugin.parsedRecords)
-  get SRS_DATA() { return `${_pluginDir}/app-data/srs-data.json`; },
+  // SRS_DATA removed - SRS data now stored as HTML comments in markdown files
 };

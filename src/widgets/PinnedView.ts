@@ -1195,22 +1195,23 @@ export class PinnedView extends ItemView {
 				return;
 			}
 
-			// Get ALL SRS cards from this file (not filtered by pinned entries)
-			const allFileCards = this.plugin.srsManager.getCardsForFile(this.lastOpenedFile.path);
+			// Get ALL SRS entries from this file
+			const allEntries = this.plugin.srsManager.getAllSRSEntries(this.plugin.parsedRecords);
+			const allFileEntries = allEntries.filter(({ file }) => file.filePath === this.lastOpenedFile!.path);
 
-			if (allFileCards.length === 0) {
-				button.title = 'SRS Review: No cards found in this file';
+			if (allFileEntries.length === 0) {
+				button.title = 'SRS Review: No entries found in this file';
 				return;
 			}
 
-			// Count due cards
-			const now = new Date();
-			const dueCards = allFileCards.filter(card => new Date(card.nextReviewDate) <= now);
+			// Count due entries
+			const dueEntries = this.plugin.srsManager.getDueEntries(this.plugin.parsedRecords);
+			const dueFileEntries = dueEntries.filter(({ file }) => file.filePath === this.lastOpenedFile!.path);
 
-			if (dueCards.length === 0) {
-				button.title = `SRS Review: No cards due today (${allFileCards.length} total cards in file)`;
+			if (dueFileEntries.length === 0) {
+				button.title = `SRS Review: No entries due today (${allFileEntries.length} total in file)`;
 			} else {
-				button.title = `SRS Review: ${dueCards.length} cards due for review (${allFileCards.length} total in file)`;
+				button.title = `SRS Review: ${dueFileEntries.length} entries due for review (${allFileEntries.length} total in file)`;
 			}
 		} catch (error) {
 			console.error('[PinnedView] Error updating SRS tooltip:', error);
@@ -1219,7 +1220,7 @@ export class PinnedView extends ItemView {
 	}
 
 	/**
-	 * Start SRS review for ALL cards in the file
+	 * Start SRS review for ALL entries in the file
 	 */
 	private async startSRSReview(pinnedHeaders: Array<{ text: string; level: number; keywords: string[]; entries: ParsedEntry[] }>): Promise<void> {
 		if (!this.lastOpenedFile) {
@@ -1227,26 +1228,27 @@ export class PinnedView extends ItemView {
 			return;
 		}
 
-		// Get ALL SRS cards from this file (not just pinned entries)
-		const allFileCards = this.plugin.srsManager.getCardsForFile(this.lastOpenedFile.path);
+		// Get ALL SRS entries from this file
+		const allEntries = this.plugin.srsManager.getAllSRSEntries(this.plugin.parsedRecords);
+		const allFileEntries = allEntries.filter(({ file }) => file.filePath === this.lastOpenedFile.path);
 
-		if (allFileCards.length === 0) {
-			new Notice('No SRS cards found in this file. Mark keywords as SPACED and rescan.');
+		if (allFileEntries.length === 0) {
+			new Notice('No SRS entries found in this file.');
 			return;
 		}
 
-		// Filter to only DUE cards
-		const now = new Date();
-		const dueCards = allFileCards.filter(card => new Date(card.nextReviewDate) <= now);
+		// Filter to only DUE entries
+		const dueEntries = this.plugin.srsManager.getDueEntries(this.plugin.parsedRecords);
+		const dueFileEntries = dueEntries.filter(({ file }) => file.filePath === this.lastOpenedFile!.path);
 
-		if (dueCards.length === 0) {
-			new Notice(`Found ${allFileCards.length} cards in this file, but none are due for review today.`);
+		if (dueFileEntries.length === 0) {
+			new Notice(`Found ${allFileEntries.length} entries in this file, but none are due for review today.`);
 			return;
 		}
 
-		new Notice(`Starting SRS review: ${dueCards.length} cards due (${allFileCards.length} total in file)`);
+		new Notice(`Starting SRS review: ${dueFileEntries.length} entries due (${allFileEntries.length} total in file)`);
 
-		// Start review session with DUE cards only
-		await this.plugin.activateSRSReviewView(dueCards);
+		// Start review session with DUE entries only
+		await this.plugin.activateSRSReviewView(dueFileEntries);
 	}
 }

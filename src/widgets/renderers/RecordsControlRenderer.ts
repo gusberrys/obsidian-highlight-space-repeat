@@ -19,6 +19,8 @@ export class RecordsControlRenderer {
 	private onTrimToggle: () => void;
 	private onTopToggle: () => void;
 	private onToggleAllFiles: () => void;
+	private onSRSReview: () => Promise<void>;
+	private onFileSearchChange: (searchText: string) => void;
 
 	constructor(
 		filterState: {
@@ -38,6 +40,8 @@ export class RecordsControlRenderer {
 			onTrimToggle: () => void;
 			onTopToggle: () => void;
 			onToggleAllFiles: () => void;
+			onSRSReview: () => Promise<void>;
+			onFileSearchChange: (searchText: string) => void;
 		}
 	) {
 		this.filterExpression = filterState.filterExpression;
@@ -53,6 +57,8 @@ export class RecordsControlRenderer {
 		this.onTrimToggle = callbacks.onTrimToggle;
 		this.onTopToggle = callbacks.onTopToggle;
 		this.onToggleAllFiles = callbacks.onToggleAllFiles;
+		this.onSRSReview = callbacks.onSRSReview;
+		this.onFileSearchChange = callbacks.onFileSearchChange;
 	}
 
 	/**
@@ -228,6 +234,20 @@ Examples:
 			this.onToggleAllFiles();
 		});
 
+		// SRS review button
+		const srsReviewBtn = expressionContainer.createEl('button', {
+			cls: 'kh-filter-toggle kh-srs-review-btn',
+			title: 'Start SRS review for filtered entries',
+			attr: {
+				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: pointer;'
+			}
+		});
+		setIcon(srsReviewBtn, 'brain');
+		srsReviewBtn.addEventListener('click', async () => {
+			console.log('[RecordsControlRenderer] SRS review button clicked');
+			await this.onSRSReview();
+		});
+
 		// File search input at the end (small width, filter DOM directly)
 		const searchInput = expressionContainer.createEl('input', {
 			cls: 'kh-dashboard-file-search-input',
@@ -242,6 +262,10 @@ Examples:
 		// Filter DOM directly on input (no re-render)
 		searchInput.addEventListener('input', () => {
 			const searchText = searchInput.value.trim().toLowerCase();
+
+			// Notify callback so RecordsRenderer can update currentlyDisplayedRecords
+			this.onFileSearchChange(searchText);
+
 			const resultsContainer = document.querySelector('.kh-widget-filter-results');
 
 			if (!resultsContainer) return;

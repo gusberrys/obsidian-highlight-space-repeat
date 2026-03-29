@@ -39,6 +39,10 @@ export class RecordsRenderer {
 	private collapsedFiles: Set<string>;
 	private expandedHeaders: Set<string>;
 
+	// Currently displayed records (updated after each render)
+	private currentlyDisplayedRecords: Array<{ entry: FlatEntry; file: ParsedFile }> = [];
+	private fileSearchText: string = '';
+
 	// Callbacks
 	private onFilterTextChange: (text: string) => void;
 	private onExpressionSearch: (expression: string) => void;
@@ -49,6 +53,7 @@ export class RecordsRenderer {
 	private onToggleAllFiles: () => void;
 	private onLegendToggle: () => void;
 	private onChipClick: (chipId: string) => void;
+	private onSRSReview: () => Promise<void>;
 
 	constructor(
 		app: App,
@@ -60,6 +65,7 @@ export class RecordsRenderer {
 			filterCell: MatrixCell | null;
 			filterExpression: string;
 			filterText: string;
+			fileSearchText: string;
 		},
 		uiFlags: {
 			activeChips: Map<string, ActiveChip>;
@@ -80,6 +86,7 @@ export class RecordsRenderer {
 			onToggleAllFiles: () => void;
 			onLegendToggle: () => void;
 			onChipClick: (chipId: string) => void;
+			onSRSReview: () => Promise<void>;
 		}
 	) {
 		this.app = app;
@@ -91,6 +98,7 @@ export class RecordsRenderer {
 		this.filterCell = filterState.filterCell;
 		this.filterExpression = filterState.filterExpression;
 		this.filterText = filterState.filterText;
+		this.fileSearchText = filterState.fileSearchText;
 
 		this.activeChips = uiFlags.activeChips;
 		this.trimSubItems = uiFlags.trimSubItems;
@@ -108,6 +116,7 @@ export class RecordsRenderer {
 		this.onToggleAllFiles = callbacks.onToggleAllFiles;
 		this.onLegendToggle = callbacks.onLegendToggle;
 		this.onChipClick = callbacks.onChipClick;
+		this.onSRSReview = callbacks.onSRSReview;
 	}
 
 	/**
@@ -138,7 +147,9 @@ export class RecordsRenderer {
 				onFilterTypeChange: this.onFilterTypeChange,
 				onTrimToggle: this.onTrimToggle,
 				onTopToggle: this.onTopToggle,
-				onToggleAllFiles: this.onToggleAllFiles
+				onToggleAllFiles: this.onToggleAllFiles,
+				onSRSReview: this.onSRSReview,
+				onFileSearchChange: (searchText: string) => this.applyFileSearchFilter(searchText)
 			}
 		);
 		controlRenderer.render(filterSection);
@@ -268,6 +279,38 @@ export class RecordsRenderer {
 	}
 
 	/**
+	 * Get currently displayed records (with file search filter applied)
+	 */
+	public getCurrentlyDisplayedRecords(): Array<{ entry: FlatEntry; file: ParsedFile }> {
+		console.log('[RecordsRenderer] getCurrentlyDisplayedRecords called');
+		console.log('[RecordsRenderer] Base records:', this.currentlyDisplayedRecords.length);
+		console.log('[RecordsRenderer] File search text:', this.fileSearchText);
+
+		// If no file search, return all
+		if (!this.fileSearchText || this.fileSearchText.trim() === '') {
+			console.log('[RecordsRenderer] No file search, returning all records');
+			return this.currentlyDisplayedRecords;
+		}
+
+		// Apply file search filter
+		const query = this.fileSearchText.trim().toLowerCase();
+		const filtered = this.currentlyDisplayedRecords.filter(({ entry, file }) => {
+			return this.entryMatchesTextFilter(entry, file, query);
+		});
+
+		console.log('[RecordsRenderer] After file search filter:', filtered.length);
+		return filtered;
+	}
+
+	/**
+	 * Update file search text (called when file search input changes)
+	 */
+	public applyFileSearchFilter(searchText: string): void {
+		console.log('[RecordsRenderer] applyFileSearchFilter called with:', searchText);
+		this.fileSearchText = searchText;
+	}
+
+	/**
 	 * Check if file matches text filter
 	 */
 	private fileMatchesTextFilter(file: ParsedFile, filterText: string): boolean {
@@ -308,50 +351,46 @@ export class RecordsRenderer {
 	}
 
 	/**
-	 * Check if entry matches text filter
+	 * Check if entry matches text filter (must match EXACTLY how DOM filter works)
 	 */
 	private entryMatchesTextFilter(entry: FlatEntry, file: ParsedFile, filterText: string): boolean {
 		if (!filterText) return true;
 
 		const query = filterText.toLowerCase();
 
-		// Check file name
-		const fileName = getFileNameFromPath(file.filePath).replace('.md', '').toLowerCase();
-		if (fileName.includes(query)) return true;
+		// Build searchable string EXACTLY like the DOM does
+		const fileName = getFileNameFromPath(file.filePath).replace(/\.md$/, '');
+		const fileAliases = file.aliases?.join(' ') || '';
+		const fileTags = file.tags?.join(' ') || '';
+		const entryKeywords = entry.keywords?.join(' ') || '';
+		const h1Tags = entry.h1?.tags?.join(' ') || '';
+		const h2Tags = entry.h2?.tags?.join(' ') || '';
+		const h3Tags = entry.h3?.tags?.join(' ') || '';
+		const entryText = entry.text || '';
 
-		// Check aliases
-		if (file.aliases && file.aliases.length > 0) {
-			for (const alias of file.aliases) {
-				if (alias.toLowerCase().includes(query)) return true;
-			}
-		}
+		// Join all parts with space and lowercase (same as DOM)
+		const searchable = [fileName, fileAliases, fileTags, entryKeywords, h1Tags, h2Tags, h3Tags, entryText].join(' ').toLowerCase();
 
-		// Check entry text
-		if (entry.text && entry.text.toLowerCase().includes(query)) return true;
+		// Check if searchable string contains query (same as DOM)
+		const matches = searchable.includes(query);
 
-		// Check entry keywords
-		if (entry.keywords) {
-			if (entry.keywords.some(kw => kw.toLowerCase().includes(query))) return true;
-		}
+		console.log('[RecordsRenderer] Entry match check:', {
+			query,
+			fileName,
+			entryText: entryText.substring(0, 50),
+			matches
+		});
 
-		// Check subitems
-		if (entry.subItems) {
-			for (const subItem of entry.subItems) {
-				if (subItem.keywords && subItem.keywords.some(kw => kw.toLowerCase().includes(query))) return true;
-				if (subItem.content && subItem.content.toLowerCase().includes(query)) return true;
-			}
-		}
-
-		return false;
+		return matches;
 	}
 
 	/**
-	 * Render file filter results
+	 * Render file filter results with entries (like H mode shows headers with entries)
 	 */
 	private async renderFileFilterResults(container: HTMLElement): Promise<void> {
 		if (!this.filterCell) return;
 
-		// Get files from cell instead of manual filtering
+		// Get files from cell
 		let matchingFiles = this.filterCell.collectFiles(this.parsedRecords);
 
 		// Apply text filter
@@ -367,27 +406,19 @@ export class RecordsRenderer {
 			return;
 		}
 
-		matchingFiles.forEach(file => {
-			const fileItem = container.createDiv({ cls: 'kh-widget-filter-item' });
+		// Collect all entries from matching files (respecting chips)
+		const allEntries: Array<{ entry: FlatEntry; file: ParsedFile }> = [];
+		for (const file of matchingFiles) {
+			for (const entry of file.entries) {
+				allEntries.push({ entry, file });
+			}
+		}
 
-			// Add searchable metadata as data attributes
-			const fileName = getFileNameFromPath(file.filePath).replace(/\.md$/, '');
-			const fileAliases = file.aliases?.join(' ') || '';
-			const fileTags = file.tags?.join(' ') || '';
-			const allSearchable = [fileName, fileAliases, fileTags].join(' ').toLowerCase();
-			fileItem.setAttribute('data-searchable', allSearchable);
+		// Store currently displayed records
+		this.currentlyDisplayedRecords = allEntries;
 
-			fileItem.createEl('span', {
-				text: getFileNameFromPath(file.filePath),
-				cls: 'kh-widget-filter-item-name'
-			});
-			fileItem.addEventListener('click', () => {
-				const obsidianFile = this.app.vault.getAbstractFileByPath(file.filePath);
-				if (obsidianFile) {
-					this.app.workspace.getLeaf().openFile(obsidianFile as any);
-				}
-			});
-		});
+		// Render files with their entries
+		await this.renderRecordsByFile(container, allEntries);
 	}
 
 	/**
@@ -704,6 +735,9 @@ export class RecordsRenderer {
 			);
 		}
 
+		// Store currently displayed records
+		this.currentlyDisplayedRecords = matchingRecords;
+
 		if (matchingRecords.length === 0) {
 			container.createEl('div', {
 				text: 'No records found',
@@ -732,6 +766,9 @@ export class RecordsRenderer {
 				this.entryMatchesTextFilter(entry, file, this.filterText)
 			);
 		}
+
+		// Store currently displayed records
+		this.currentlyDisplayedRecords = matchingRecords;
 
 		if (matchingRecords.length === 0) {
 			container.createEl('div', {
@@ -854,6 +891,9 @@ export class RecordsRenderer {
 					this.entryMatchesTextFilter(entry, file, this.filterText)
 				);
 			}
+
+			// Store currently displayed records
+			this.currentlyDisplayedRecords = limitedFiles;
 
 			// Use shared rendering logic
 			await this.renderRecordsByFile(container, limitedFiles);

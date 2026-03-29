@@ -669,13 +669,21 @@ export class KHEntry {
 
 		if (compact) {
 			// COMPACT MODE: Manual inline rendering for wikilinks (no block tags)
+
 			// Use MarkdownRenderer for blockquotes, code-styler syntax
 			if (hasBlockquotes || hasCodeWithParams) {
 				// Content needs markdown post-processors - use MarkdownRenderer
+				// Strip keyword markers (e.g., "def :: text" -> "text") to prevent duplicate icons
+				let textToRender = entry.text;
+				if (entry.keywords && entry.keywords.length > 0) {
+					// Match pattern: .keyword1 .keyword2 :: text OR keyword1 keyword2 :: text
+					textToRender = textToRender.replace(/^[\w.]+(?:\s+[\w.]+)*\s*::\s*/, '');
+				}
+
 				const textEl = container.createSpan({ cls: 'kh-entry-text' });
 				await MarkdownRenderer.render(
 					plugin.app,
-					entry.text,
+					textToRender,
 					textEl,
 					record.filePath,
 					new Component() as any
