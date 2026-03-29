@@ -49,7 +49,6 @@ export class KHMatrixWidget extends ItemView {
 	private activeChipIds: Set<string> = new Set(); // Track which chips are active
 	private trimSubItems: boolean = false; // Filter sub-items to matching keywords only
 	private topRecordOnly: boolean = false; // Only show records where keyword is top-level
-	private showAll: boolean = false; // Show all records (ignore SELECT clause, apply only WHERE)
 	private showExpressions: boolean = true; // Show F/H/R filter expressions on cells
 	private showLegend: boolean = false; // Show/hide legend explaining color meanings
 
@@ -193,7 +192,6 @@ export class KHMatrixWidget extends ItemView {
 				activeChips: this.activeChips,
 				trimSubItems: this.trimSubItems,
 				topRecordOnly: this.topRecordOnly,
-				showAll: this.showAll,
 				showLegend: this.showLegend
 			},
 			{
@@ -205,11 +203,6 @@ export class KHMatrixWidget extends ItemView {
 				onTopToggle: () => {
 					this.topRecordOnly = !this.topRecordOnly;
 					this.toggleFilterModifier('\\t', this.topRecordOnly);
-					this.render();
-				},
-				onShowAllToggle: () => {
-					this.showAll = !this.showAll;
-					this.toggleFilterModifier('\\a', this.showAll);
 					this.render();
 				},
 				onLegendToggle: () => {
@@ -248,8 +241,7 @@ export class KHMatrixWidget extends ItemView {
 			{
 				activeChips: this.activeChips,
 				trimSubItems: this.trimSubItems,
-				topRecordOnly: this.topRecordOnly,
-				showAll: this.showAll
+				topRecordOnly: this.topRecordOnly
 			},
 			{
 				collapsedFiles: this.collapsedFiles,
@@ -285,10 +277,41 @@ export class KHMatrixWidget extends ItemView {
 					this.toggleFilterModifier('\\t', this.topRecordOnly);
 					this.render();
 				},
-				onShowAllToggle: () => {
-					this.showAll = !this.showAll;
-					this.toggleFilterModifier('\\a', this.showAll);
-					this.render();
+				onToggleAllFiles: () => {
+					if (this.widgetFilterType === 'H') {
+						// Headers mode: expandedHeaders set (default collapsed)
+						// If some are expanded, collapse all. Otherwise, expand all.
+						if (this.expandedHeaders.size > 0) {
+							// Collapse all - clear expanded headers
+							this.expandedHeaders.clear();
+						} else {
+							// Expand all - collect all header IDs and add to expanded set
+							if (this.widgetFilterCell) {
+								const parsedRecords = this.getParsedRecords();
+								const headerGroups = this.widgetFilterCell.collectHeaders(parsedRecords);
+
+								for (const { file, headerText, headerLevel } of headerGroups.values()) {
+									const headerId = `${file.filePath}:${headerLevel}:${headerText}`;
+									this.expandedHeaders.add(headerId);
+								}
+							}
+						}
+					} else {
+						// Files mode: collapsedFiles set (default expanded)
+						// If all files are collapsed, unfold all. Otherwise, fold all.
+						const parsedRecords = this.getParsedRecords();
+						const allFilePaths = parsedRecords.map(f => f.filePath);
+						const allCollapsed = allFilePaths.length > 0 && allFilePaths.every(path => this.collapsedFiles.has(path));
+
+						if (allCollapsed) {
+							// Unfold all - clear collapsed files
+							this.collapsedFiles.clear();
+						} else {
+							// Fold all - add all files to collapsed
+							allFilePaths.forEach(path => this.collapsedFiles.add(path));
+						}
+					}
+					this.renderRecordsOnly();
 				},
 				onLegendToggle: () => {
 					this.showLegend = !this.showLegend;
@@ -990,12 +1013,10 @@ export class KHMatrixWidget extends ItemView {
 			// EXTRACT FLAGS from expression before transformation
 			const hasTrimFlag = /\\s/.test(filterExpression);
 			const hasTopFlag = /\\t/.test(filterExpression);
-			const hasShowAllFlag = /\\a/.test(filterExpression);
 
 			// Use flags from expression OR from instance variables (buttons)
 			const trimSubItems = hasTrimFlag || this.trimSubItems;
 			const topRecordOnly = hasTopFlag || this.topRecordOnly;
-			const showAll = hasShowAllFlag || this.showAll;
 
 			// Transform expression (same as renderRecordFilterResults)
 			const hasExplicitOperators = /\b(AND|OR)\b/.test(filterExpression);
@@ -1052,12 +1073,6 @@ export class KHMatrixWidget extends ItemView {
 						if (!whereMatches) {
 							continue;
 						}
-					}
-
-					// If showAll is active, ignore SELECT clause and show all matching WHERE
-					if (showAll && whereCompiled) {
-						matchingFiles.push({ entry, file });
-						continue;
 					}
 
 					// Then apply SELECT clause
@@ -1204,7 +1219,6 @@ export class KHMatrixWidget extends ItemView {
 	private syncButtonsFromExpression(): void {
 		this.trimSubItems = this.widgetFilterExpression.includes('\\s');
 		this.topRecordOnly = this.widgetFilterExpression.includes('\\t');
-		this.showAll = this.widgetFilterExpression.includes('\\a');
 	}
 
 	/**

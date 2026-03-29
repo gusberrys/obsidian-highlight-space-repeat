@@ -10,7 +10,6 @@ export class RecordsControlRenderer {
 	private filterType: 'F' | 'H' | 'R' | 'D' | null;
 	private trimSubItems: boolean;
 	private topRecordOnly: boolean;
-	private showAll: boolean;
 
 	// Callbacks
 	private onExpressionSearch: (expression: string) => void;
@@ -19,7 +18,7 @@ export class RecordsControlRenderer {
 	private onFilterTypeChange: (type: 'F' | 'H' | 'R' | 'D') => void;
 	private onTrimToggle: () => void;
 	private onTopToggle: () => void;
-	private onShowAllToggle: () => void;
+	private onToggleAllFiles: () => void;
 
 	constructor(
 		filterState: {
@@ -30,7 +29,6 @@ export class RecordsControlRenderer {
 		flags: {
 			trimSubItems: boolean;
 			topRecordOnly: boolean;
-			showAll: boolean;
 		},
 		callbacks: {
 			onExpressionSearch: (expression: string) => void;
@@ -39,7 +37,7 @@ export class RecordsControlRenderer {
 			onFilterTypeChange: (type: 'F' | 'H' | 'R' | 'D') => void;
 			onTrimToggle: () => void;
 			onTopToggle: () => void;
-			onShowAllToggle: () => void;
+			onToggleAllFiles: () => void;
 		}
 	) {
 		this.filterExpression = filterState.filterExpression;
@@ -47,7 +45,6 @@ export class RecordsControlRenderer {
 		this.filterType = filterState.filterType;
 		this.trimSubItems = flags.trimSubItems;
 		this.topRecordOnly = flags.topRecordOnly;
-		this.showAll = flags.showAll;
 
 		this.onExpressionSearch = callbacks.onExpressionSearch;
 		this.onExpressionInput = callbacks.onExpressionInput;
@@ -55,7 +52,7 @@ export class RecordsControlRenderer {
 		this.onFilterTypeChange = callbacks.onFilterTypeChange;
 		this.onTrimToggle = callbacks.onTrimToggle;
 		this.onTopToggle = callbacks.onTopToggle;
-		this.onShowAllToggle = callbacks.onShowAllToggle;
+		this.onToggleAllFiles = callbacks.onToggleAllFiles;
 	}
 
 	/**
@@ -153,7 +150,6 @@ BOOLEAN OPERATORS (combine conditions):
 FLAGS (modifiers):
   \\s - Slim: show only matching sub-items
   \\t - Top: show only top-level matches
-  \\a - All: ignore SELECT, show all WHERE matches
 
 CLAUSES:
   S: .keyword - SELECT what to show (default)
@@ -219,16 +215,18 @@ Examples:
 			if (flagsEnabled) this.onTopToggle();
 		});
 
-		const showAllToggle = expressionContainer.createEl('button', {
-			cls: 'kh-filter-toggle' + (this.showAll ? ' kh-filter-toggle-active' : ''),
-			text: '🅰️',
-			title: 'All: Ignore SELECT, show all WHERE matches (\\a flag)' + (flagsEnabled ? '' : ' [Only available for Records]'),
+		// Toggle all files button
+		const toggleAllFilesBtn = expressionContainer.createEl('button', {
+			cls: 'kh-filter-toggle',
+			text: '⇅',
+			title: 'Toggle Fold/Unfold All Files',
 			attr: {
-				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: pointer;' + (flagsEnabled ? '' : ' opacity: 0.3; cursor: not-allowed;')
+				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: pointer;'
 			}
 		});
-		showAllToggle.disabled = !flagsEnabled;
-		showAllToggle.addEventListener('click', () => this.onShowAllToggle());
+		toggleAllFilesBtn.addEventListener('click', () => {
+			this.onToggleAllFiles();
+		});
 
 		// File search input at the end (small width, filter DOM directly)
 		const searchInput = expressionContainer.createEl('input', {

@@ -45,7 +45,6 @@ export class SubjectDashboardView extends ItemView {
 	private trimSubItems: boolean = false; // Slim mode: filter sub-items to only show matching keywords (\s)
 	private columnFileTextFilter: string = ''; // Search query to filter files and their content in columns
 	private topRecordOnly: boolean = false; // Top mode: only show records where keyword is top-level (\t)
-	private showAllRecords: boolean = false; // All mode: show all records regardless of activated chips (\a)
 
 	constructor(leaf: WorkspaceLeaf, plugin: HighlightSpaceRepeatPlugin) {
 		super(leaf);
@@ -549,19 +548,6 @@ export class SubjectDashboardView extends ItemView {
 			this.render();
 		};
 
-		// 🌐 All Records toggle button
-		const allToggle = filterDiv.createEl('button', {
-			cls: 'kh-filter-toggle' + (this.showAllRecords ? ' kh-filter-toggle-active' : ''),
-			text: '💯',
-			title: 'Toggle Show All Records: Show all records regardless of activated chips (\\a)'
-		});
-		allToggle.onclick = () => {
-			this.showAllRecords = !this.showAllRecords;
-			this.toggleFilterModifier('\\a', this.showAllRecords);
-		expressionInput.value = this.activeFilterExpression || '';
-			this.render();
-		};
-
 	// Sync button states when expression input changes
 	expressionInput.addEventListener('input', () => {
 		this.activeFilterExpression = expressionInput.value;
@@ -569,7 +555,6 @@ export class SubjectDashboardView extends ItemView {
 		// Update button classes based on new state
 		slimToggle.className = 'kh-filter-toggle' + (this.trimSubItems ? ' kh-filter-toggle-active' : '');
 		topToggle.className = 'kh-filter-toggle' + (this.topRecordOnly ? ' kh-filter-toggle-active' : '');
-		allToggle.className = 'kh-filter-toggle' + (this.showAllRecords ? ' kh-filter-toggle-active' : '');
 	});
 
 		// SRS button with brain icon
@@ -847,7 +832,6 @@ export class SubjectDashboardView extends ItemView {
 		const modifiers: string[] = [];
 		if (expression.includes('\\s')) modifiers.push('\\s');
 		if (expression.includes('\\t')) modifiers.push('\\t');
-		if (expression.includes('\\a')) modifiers.push('\\a');
 		return modifiers;
 	}
 
@@ -893,7 +877,6 @@ export class SubjectDashboardView extends ItemView {
 	private syncButtonsFromExpression(): void {
 		this.trimSubItems = this.activeFilterExpression?.includes('\\s') || false;
 		this.topRecordOnly = this.activeFilterExpression?.includes('\\t') || false;
-		this.showAllRecords = this.activeFilterExpression?.includes('\\a') || false;
 	}
 
 	/**
@@ -1430,9 +1413,6 @@ export class SubjectDashboardView extends ItemView {
 		filterExpression: string
 	): Promise<{ entry: FlatEntry; file: ParsedFile }[]> {
 		try {
-			// Check if \a (show all) modifier is present
-			const hasShowAllModifier = filterExpression.includes('\\a');
-
 			// CONDITIONAL transform - EXACTLY like Matrix does
 			// If expression has explicit AND/OR operators, use as-is. Otherwise transform.
 			const hasExplicitOperators = /\b(AND|OR)\b/.test(filterExpression);
@@ -1459,14 +1439,13 @@ export class SubjectDashboardView extends ItemView {
 				whereExpr = parts[1]?.trim() || '';
 			}
 
-			// If SELECT is empty (and not using \a), return no results (all chips disabled)
-			if (!hasShowAllModifier && (!selectExpr || selectExpr.trim() === '')) {
+			// If SELECT is empty, return no results (all chips disabled)
+			if (!selectExpr || selectExpr.trim() === '') {
 				return [];
 			}
 
 			// Compile expressions
-			// If \a modifier is present, skip SELECT compilation (show all records)
-			const selectCompiled = hasShowAllModifier ? null : FilterParser.compile(selectExpr);
+			const selectCompiled = FilterParser.compile(selectExpr);
 			const whereCompiled = whereExpr ? FilterParser.compile(whereExpr) : null;
 
 			// Debug: Check if WHERE contains text or filename filter
@@ -1511,12 +1490,11 @@ export class SubjectDashboardView extends ItemView {
 					}
 
 					// Then apply SELECT clause
-				// Then apply SELECT clause (unless \a is active)
-				const selectMatches = hasShowAllModifier ? true : FilterParser.evaluateFlatEntry(
-					selectCompiled!.ast,
+				const selectMatches = FilterParser.evaluateFlatEntry(
+					selectCompiled.ast,
 					entry,
 					HighlightSpaceRepeatPlugin.settings.categories,
-					selectCompiled!.modifiers
+					selectCompiled.modifiers
 				);
 
 					if (selectMatches) {
@@ -1535,7 +1513,7 @@ export class SubjectDashboardView extends ItemView {
 
 			// Apply topRecordOnly filter if enabled - remove records where match is only in sub-items
 			let filteredEntries = matchingEntries;
-			if (this.topRecordOnly && filterExpression && !hasShowAllModifier) {
+			if (this.topRecordOnly && filterExpression) {
 				filteredEntries = filteredEntries.filter(({ entry, file }) => {
 					// Keep codeblocks - they are always top-level entries
 					if (entry.type === 'codeblock') {
@@ -1556,7 +1534,7 @@ export class SubjectDashboardView extends ItemView {
 			}
 
 			// Apply trim filter if enabled - filter sub-items to only those matching SELECT clause
-			if (this.trimSubItems && !hasShowAllModifier) {
+			if (this.trimSubItems) {
 				filteredEntries = filteredEntries.map(({ entry, file }) => {
 					if (entry.subItems && entry.subItems.length > 0) {
 						// Filter sub-items to only those matching the SELECT clause

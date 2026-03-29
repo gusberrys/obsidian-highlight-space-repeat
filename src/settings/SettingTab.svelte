@@ -1834,24 +1834,6 @@
               𒐺
             </button>
 
-            <!-- Show All Toggle -->
-            <button
-              class="filter-toggle"
-              class:filter-toggle-active={filterExpression.includes('\\a')}
-              data-command="A"
-              title="Toggle Show All: Display all matching entries (\a modifier)"
-              on:click={() => {
-                if (filterExpression.includes('\\a')) {
-                  filterExpression = filterExpression.replace(/\\a/g, '').trim();
-                } else {
-                  filterExpression = (filterExpression + ' \\a').trim();
-                }
-                if (filterExpression.trim()) handleTestFilter();
-              }}
-            >
-              💯
-            </button>
-
             <!-- Trim Subelement Toggle -->
             <button
               class="filter-toggle"

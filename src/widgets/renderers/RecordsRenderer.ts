@@ -34,7 +34,6 @@ export class RecordsRenderer {
 	private activeChips: Map<string, ActiveChip>;
 	private trimSubItems: boolean;
 	private topRecordOnly: boolean;
-	private showAll: boolean;
 
 	// UI state
 	private collapsedFiles: Set<string>;
@@ -47,7 +46,7 @@ export class RecordsRenderer {
 	private onFilterTypeChange: (type: 'F' | 'H' | 'R' | 'D') => void;
 	private onTrimToggle: () => void;
 	private onTopToggle: () => void;
-	private onShowAllToggle: () => void;
+	private onToggleAllFiles: () => void;
 	private onLegendToggle: () => void;
 	private onChipClick: (chipId: string) => void;
 
@@ -66,7 +65,6 @@ export class RecordsRenderer {
 			activeChips: Map<string, ActiveChip>;
 			trimSubItems: boolean;
 			topRecordOnly: boolean;
-			showAll: boolean;
 		},
 		uiState: {
 			collapsedFiles: Set<string>;
@@ -79,7 +77,7 @@ export class RecordsRenderer {
 			onFilterTypeChange: (type: 'F' | 'H' | 'R' | 'D') => void;
 			onTrimToggle: () => void;
 			onTopToggle: () => void;
-			onShowAllToggle: () => void;
+			onToggleAllFiles: () => void;
 			onLegendToggle: () => void;
 			onChipClick: (chipId: string) => void;
 		}
@@ -97,7 +95,6 @@ export class RecordsRenderer {
 		this.activeChips = uiFlags.activeChips;
 		this.trimSubItems = uiFlags.trimSubItems;
 		this.topRecordOnly = uiFlags.topRecordOnly;
-		this.showAll = uiFlags.showAll;
 
 		this.collapsedFiles = uiState.collapsedFiles;
 		this.expandedHeaders = uiState.expandedHeaders;
@@ -108,7 +105,7 @@ export class RecordsRenderer {
 		this.onFilterTypeChange = callbacks.onFilterTypeChange;
 		this.onTrimToggle = callbacks.onTrimToggle;
 		this.onTopToggle = callbacks.onTopToggle;
-		this.onShowAllToggle = callbacks.onShowAllToggle;
+		this.onToggleAllFiles = callbacks.onToggleAllFiles;
 		this.onLegendToggle = callbacks.onLegendToggle;
 		this.onChipClick = callbacks.onChipClick;
 	}
@@ -132,8 +129,7 @@ export class RecordsRenderer {
 			},
 			{
 				trimSubItems: this.trimSubItems,
-				topRecordOnly: this.topRecordOnly,
-				showAll: this.showAll
+				topRecordOnly: this.topRecordOnly
 			},
 			{
 				onExpressionSearch: this.onExpressionSearch,
@@ -142,7 +138,7 @@ export class RecordsRenderer {
 				onFilterTypeChange: this.onFilterTypeChange,
 				onTrimToggle: this.onTrimToggle,
 				onTopToggle: this.onTopToggle,
-				onShowAllToggle: this.onShowAllToggle
+				onToggleAllFiles: this.onToggleAllFiles
 			}
 		);
 		controlRenderer.render(filterSection);

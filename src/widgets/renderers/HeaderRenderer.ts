@@ -8,13 +8,11 @@ export class HeaderRenderer {
 	private activeChips: Map<string, ActiveChip>;
 	private trimSubItems: boolean;
 	private topRecordOnly: boolean;
-	private showAll: boolean;
 	private showLegend: boolean;
 
 	// Callbacks
 	private onTrimToggle: () => void;
 	private onTopToggle: () => void;
-	private onShowAllToggle: () => void;
 	private onLegendToggle: () => void;
 	private onChipClick: (chipId: string) => void;
 
@@ -23,13 +21,11 @@ export class HeaderRenderer {
 			activeChips: Map<string, ActiveChip>;
 			trimSubItems: boolean;
 			topRecordOnly: boolean;
-			showAll: boolean;
 			showLegend: boolean;
 		},
 		callbacks: {
 			onTrimToggle: () => void;
 			onTopToggle: () => void;
-			onShowAllToggle: () => void;
 			onLegendToggle: () => void;
 			onChipClick: (chipId: string) => void;
 		}
@@ -37,12 +33,10 @@ export class HeaderRenderer {
 		this.activeChips = flags.activeChips;
 		this.trimSubItems = flags.trimSubItems;
 		this.topRecordOnly = flags.topRecordOnly;
-		this.showAll = flags.showAll;
 		this.showLegend = flags.showLegend;
 
 		this.onTrimToggle = callbacks.onTrimToggle;
 		this.onTopToggle = callbacks.onTopToggle;
-		this.onShowAllToggle = callbacks.onShowAllToggle;
 		this.onLegendToggle = callbacks.onLegendToggle;
 		this.onChipClick = callbacks.onChipClick;
 	}

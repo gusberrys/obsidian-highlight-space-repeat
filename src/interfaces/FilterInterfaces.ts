@@ -75,9 +75,6 @@ export interface FilterModifiers {
 	/** \h - Enable header-level matching (all keywords/tags check headers too) */
 	enableHeaders?: boolean;
 
-	/** \a - Show all records (affects display) */
-	showAll?: boolean;
-
 	/** \s - Trim subelement (affects display) */
 	trimSubelement?: boolean;
 
