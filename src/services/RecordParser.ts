@@ -13,7 +13,6 @@ import type { ParserSettings } from '../interfaces/ParserSettings';
  */
 export class RecordParser {
 	constructor(private app: App, private parserSettings?: ParserSettings) {
-		console.log('[RecordParser] Constructor called with parserSettings:', parserSettings);
 	}
 
 
@@ -533,7 +532,8 @@ export class RecordParser {
 			text: entry.text,
 			lineNumber: entry.lineNumber,
 			language: entry.language,
-			subItems: entry.subItems
+			subItems: entry.subItems,
+			srs: entry.srs
 		};
 
 		if (h1) flatEntry.h1 = h1;

@@ -446,6 +446,15 @@ export class RecordsRenderer {
 			filteredGroups.forEach((value, key) => headerGroups.set(key, value));
 		}
 
+		// Store currently displayed records
+		const allEntries: Array<{ entry: FlatEntry; file: ParsedFile }> = [];
+		for (const { file, entries } of headerGroups.values()) {
+			for (const entry of entries) {
+				allEntries.push({ entry, file });
+			}
+		}
+		this.currentlyDisplayedRecords = allEntries;
+
 		if (headerGroups.size === 0) {
 			container.createEl('div', {
 				text: 'No headers found',

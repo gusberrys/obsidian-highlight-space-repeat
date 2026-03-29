@@ -32,6 +32,18 @@ export interface ParsedEntry {
 
 	/** Sub-items (list items, code blocks) */
 	subItems?: ParsedEntrySubItem[];
+
+	/** SRS (Spaced Repetition System) data - extracted from HTML comment */
+	srs?: {
+		/** Ease factor (1.3-2.5+) */
+		ef: number;
+		/** Interval in days */
+		i: number;
+		/** Repetition count */
+		r: number;
+		/** Next review date (YYYY-MM-DD) */
+		next: string;
+	};
 }
 
 /**

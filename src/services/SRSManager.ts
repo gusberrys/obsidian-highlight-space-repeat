@@ -69,8 +69,6 @@ export class SRSManager {
 			}
 		}
 
-		console.log(`[SRSManager] getDueEntries: ${dueEntries.length} total (${newCount} new, ${dueCount} due for review)`);
-
 		return dueEntries;
 	}
 
@@ -99,8 +97,6 @@ export class SRSManager {
 				}
 			}
 		}
-
-		console.log(`[SRSManager] getAllSRSEntries: ${allEntries.length} total (${withSRS} with SRS data, ${withoutSRS} new)`);
 
 		return allEntries;
 	}
@@ -160,9 +156,9 @@ export class SRSManager {
 				}
 				srsData.r++;
 			} else {
-				// Incorrect response - reset
+				// Incorrect response - reset and show again today
 				srsData.r = 0;
-				srsData.i = 1;
+				srsData.i = 0;
 			}
 
 			// Update ease factor (minimum 1.3, rounded to 2 decimal places)

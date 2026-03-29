@@ -118,7 +118,12 @@ export class SRSReviewView extends ItemView {
 		}
 
 		// Content container - make it clickable to navigate to record
-		this.contentContainer = container.createDiv({ cls: 'srs-content-container' });
+		// Add keyword classes (e.g., 'def', 'kh-entry-compact')
+		const containerClasses = ['srs-content-container', 'kh-entry-compact'];
+		if (entry.keywords && entry.keywords.length > 0) {
+			containerClasses.push(entry.keywords[0]);
+		}
+		this.contentContainer = container.createDiv({ cls: containerClasses.join(' ') });
 		this.contentContainer.style.cursor = 'pointer';
 		this.contentContainer.addEventListener('click', async () => {
 			await this.openFile(file.filePath, entry.lineNumber);
@@ -136,18 +141,7 @@ export class SRSReviewView extends ItemView {
 				.onClick(() => this.toggleAnswer(entry, file));
 		}
 
-		// Stats - show SRS data if available
-		if (entry.srs) {
-			const statsContainer = container.createDiv({ cls: 'srs-stats-container' });
 
-			this.createStatItem(statsContainer, 'Interval', `${entry.srs.i} days`);
-			this.createStatItem(statsContainer, 'Ease Factor', entry.srs.ef.toFixed(2));
-			this.createStatItem(statsContainer, 'Repetitions', entry.srs.r.toString());
-
-			const nextReview = new Date(entry.srs.next);
-			const nextReviewText = this.formatDate(nextReview);
-			this.createStatItem(statsContainer, 'Next Review', nextReviewText);
-		}
 
 		// Review buttons
 		const buttonContainer = container.createDiv({ cls: 'srs-button-container' });
@@ -219,6 +213,14 @@ export class SRSReviewView extends ItemView {
 				code.addClass(`language-${entry.language}`);
 			}
 		} else {
+			// Add keyword icon manually (same as RecordsRenderer)
+			if (entry.keywords && entry.keywords.length > 0) {
+				const primaryKeyword = entry.keywords[0];
+				const mark = this.contentContainer.createEl('mark', { cls: `kh-icon ${primaryKeyword}` });
+				mark.innerHTML = '&nbsp;';
+				this.contentContainer.createEl('span', { text: ' ', cls: 'kh-separator' });
+			}
+
 			if (this.isAnswerShown) {
 				// When answer is shown: render entry directly using KHEntry (compact mode)
 				// This uses the same rendering as matrix view - compact, clean, with all plugin support

@@ -673,10 +673,10 @@ export class KHEntry {
 			// Use MarkdownRenderer for blockquotes, code-styler syntax
 			if (hasBlockquotes || hasCodeWithParams) {
 				// Content needs markdown post-processors - use MarkdownRenderer
-				// Strip keyword markers (e.g., "def :: text" -> "text") to prevent duplicate icons
+				// Strip keyword markers (e.g., "def :: text" -> "text") since icons are added manually by RecordsRenderer/SRSReviewView
 				let textToRender = entry.text;
 				if (entry.keywords && entry.keywords.length > 0) {
-					// Match pattern: .keyword1 .keyword2 :: text OR keyword1 keyword2 :: text
+					// Match pattern: keyword1 keyword2 :: text (keywords can have dots: .def)
 					textToRender = textToRender.replace(/^[\w.]+(?:\s+[\w.]+)*\s*::\s*/, '');
 				}
 
