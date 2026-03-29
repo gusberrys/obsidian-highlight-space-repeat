@@ -11,9 +11,7 @@ import { SubKeywordSuggest } from './subkeyword-suggest';
 import { KHMatrixWidget, KH_MATRIX_VIEW_TYPE } from './widgets/KHMatrixWidget';
 import { PinnedView, PINNED_VIEW_TYPE } from './widgets/PinnedView';
 import { SRSReviewView, SRS_REVIEW_VIEW_TYPE } from './widgets/SRSReviewView';
-import { SubjectDashboardView, SUBJECT_DASHBOARD_VIEW_TYPE } from './widgets/SubjectDashboardView';
 import { SRSManager } from './services/SRSManager';
-import { renderSubjectDashboard } from './reader/subject-dashboard';
 
 export class HighlightSpaceRepeatPlugin extends Plugin {
   static settings: PluginSettings;
@@ -183,7 +181,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     this.registerMarkdownPostProcessor(readerHighlighter);
     this.registerMarkdownPostProcessor((el, ctx) => addRecordBadgesToReadingView(el, ctx, this));
     this.registerMarkdownPostProcessor((el, ctx) => addGoalStatusBadges(el, ctx, this, this.app));
-    this.registerMarkdownPostProcessor((el, ctx) => renderSubjectDashboard(el, ctx, this));
 
     // Register combined keyword suggest (triggers on :::)
     this.registerEditorSuggest(new CombinedKeywordSuggest(this.app));
@@ -207,12 +204,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     this.registerView(
       SRS_REVIEW_VIEW_TYPE,
       (leaf) => new SRSReviewView(leaf, this)
-    );
-
-    // Register Subject Dashboard View
-    this.registerView(
-      SUBJECT_DASHBOARD_VIEW_TYPE,
-      (leaf) => new SubjectDashboardView(leaf, this)
     );
 
     this.addCommand(createInsertKeywordCommand(this.app));
@@ -249,30 +240,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       name: 'Open Pinned Items',
       callback: () => {
         this.activatePinnedView();
-      }
-    });
-
-    // Add command to open Subject Dashboard
-    this.addCommand({
-      id: 'open-subject-dashboard',
-      name: 'Open Subject Dashboard',
-      callback: () => {
-        this.activateSubjectDashboardView();
-      }
-    });
-
-    // Add command to toggle collapse/expand all in Subject Dashboard
-    this.addCommand({
-      id: 'dashboard-toggle-collapse-all',
-      name: 'Dashboard: Toggle Collapse/Expand All',
-      callback: () => {
-        const leaves = this.app.workspace.getLeavesOfType(SUBJECT_DASHBOARD_VIEW_TYPE);
-        if (leaves.length > 0) {
-          const dashboardView = leaves[0].view as SubjectDashboardView;
-          if (dashboardView && 'toggleAllFiles' in dashboardView) {
-            dashboardView.toggleAllFiles();
-          }
-        }
       }
     });
 
@@ -518,31 +485,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     }
   }
 
-  async activateSubjectDashboardView() {
-    const { workspace } = this.app;
-
-    let leaf: WorkspaceLeaf | null = null;
-    const leaves = workspace.getLeavesOfType(SUBJECT_DASHBOARD_VIEW_TYPE);
-
-    if (leaves.length > 0) {
-      // View already exists, reveal it
-      leaf = leaves[0];
-    } else {
-      // Create new view in main workspace area
-      leaf = workspace.getLeaf(false);
-      if (leaf) {
-        await leaf.setViewState({
-          type: SUBJECT_DASHBOARD_VIEW_TYPE,
-          active: true,
-        });
-      }
-    }
-
-    // Reveal the leaf
-    if (leaf) {
-      workspace.revealLeaf(leaf);
-    }
-  }
 
   async activateSRSReviewView(entries: Array<{ entry: any; file: any }>) {
     const { workspace } = this.app;
@@ -615,7 +557,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
 
       // Refresh views if open
       this.refreshPinnedView();
-      this.refreshSubjectDashboard();
       await this.refreshMatrixWidget();
       return;
     }
@@ -675,7 +616,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
 
     // Refresh views if open
     this.refreshPinnedView();
-    this.refreshSubjectDashboard();
     this.refreshMatrixWidget();
   }
 
@@ -694,19 +634,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
   }
 
 
-  /**
-   * Refresh Subject Dashboard View if it's currently open
-   */
-  private refreshSubjectDashboard(): void {
-    const leaves = this.app.workspace.getLeavesOfType(SUBJECT_DASHBOARD_VIEW_TYPE);
-    if (leaves.length > 0) {
-      const dashboardView = leaves[0].view as SubjectDashboardView;
-      if (dashboardView && 'render' in dashboardView && typeof (dashboardView as any).render === 'function') {
-        (dashboardView as any).render();
-        console.log('[Knowledge Base Rescan] Refreshed Subject Dashboard View');
-      }
-    }
-  }
 
   /**
    * Refresh Matrix Widget if it's currently open
