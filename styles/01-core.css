@@ -1,8 +1,6 @@
 .kh-highlighted {
   padding: 3px;
   border-radius: 3px;
-  color: var(--kh-c);
-  background-color: var(--kh-bgc);
 }
 
 /* Remove padding from headings to maintain proper spacing with collapse icons */

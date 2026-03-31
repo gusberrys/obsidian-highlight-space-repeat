@@ -160,7 +160,7 @@ function getHighlightNode(
 ): Node {
   const highlight = parent.createSpan();
 
-  // Resolve colors based on priority
+  // Resolve winning keyword based on priority
   // Standard priority rules:
   // 1. Different priorities → highest priority wins
   // 2. Same priority → FIRST one wins (most generic)
@@ -180,9 +180,8 @@ function getHighlightNode(
     kw.combinePriority === MainCombinePriority.StyleAndIcon
   );
 
-  // Start with fallback keyword colors (with defaults if undefined)
-  let finalColor = fallbackKeyword.color || '#000000';
-  let finalBackgroundColor = fallbackKeyword.backgroundColor || '#ffffff';
+  // Determine winning keyword for color styling
+  let winningKeyword = fallbackKeyword;
 
   if (keywordsWithStylePriority.length > 0) {
     // Map priority enum values to numbers for comparison
@@ -202,24 +201,21 @@ function getHighlightNode(
 
     // Take FIRST with highest priority (most generic)
     if (highestPriorityKeywords.length > 0) {
-      const winner = highestPriorityKeywords[0];
-      if (winner.color) finalColor = winner.color;
-      if (winner.backgroundColor) finalBackgroundColor = winner.backgroundColor;
+      winningKeyword = highestPriorityKeywords[0];
     }
   }
-
-  // Apply final colors to parent paragraph
-  parent.style.setProperty("--kh-c", finalColor);
-  parent.style.setProperty("color", finalColor, "important");
-  parent.style.setProperty("--kh-bgc", finalBackgroundColor);
-  parent.style.setProperty("background-color", finalBackgroundColor, "important");
 
   // Apply kh-highlighted class
   parent.classList.add('kh-highlighted');
 
-  // Apply ALL matched keywords' classes (MAIN and HELP)
+  // Apply ONLY the winning keyword class for color styling
+  parent.classList.add(winningKeyword.keyword);
+
+  // Also apply non-winning keywords as classes (for filtering/searching)
   for (const kw of matchedKeywords) {
-    parent.classList.add(kw.keyword);
+    if (kw !== winningKeyword) {
+      parent.classList.add(kw.keyword);
+    }
   }
 
   // Apply VWord keywords as classes (for layout control only, not styling)
