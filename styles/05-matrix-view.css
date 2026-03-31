@@ -575,3 +575,84 @@
   /* The mark.keywordname::before rules will apply */
 }
 
+/* Column view for matrix */
+.kh-dashboard-columns {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.kh-dashboard-column {
+  flex: 1;
+  min-width: 115px;
+  max-width: 145px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  overflow: hidden;
+  padding: 6px;
+}
+
+.kh-dashboard-column-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.kh-dashboard-column-title {
+  font-weight: 600;
+  font-size: 0.95em;
+  color: var(--text-normal);
+}
+
+.kh-dashboard-column-count {
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+
+.kh-dashboard-files-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.kh-dashboard-files-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.kh-dashboard-files-list::-webkit-scrollbar-track {
+  background: var(--background-modifier-border);
+  border-radius: 3px;
+}
+
+.kh-dashboard-files-list::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  border-radius: 3px;
+}
+
+.kh-dashboard-files-list::-webkit-scrollbar-thumb:hover {
+  background: var(--text-normal);
+}
+
+.kh-dashboard-chip {
+  font-size: 1.1em;
+  transition: all 0.2s ease;
+  opacity: 0.5;
+}
+
+.kh-dashboard-chip:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.kh-chip-active {
+  opacity: 1;
+  box-shadow: 0 0 0 3px var(--interactive-accent);
+  transform: scale(1.05);
+}
+

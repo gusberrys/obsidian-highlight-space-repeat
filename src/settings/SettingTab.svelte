@@ -865,7 +865,7 @@
         keywordCounts
       };
 
-      new Notice(`Scan complete! Parsed ${includedFiles.length} files. Created ${srsCardsCreated} SRS cards.`);
+      new Notice(`Scan complete! Parsed ${includedFiles.length} files.`);
     } catch (error) {
       console.error('Error scanning files:', error);
       new Notice('Error scanning files');
