@@ -1,5 +1,4 @@
 import { CollectingStatus } from './collecting-status';
-import type { CombinePriority } from './combine-priority';
 
 export type KeywordStyle = {
   keyword: string;  // Primary keyword identifier (ID)
@@ -8,10 +7,10 @@ export type KeywordStyle = {
   description?: string;
   generateIcon?: string;
   collectingStatus?: CollectingStatus;  // How this keyword is collected: IGNORED, PARSED, or SPACED
-  combinePriority?: CombinePriority;  // Priority: None/Style/Icon/StyleAndIcon
+  iconPriority?: 1 | 2 | 3;  // Icon priority: I, II, III (default: 1)
+  stylePriority?: 'normal' | 'priority' | 'append';  // Style priority: normal (-), priority (👑), append (A) (default: normal)
   showColor?: boolean;  // Whether to show the color (default: true)
   showBackgroundColor?: boolean;  // Whether to show the background color (default: true)
-  subKeywords?: string[];  // Sub-keywords for this keyword (keywords or categories prefixed with ":")
 };
 
 export type Category = {

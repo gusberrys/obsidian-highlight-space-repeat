@@ -11,7 +11,6 @@ import { FilterExpressionService } from '../../services/FilterExpressionService'
 import { KHEntry } from '../../components/KHEntry';
 import { getFileNameFromPath } from '../../utils/file-helpers';
 import { getAllKeywords } from '../../utils/parse-helpers';
-import { resolveIconKeywordNames } from '../../shared/priority-resolver';
 import { RecordsControlRenderer } from './RecordsControlRenderer';
 
 /**
@@ -616,7 +615,7 @@ export class RecordsRenderer {
 
 				for (const entry of entries) {
 					if (entry.type === 'keyword' && entry.keywords && entry.keywords.length > 0) {
-						// Resolve which keyword provides the icon based on combinePriority
+						// Resolve which keyword provides the icon based on iconPriority
 						const iconKeywords = this.resolveIconKeywords(entry.keywords);
 						const primaryKeyword = entry.keywords[0];
 						const primaryKeywordClass = this.getKeywordClass(primaryKeyword);
@@ -991,7 +990,7 @@ export class RecordsRenderer {
 					const fileTags = file.tags?.join(' ') || '';
 
 					if (entry.type === 'keyword' && entry.keywords && entry.keywords.length > 0) {
-						// Resolve which keyword provides the icon based on combinePriority
+						// Resolve which keyword provides the icon based on iconPriority
 						const iconKeywords = this.resolveIconKeywords(entry.keywords);
 						const primaryKeyword = entry.keywords[0];
 						const primaryKeywordClass = this.getKeywordClass(primaryKeyword);
@@ -1106,7 +1105,7 @@ export class RecordsRenderer {
 	}
 
 	/**
-	 * Resolve which keywords should provide icons (uses centralized logic)
+	 * Resolve which keywords should provide icons based on iconPriority
 	 * Returns array of keyword strings to display icons from
 	 */
 	private resolveIconKeywords(keywordStrings: string[]): string[] {
@@ -1123,8 +1122,16 @@ export class RecordsRenderer {
 			return [keywordStrings[0]];
 		}
 
-		// Use centralized icon resolution logic
-		return resolveIconKeywordNames(keywordStyles);
+		// Find highest icon priority
+		const maxIconPriority = Math.max(...keywordStyles.map(k => k.iconPriority || 1));
+
+		// Get all keywords with highest priority that have icons
+		const winnersWithIcons = keywordStyles
+			.filter(k => (k.iconPriority || 1) === maxIconPriority && k.generateIcon)
+			.map(k => k.keyword);
+
+		// Return winner keywords, or first keyword if none have icons
+		return winnersWithIcons.length > 0 ? winnersWithIcons : [keywordStrings[0]];
 	}
 
 	/**

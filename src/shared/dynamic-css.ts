@@ -24,7 +24,9 @@ export function generateKeywordCSS(categories: Category[]): string {
         const color = (keyword.color === '#000000' || keyword.color === '#000') ? 'transparent' : keyword.color;
         const backgroundColor = (keyword.backgroundColor === '#000000' || keyword.backgroundColor === '#000') ? 'transparent' : keyword.backgroundColor;
 
-        cssRules.push(`
+        // Only generate color CSS if NOT append
+        if (keyword.stylePriority !== 'append') {
+          cssRules.push(`
 .${className} {
   color: ${color} !important;
   background-color: ${backgroundColor} !important;
@@ -40,16 +42,8 @@ span.${className} {
   background-color: ${backgroundColor} !important;
 }`);
 
-        // Add ::before pseudo-element for icon if generateIcon exists
-        if (keyword.generateIcon && keyword.generateIcon.trim()) {
+          // Add rule for list items following highlighted paragraphs
           cssRules.push(`
-mark.${className}::before {
-  content: "${keyword.generateIcon}";
-}`);
-        }
-
-        // Add rule for list items following highlighted paragraphs
-        cssRules.push(`
 .el-p:has(.kh-highlighted.${className}) + .el-ul > ul,
 .el-p:has(.kh-highlighted.${className}) + .el-ol > ol {
   margin-top: 0px;
@@ -57,9 +51,18 @@ mark.${className}::before {
 
 .el-p:has(.kh-highlighted.${className}) + .el-ul > ul > li,
 .el-p:has(.kh-highlighted.${className}) + .el-ol > ol > li {
-  color: ${color} !important;
-  background-color: ${backgroundColor} !important;
+  color: ${color};
+  background-color: ${backgroundColor};
 }`);
+        }
+
+        // Add ::before pseudo-element for icon if generateIcon exists (always, regardless of stylePriority)
+        if (keyword.generateIcon && keyword.generateIcon.trim()) {
+          cssRules.push(`
+mark.${className}::before {
+  content: "${keyword.generateIcon}";
+}`);
+        }
       }
     });
   });

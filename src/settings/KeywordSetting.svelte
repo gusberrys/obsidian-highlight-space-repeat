@@ -1,12 +1,10 @@
 <script lang="ts">
   import type { KeywordStyle } from 'src/shared';
   import { CollectingStatus } from 'src/shared/collecting-status';
-  import { MainCombinePriority } from 'src/shared/combine-priority';
   import { setIcon } from 'obsidian';
   import { createEventDispatcher } from 'svelte';
   import { settingsStore } from 'src/stores/settings-store';
   import Checkbox from './Checkbox.svelte';
-  import { SubKeywordsModal } from './SubKeywordsModal';
 
   export let keyword: KeywordStyle;
   export let keywordIndex: number;  // Local index within category
@@ -26,19 +24,27 @@
     ? 'Parsed (collected in records)'
     : 'Ignored (not collected)';
 
-  // Reactive priority label and tooltip
-  $: priorityLabel = keyword.combinePriority === MainCombinePriority.StyleAndIcon ? '🎨🖼️'
-    : keyword.combinePriority === MainCombinePriority.Style ? '🎨'
-    : keyword.combinePriority === MainCombinePriority.Icon ? '🖼️'
+  // Reactive icon priority label and tooltip
+  $: iconPriorityLabel = keyword.iconPriority === 3 ? 'III'
+    : keyword.iconPriority === 2 ? 'II'
+    : 'I';
+
+  $: iconPriorityTooltip = keyword.iconPriority === 3
+    ? 'Icon priority III (highest)'
+    : keyword.iconPriority === 2
+    ? 'Icon priority II'
+    : 'Icon priority I (default)';
+
+  // Reactive style priority label and tooltip
+  $: stylePriorityLabel = keyword.stylePriority === 'priority' ? '👑'
+    : keyword.stylePriority === 'append' ? 'A'
     : '-';
 
-  $: priorityTooltip = keyword.combinePriority === MainCombinePriority.StyleAndIcon
-    ? 'Both priorities: Use this keyword\'s styles AND icon when combined'
-    : keyword.combinePriority === MainCombinePriority.Style
-    ? 'Style priority: Use this keyword\'s colors/classes when combined'
-    : keyword.combinePriority === MainCombinePriority.Icon
-    ? 'Icon priority: Use this keyword\'s icon when combined'
-    : 'No priority (other keywords can override)';
+  $: stylePriorityTooltip = keyword.stylePriority === 'priority'
+    ? 'Priority: This keyword\'s colors win over normal keywords'
+    : keyword.stylePriority === 'append'
+    ? 'Append: Add as class, but don\'t provide colors'
+    : 'Normal: Compete for colors at default priority';
 
   function attachDragHandlers(node: HTMLTableRowElement) {
     node.draggable = true;
@@ -109,16 +115,26 @@
     updateKeyword();
   }
 
-  function togglePriority() {
-    // Cycle through - → 🎨 → 🖼️ → 🎨🖼️ → -
-    if (!keyword.combinePriority || keyword.combinePriority === MainCombinePriority.None) {
-      keyword.combinePriority = MainCombinePriority.Style;
-    } else if (keyword.combinePriority === MainCombinePriority.Style) {
-      keyword.combinePriority = MainCombinePriority.Icon;
-    } else if (keyword.combinePriority === MainCombinePriority.Icon) {
-      keyword.combinePriority = MainCombinePriority.StyleAndIcon;
+  function toggleIconPriority() {
+    // Cycle through I → II → III → I
+    if (!keyword.iconPriority || keyword.iconPriority === 3) {
+      keyword.iconPriority = 1;
     } else {
-      keyword.combinePriority = MainCombinePriority.None;
+      keyword.iconPriority = (keyword.iconPriority + 1) as 1 | 2 | 3;
+    }
+
+    keyword = keyword; // Trigger reactivity
+    updateKeyword();
+  }
+
+  function toggleStylePriority() {
+    // Cycle through - → 👑 → A → -
+    if (!keyword.stylePriority || keyword.stylePriority === 'normal') {
+      keyword.stylePriority = 'priority';
+    } else if (keyword.stylePriority === 'priority') {
+      keyword.stylePriority = 'append';
+    } else {
+      keyword.stylePriority = 'normal';
     }
 
     keyword = keyword; // Trigger reactivity
@@ -129,23 +145,6 @@
     // This function will trigger reactivity for the parent store
     // Create a new reference to trigger Svelte reactivity
     settingsStore.update((settings) => ({ ...settings }));
-  }
-
-  // Sub-keywords count and badge
-  $: subKeywordsCount = keyword.subKeywords?.length || 0;
-  $: subKeywordsBadge = subKeywordsCount === 0 ? '' : (subKeywordsCount > 9 ? '*' : subKeywordsCount.toString());
-
-  function openSubKeywordsModal() {
-    // Find the parent category ID
-    const category = $settingsStore.categories.find(cat => cat.icon === categoryName);
-    if (!category || !category.id) return;
-
-    // @ts-ignore - app is available globally
-    const modal = new SubKeywordsModal(app, keyword, category.id, () => {
-      // Trigger reactivity when modal updates
-      updateKeyword();
-    });
-    modal.open();
   }
 
   // eslint-disable-next-line no-undef
@@ -173,27 +172,22 @@
     >{stateLabel}</button>
   </td>
 
-  <td class="td-priority">
+  <td class="td-icon-priority">
     <button
       class="priority-toggle"
-      on:click={togglePriority}
-      title={priorityTooltip}
-      aria-label="Toggle priority when combined with other keywords"
-    >{priorityLabel}</button>
+      on:click={toggleIconPriority}
+      title={iconPriorityTooltip}
+      aria-label="Toggle icon priority"
+    >{iconPriorityLabel}</button>
   </td>
 
-  <td class="td-subkeywords">
+  <td class="td-style-priority">
     <button
-      class="subkeywords-toggle"
-      on:click={openSubKeywordsModal}
-      title="Manage sub-keywords"
-      aria-label="Manage sub-keywords"
-    >
-      {#if subKeywordsBadge}
-        <span class="subkeywords-badge">{subKeywordsBadge}</span>
-      {/if}
-      ⚙️
-    </button>
+      class="priority-toggle"
+      on:click={toggleStylePriority}
+      title={stylePriorityTooltip}
+      aria-label="Toggle style priority"
+    >{stylePriorityLabel}</button>
   </td>
 
   <td class="td-keyword">
@@ -291,47 +285,6 @@
     background: var(--background-modifier-hover);
   }
 
-  .subkeywords-toggle {
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 0.2rem;
-    font-size: 14px;
-    line-height: 1;
-    width: 100%;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    user-select: none;
-    position: relative;
-    border-radius: 2px;
-    transition: all 0.2s;
-  }
-
-  .subkeywords-toggle:hover {
-    background: var(--background-modifier-hover);
-  }
-
-  .subkeywords-badge {
-    position: absolute;
-    top: -2px;
-    right: -2px;
-    background: var(--interactive-accent);
-    color: white;
-    font-size: 8px;
-    font-weight: bold;
-    line-height: 1;
-    min-width: 12px;
-    height: 12px;
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0 3px;
-    pointer-events: none;
-  }
-
   .td-drag {
     text-align: center;
     padding: 0.3rem 0.2rem;
@@ -356,8 +309,8 @@
   }
 
   .td-state,
-  .td-priority,
-  .td-subkeywords {
+  .td-icon-priority,
+  .td-style-priority {
     text-align: center;
   }
 

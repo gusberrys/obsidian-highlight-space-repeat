@@ -2,12 +2,10 @@ import { Plugin, Modal, WorkspaceLeaf, Notice, TFile } from 'obsidian';
 import { editorHighlighter, recordBadgeGutter } from 'src/editor-extension';
 import { SettingTab } from 'src/settings/setting-tab';
 import { readerHighlighter, addRecordBadgesToReadingView, addGoalStatusBadges } from './reader-extension';
-import { createInsertKeywordCommand, createInsertSubKeywordCommand } from './commands';
+import { createInsertKeywordCommand } from './commands';
 import { initStore, saveStore, type PluginSettings, type Settings } from './stores/settings-store';
 import { DATA_PATHS, type CodeBlockLanguage, type SubjectsData, type VWordSettings } from './shared';
 import type { HighlightSpaceRepeatAPI } from './public-api';
-import { CombinedKeywordSuggest } from './combined-keyword-suggest';
-import { SubKeywordSuggest } from './subkeyword-suggest';
 import { KHMatrixWidget, KH_MATRIX_VIEW_TYPE } from './widgets/KHMatrixWidget';
 import { PinnedView, PINNED_VIEW_TYPE } from './widgets/PinnedView';
 import { SRSReviewView, SRS_REVIEW_VIEW_TYPE } from './widgets/SRSReviewView';
@@ -182,12 +180,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     this.registerMarkdownPostProcessor((el, ctx) => addRecordBadgesToReadingView(el, ctx, this));
     this.registerMarkdownPostProcessor((el, ctx) => addGoalStatusBadges(el, ctx, this, this.app));
 
-    // Register combined keyword suggest (triggers on :::)
-    this.registerEditorSuggest(new CombinedKeywordSuggest(this.app));
-
-    // Register subkeyword suggest (triggers on //)
-    this.registerEditorSuggest(new SubKeywordSuggest(this.app));
-
     // Register KH Matrix Widget
     this.registerView(
       KH_MATRIX_VIEW_TYPE,
@@ -206,8 +198,8 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       (leaf) => new SRSReviewView(leaf, this)
     );
 
+    // Add command to insert keyword
     this.addCommand(createInsertKeywordCommand(this.app));
-    this.addCommand(createInsertSubKeywordCommand(this.app));
 
     // Add command to open KH Matrix Widget
     this.addCommand({

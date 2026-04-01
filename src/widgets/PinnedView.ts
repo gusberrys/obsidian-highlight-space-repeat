@@ -2,10 +2,8 @@ import { App, ItemView, WorkspaceLeaf, TFile, MarkdownView, Notice, MarkdownRend
 import type { ParsedFile, ParsedHeader, ParsedEntry } from '../interfaces/ParsedFile';
 import { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
 import { KHEntry } from '../components/KHEntry';
-import { MainCombinePriority } from '../shared/combine-priority';
 import type { KeywordStyle } from '../shared/keyword-style';
 import { RecordParser } from '../services/RecordParser';
-import { resolveIconKeywordNames } from '../shared/priority-resolver';
 import { getAllKeywords } from '../utils/parse-helpers';
 
 export const PINNED_VIEW_TYPE = 'kh-pinned-view';
@@ -39,7 +37,7 @@ export class PinnedView extends ItemView {
 	}
 
 	/**
-	 * Resolve which keywords should provide icons (uses centralized logic)
+	 * Resolve which keywords should provide icons based on iconPriority
 	 * Returns array of keyword strings to display icons from
 	 */
 	private resolveIconKeywords(keywordStrings: string[]): string[] {
@@ -56,8 +54,16 @@ export class PinnedView extends ItemView {
 			return [keywordStrings[0]];
 		}
 
-		// Use centralized icon resolution logic
-		return resolveIconKeywordNames(keywordStyles);
+		// Find highest icon priority
+		const maxIconPriority = Math.max(...keywordStyles.map(k => k.iconPriority || 1));
+
+		// Get all keywords with highest priority that have icons
+		const winnersWithIcons = keywordStyles
+			.filter(k => (k.iconPriority || 1) === maxIconPriority && k.generateIcon)
+			.map(k => k.keyword);
+
+		// Return winner keywords, or first keyword if none have icons
+		return winnersWithIcons.length > 0 ? winnersWithIcons : [keywordStrings[0]];
 	}
 
 	getViewType(): string {

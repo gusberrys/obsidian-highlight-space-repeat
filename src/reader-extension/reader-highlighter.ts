@@ -1,9 +1,7 @@
 import type { MarkdownPostProcessor } from 'obsidian';
 import { type KeywordStyle } from 'src/shared';
-import { MainCombinePriority } from 'src/shared/combine-priority';
 import { settingsStore, vwordSettingsStore } from 'src/stores/settings-store';
 import { get } from 'svelte/store';
-import { resolveIcon } from 'src/shared/priority-resolver';
 import { isVWordKeyword, parseVWordKeyword } from 'src/shared/vword';
 import { CollectingStatus } from 'src/shared/collecting-status';
 
@@ -114,24 +112,22 @@ function replaceWithHighlight(node: Node) {
       const parent = node.parentNode!;
       const [matchedKeywords, vwordKeywords, textContent] = result;
 
-      // All keywords are now MAIN type
-      const primaryKeyword = matchedKeywords[0];
-
-      // Resolve icon based on priority (centralized)
-      const iconToDisplay = resolveIcon(matchedKeywords);
-
-      // Create highlight node with resolved colors
-      const highlight = getHighlightNode(
+      // Create highlight node (returns iconWinners and highlight span)
+      const { iconWinners, highlight } = getHighlightNode(
         parent as HTMLElement,
         textContent,
-        primaryKeyword,
         matchedKeywords,
         vwordKeywords
       );
 
-      // Only insert icon if it exists
-      if (iconToDisplay) {
-        parent.insertBefore(document.createTextNode(iconToDisplay + " "), node);
+      // Insert ALL icons from keywords with highest icon priority (separated by /)
+      const iconsToDisplay = iconWinners
+        .filter(kw => kw.generateIcon)
+        .map(kw => kw.generateIcon);
+
+      if (iconsToDisplay.length > 0) {
+        const iconText = iconsToDisplay.join('/') + ' ';
+        parent.insertBefore(document.createTextNode(iconText), node);
       }
       parent.insertBefore(highlight, node);
       node.nodeValue = ""; // original node fully replaced
@@ -150,73 +146,51 @@ function replaceWithHighlight(node: Node) {
 
 /**
  * Create highlight span with resolved colors and classes
+ * Returns iconWinners (all tied for highest priority) and highlight node
  */
 function getHighlightNode(
   parent: HTMLElement,
   textContent: string,
-  primaryKeyword: KeywordStyle,
   matchedKeywords: KeywordStyle[],
   vwordKeywords: string[]
-): Node {
+): { iconWinners: KeywordStyle[]; highlight: Node } {
   const highlight = parent.createSpan();
 
-  // Resolve winning keyword based on priority
-  // Standard priority rules:
-  // 1. Different priorities → highest priority wins
-  // 2. Same priority → FIRST one wins (most generic)
-  // 3. No Style/StyleAndIcon priority → first keyword wins
-
-  // Safety check: if primaryKeyword is undefined, use first matched keyword
-  const fallbackKeyword = primaryKeyword || matchedKeywords[0];
-  if (!fallbackKeyword) {
-    // No keywords at all - shouldn't happen, but return empty node
+  // Safety check
+  if (matchedKeywords.length === 0) {
     const emptyNode = parent.createSpan();
     emptyNode.setText(textContent);
-    return emptyNode;
+    return { iconWinners: [], highlight: emptyNode };
   }
 
-  const keywordsWithStylePriority = matchedKeywords.filter(kw =>
-    kw.combinePriority === MainCombinePriority.Style ||
-    kw.combinePriority === MainCombinePriority.StyleAndIcon
+  // Resolve style winner (color)
+  // Only keywords with stylePriority !== 'append' compete for colors
+  const colorCompetitors = matchedKeywords.filter(kw =>
+    kw.stylePriority !== 'append'
   );
 
-  // Determine winning keyword for color styling
-  let winningKeyword = fallbackKeyword;
+  let colorWinner = colorCompetitors[0] || matchedKeywords[0];
 
-  if (keywordsWithStylePriority.length > 0) {
-    // Map priority enum values to numbers for comparison
-    const getPriorityValue = (priority: MainCombinePriority) => {
-      if (priority === MainCombinePriority.StyleAndIcon) return 3;
-      if (priority === MainCombinePriority.Style) return 2;
-      return 0;
-    };
-
-    // Find the highest priority value
-    const maxPriority = Math.max(...keywordsWithStylePriority.map(kw => getPriorityValue(kw.combinePriority)));
-
-    // Filter to only those with the highest priority
-    const highestPriorityKeywords = keywordsWithStylePriority.filter(kw =>
-      getPriorityValue(kw.combinePriority) === maxPriority
-    );
-
-    // Take FIRST with highest priority (most generic)
-    if (highestPriorityKeywords.length > 0) {
-      winningKeyword = highestPriorityKeywords[0];
-    }
+  // If any keyword has stylePriority === 'priority', first one wins
+  const prioritized = colorCompetitors.filter(kw => kw.stylePriority === 'priority');
+  if (prioritized.length > 0) {
+    colorWinner = prioritized[0];
   }
+
+  // Resolve icon winners (ALL keywords with highest priority)
+  // Highest iconPriority wins, ties = show ALL icons
+  const maxIconPriority = Math.max(...matchedKeywords.map(kw => kw.iconPriority || 1));
+  const iconWinners = matchedKeywords.filter(kw => (kw.iconPriority || 1) === maxIconPriority);
 
   // Apply kh-highlighted class
   parent.classList.add('kh-highlighted');
 
-  // Apply ONLY the winning keyword class for color styling
-  parent.classList.add(winningKeyword.keyword);
+  // Apply ONLY the color winner's class for styling
+  parent.classList.add(colorWinner.keyword);
 
-  // Also apply non-winning keywords as classes (for filtering/searching)
-  for (const kw of matchedKeywords) {
-    if (kw !== winningKeyword) {
-      parent.classList.add(kw.keyword);
-    }
-  }
+  // Apply append keywords as classes (they won't provide colors)
+  const appendKeywords = matchedKeywords.filter(kw => kw.stylePriority === 'append');
+  appendKeywords.forEach(kw => parent.classList.add(kw.keyword));
 
   // Apply VWord keywords as classes (for layout control only, not styling)
   for (const vword of vwordKeywords) {
@@ -228,7 +202,7 @@ function getHighlightNode(
   parent.setAttribute('data-keywords', allKeywords.join(' '));
 
   highlight.setText(textContent);
-  return highlight;
+  return { iconWinners, highlight };
 }
 
 /**

@@ -95,17 +95,37 @@ async function changeGoalStatus(filePath: string, element: HTMLElement, newStatu
 
 	const keywords = keywordsAttr.split(/\s+/).filter(k => k.length > 0);
 
-	// Find the line with these keywords
+	// Get text content from element (for matching)
+	// Get all text content, then remove the score badge text
+	const scoreBadge = element.querySelector('.journal-goal-score-badge');
+	const scoreBadgeText = scoreBadge?.textContent?.trim() || '';
+	const fullText = element.textContent?.trim() || '';
+
+	// Remove score badge text and icons to get just the goal text
+	let elementText = fullText.replace(scoreBadgeText, '').trim();
+	// Remove leading icons (emojis and slashes)
+	elementText = elementText.replace(/^[^\w\s]+\s*/, '').trim();
+
+	// Find the line with these keywords AND matching text
 	const lineIndex = lines.findIndex(line => {
 		// Check if line starts with keywords::
-		const match = line.match(/^([\w\s]+)::/);
+		const match = line.match(/^([\w\s]+)::\s*(.+)$/);
 		if (!match) return false;
 
 		const lineKeywords = match[1].trim().split(/\s+/);
+		const lineText = match[2].trim();
 
 		// Check if all keywords match (order-independent)
-		return keywords.every(k => lineKeywords.includes(k)) &&
-		       lineKeywords.every(k => keywords.includes(k));
+		const keywordsMatch = keywords.every(k => lineKeywords.includes(k)) &&
+		                      lineKeywords.every(k => keywords.includes(k));
+
+		if (!keywordsMatch) return false;
+
+		// Also check if text content matches (remove HTML comments and extra whitespace)
+		const cleanLineText = lineText.replace(/%%.*?%%/g, '').trim();
+
+		// Check if element text is contained in line text (case-insensitive, partial match)
+		return cleanLineText.toLowerCase().includes(elementText.toLowerCase());
 	});
 
 	if (lineIndex === -1) return;
