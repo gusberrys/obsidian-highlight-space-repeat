@@ -1,6 +1,7 @@
 /* KH Matrix Widget */
 .kh-matrix-widget {
   /*padding: 2px;*/
+  padding: 0px !important;
   margin-top: -13px;
   border: 3px solid rgba(0, 0, 255, 0.3);
   border-radius: 4px;
@@ -136,9 +137,11 @@
   z-index: 2;
 }
 
+
+
 /* Mini subject selector in 1x1 cell - pinned to top-left corner */
 .kh-matrix-subject-cell {
-  padding: 2px !important;
+  padding-top: 6px !important;
   position: sticky;
   top: 0;
   left: 0;
@@ -578,7 +581,6 @@
 /* Column view for matrix */
 .kh-dashboard-columns {
   display: flex;
-  gap: 6px;
   flex-wrap: wrap;
 }
 
@@ -590,27 +592,33 @@
   border: 1px solid var(--background-modifier-border);
   border-radius: 4px;
   overflow: hidden;
-  padding: 6px;
+  padding: 2px 0px;
 }
 
 .kh-dashboard-column-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 6px;
-  padding-bottom: 4px;
   border-bottom: 1px solid var(--background-modifier-border);
+  flex-wrap: nowrap;
+  gap: 4px;
 }
 
 .kh-dashboard-column-title {
   font-weight: 600;
   font-size: 0.95em;
   color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
 }
 
 .kh-dashboard-column-count {
   font-size: 0.85em;
   color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 .kh-dashboard-files-list {
@@ -654,5 +662,22 @@
   opacity: 1;
   box-shadow: 0 0 0 3px var(--interactive-accent);
   transform: scale(1.05);
+}
+
+.kh-dashboard-file-item {
+  margin: -2px 0;
+  border-radius: 3px;
+  transition: background-color 0.15s ease;
+}
+
+.kh-dashboard-file-item:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.kh-dashboard-file-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
 }
 

@@ -176,7 +176,7 @@ export class RecordParser {
 						if (textLineIndex !== -1) {
 							// Plain text found: combine with header text
 							const textLine = lines[textLineIndex].trim();
-							const combinedText = headerText ? `${headerText} :: ${textLine}` : textLine;
+							const combinedText = headerText ? `${headerText} ::: ${textLine}` : textLine;
 							const reconstructedLine = `${keywordsStr} :: ${combinedText}`;
 							const tempLines = [...lines];
 							tempLines[textLineIndex] = reconstructedLine;
@@ -276,7 +276,7 @@ export class RecordParser {
 						if (textLineIndex !== -1) {
 							// Plain text found: combine with header text
 							const textLine = lines[textLineIndex].trim();
-							const combinedText = headerText ? `${headerText} :: ${textLine}` : textLine;
+							const combinedText = headerText ? `${headerText} ::: ${textLine}` : textLine;
 							const reconstructedLine = `${keywordsStr} :: ${combinedText}`;
 							const tempLines = [...lines];
 							tempLines[textLineIndex] = reconstructedLine;
@@ -375,7 +375,7 @@ export class RecordParser {
 						if (textLineIndex !== -1) {
 							// Plain text found: combine with header text
 							const textLine = lines[textLineIndex].trim();
-							const combinedText = headerText ? `${headerText} :: ${textLine}` : textLine;
+							const combinedText = headerText ? `${headerText} ::: ${textLine}` : textLine;
 							const reconstructedLine = `${keywordsStr} :: ${combinedText}`;
 							const tempLines = [...lines];
 							tempLines[textLineIndex] = reconstructedLine;

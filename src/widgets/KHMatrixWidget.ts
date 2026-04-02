@@ -41,8 +41,6 @@ export class KHMatrixWidget extends ItemView {
 	// Prevent concurrent renders
 	private isRendering: boolean = false;
 	private pendingRender: boolean = false;
-	private isRenderingMatrix: boolean = false;
-	private isRenderingRecords: boolean = false;
 
 	// Chips and flags
 	private activeChips: Map<string, ActiveChip> = new Map();
@@ -187,57 +185,37 @@ export class KHMatrixWidget extends ItemView {
 	 * Render matrix section (table + columns)
 	 */
 	private async renderMatrixSection(container: HTMLElement): Promise<void> {
-		if (this.isRenderingMatrix) {
-			console.log('[renderMatrixSection] Already rendering matrix');
-			return;
+		console.log('[renderMatrixSection] Starting matrix render');
+
+		// ========================================
+		// MATRIX TABLE
+		// ========================================
+		if (this.currentSubject) {
+			await this.renderMatrixTable(container);
+		} else {
+			container.createEl('p', {
+				text: 'No subjects available',
+				cls: 'kh-empty-message'
+			});
 		}
-		this.isRenderingMatrix = true;
 
-		try {
-			console.log('[renderMatrixSection] Starting matrix render');
-
-			// ========================================
-			// MATRIX TABLE
-			// ========================================
-			if (this.currentSubject) {
-				await this.renderMatrixTable(container);
-			} else {
-				container.createEl('p', {
-					text: 'No subjects available',
-					cls: 'kh-empty-message'
-				});
-			}
-
-			// ========================================
-			// COLUMNS (when row selected)
-			// ========================================
-			if (this.currentSubject && this.selectedRowId) {
-				await this.renderMatrixColumns(container);
-			}
-
-			console.log('[renderMatrixSection] Completed matrix render');
-		} finally {
-			this.isRenderingMatrix = false;
+		// ========================================
+		// COLUMNS (when row selected)
+		// ========================================
+		if (this.currentSubject && this.selectedRowId) {
+			await this.renderMatrixColumns(container);
 		}
+
+		console.log('[renderMatrixSection] Completed matrix render');
 	}
 
 	/**
 	 * Render records section (widget filter)
 	 */
 	private async renderRecordsSection(container: HTMLElement): Promise<void> {
-		if (this.isRenderingRecords) {
-			console.log('[renderRecordsSection] Already rendering records');
-			return;
-		}
-		this.isRenderingRecords = true;
-
-		try {
-			console.log('[renderRecordsSection] Starting records render');
-			await this.renderWidgetFilter(container);
-			console.log('[renderRecordsSection] Completed records render');
-		} finally {
-			this.isRenderingRecords = false;
-		}
+		console.log('[renderRecordsSection] Starting records render');
+		await this.renderWidgetFilter(container);
+		console.log('[renderRecordsSection] Completed records render');
 	}
 
 	/**
