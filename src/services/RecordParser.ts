@@ -717,10 +717,11 @@ export class RecordParser {
 			if (subLine.match(/^[\w\s]+::/)) break;
 
 			// Checkbox item: - [ ] or - [x] (with optional indentation)
-			const checkboxMatch = subLine.match(/^\s*-\s*\[([x\s])\]\s*(.*)$/);
+			const checkboxMatch = subLine.match(/^(\s*)-\s*\[([x\s])\]\s*(.*)$/);
 			if (checkboxMatch) {
-				const checked = checkboxMatch[1].toLowerCase() === 'x';
-				let content = checkboxMatch[2];
+				const indent = checkboxMatch[1].length;
+				const checked = checkboxMatch[2].toLowerCase() === 'x';
+				let content = checkboxMatch[3];
 				let itemKeywords: string[] | undefined;
 				let itemInlineKeywords: string[] | undefined;
 				let itemInlineCodeLanguages: string[] | undefined;
@@ -790,6 +791,7 @@ export class RecordParser {
 				const subItem: ParsedEntrySubItem = {
 					content,
 					listType: 'checkbox',
+					indent,
 					checked,
 					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined,
 					inlineKeywords: itemInlineKeywords && itemInlineKeywords.length > 0 ? itemInlineKeywords : undefined,
@@ -810,9 +812,10 @@ export class RecordParser {
 			}
 
 			// Dash list item: - content (with optional indentation)
-			const dashMatch = subLine.match(/^\s*-\s*(.*)$/);
+			const dashMatch = subLine.match(/^(\s*)-\s*(.*)$/);
 			if (dashMatch) {
-				let content = dashMatch[1];
+				const indent = dashMatch[1].length;
+				let content = dashMatch[2];
 				let itemKeywords: string[] | undefined;
 				let itemInlineKeywords: string[] | undefined;
 				let itemInlineCodeLanguages: string[] | undefined;
@@ -882,6 +885,7 @@ export class RecordParser {
 				const subItem: ParsedEntrySubItem = {
 					content,
 					listType: 'dash',
+					indent,
 					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined,
 					inlineKeywords: itemInlineKeywords && itemInlineKeywords.length > 0 ? itemInlineKeywords : undefined,
 				};
@@ -900,9 +904,10 @@ export class RecordParser {
 			}
 
 			// Asterisk list item: * content (with optional indentation)
-			const asteriskMatch = subLine.match(/^\s*\*\s*(.*)$/);
+			const asteriskMatch = subLine.match(/^(\s*)\*\s*(.*)$/);
 			if (asteriskMatch) {
-				let content = asteriskMatch[1];
+				const indent = asteriskMatch[1].length;
+				let content = asteriskMatch[2];
 				let itemKeywords: string[] | undefined;
 				let itemInlineKeywords: string[] | undefined;
 				let itemInlineCodeLanguages: string[] | undefined;
@@ -972,6 +977,7 @@ export class RecordParser {
 				const subItem: ParsedEntrySubItem = {
 					content,
 					listType: 'asterisk',
+					indent,
 					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined,
 					inlineKeywords: itemInlineKeywords && itemInlineKeywords.length > 0 ? itemInlineKeywords : undefined,
 				};
@@ -990,9 +996,10 @@ export class RecordParser {
 			}
 
 			// Numbered list item: 1. content, 2. content, etc. (with optional indentation)
-			const numberedMatch = subLine.match(/^\s*(\d+)\.\s*(.*)$/);
+			const numberedMatch = subLine.match(/^(\s*)(\d+)\.\s*(.*)$/);
 			if (numberedMatch) {
-				let content = numberedMatch[2];
+				const indent = numberedMatch[1].length;
+				let content = numberedMatch[3];
 				let itemKeywords: string[] | undefined;
 				let itemInlineKeywords: string[] | undefined;
 				let itemInlineCodeLanguages: string[] | undefined;
@@ -1062,6 +1069,7 @@ export class RecordParser {
 				const subItem: ParsedEntrySubItem = {
 					content,
 					listType: 'numbered',
+					indent,
 					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined,
 					inlineKeywords: itemInlineKeywords && itemInlineKeywords.length > 0 ? itemInlineKeywords : undefined,
 				};
@@ -1162,6 +1170,9 @@ export class RecordParser {
 			break;
 		}
 
+		// Build tree structure from flat subItems array based on indentation
+		const treeSubItems = this.buildSubItemTree(subItems);
+
 		const entry = {
 			type: 'keyword',
 			lineNumber: startIndex + 1,
@@ -1169,7 +1180,7 @@ export class RecordParser {
 			keywords: keywords.length > 0 ? keywords : undefined,
 			inlineKeywords: inlineKeywords && inlineKeywords.length > 0 ? inlineKeywords : undefined,
 			inlineCodeLanguages: inlineCodeLanguages && inlineCodeLanguages.length > 0 ? inlineCodeLanguages : undefined,
-			subItems: subItems.length > 0 ? subItems : undefined,
+			subItems: treeSubItems.length > 0 ? treeSubItems : undefined,
 			srs: srsData
 		};
 
@@ -1177,6 +1188,42 @@ export class RecordParser {
 			entry,
 			nextIndex: j
 		};
+	}
+
+	/**
+	 * Build tree structure from flat subItems array based on indentation
+	 */
+	private buildSubItemTree(flatItems: ParsedEntrySubItem[]): ParsedEntrySubItem[] {
+		if (flatItems.length === 0) return [];
+
+		const root: ParsedEntrySubItem[] = [];
+		const stack: { item: ParsedEntrySubItem; indent: number }[] = [];
+
+		for (const item of flatItems) {
+			const currentIndent = item.indent ?? 0;
+
+			// Pop stack until we find the parent (item with smaller indent)
+			while (stack.length > 0 && stack[stack.length - 1].indent >= currentIndent) {
+				stack.pop();
+			}
+
+			if (stack.length === 0) {
+				// Top-level item
+				root.push(item);
+			} else {
+				// Child of the last item in stack
+				const parent = stack[stack.length - 1].item;
+				if (!parent.children) {
+					parent.children = [];
+				}
+				parent.children.push(item);
+			}
+
+			// Add current item to stack
+			stack.push({ item, indent: currentIndent });
+		}
+
+		return root;
 	}
 
 	/**

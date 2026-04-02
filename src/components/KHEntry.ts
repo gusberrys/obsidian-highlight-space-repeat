@@ -1007,6 +1007,11 @@ export class KHEntry {
 					plugin as any
 				);
 			}
+
+			// Recursively render children if present
+			if (subItem.children && subItem.children.length > 0) {
+				this.renderSubItems(subItemEl, subItem.children, record, plugin);
+			}
 		}
 		return Promise.resolve();
 	}

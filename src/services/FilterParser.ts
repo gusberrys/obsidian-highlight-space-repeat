@@ -1,5 +1,5 @@
 import { FilterToken, FilterTokenType, FilterNode, FilterModifiers, CompiledFilter } from '../interfaces/FilterInterfaces';
-import type { FlatEntry } from '../interfaces/ParsedFile';
+import type { FlatEntry, ParsedEntrySubItem } from '../interfaces/ParsedFile';
 import { getFileNameFromPath } from '../utils/file-helpers';
 import { getAllKeywords } from '../utils/parse-helpers';
 
@@ -537,6 +537,29 @@ export class FilterParser {
 	/**
 	 * Helper: Extract all languages from entry (code blocks + inline code languages)
 	 */
+	/**
+	 * Recursively collect languages from subItems and their children
+	 */
+	private static collectSubItemLanguages(subItems: ParsedEntrySubItem[]): string[] {
+		const languages: string[] = [];
+		for (const subItem of subItems) {
+			if (subItem.codeBlockLanguage) {
+				languages.push(subItem.codeBlockLanguage);
+			}
+			if (subItem.nestedCodeBlock?.language) {
+				languages.push(subItem.nestedCodeBlock.language);
+			}
+			if (subItem.inlineCodeLanguages) {
+				languages.push(...subItem.inlineCodeLanguages);
+			}
+			// Recursively collect from children
+			if (subItem.children && subItem.children.length > 0) {
+				languages.push(...this.collectSubItemLanguages(subItem.children));
+			}
+		}
+		return languages;
+	}
+
 	private static getAllLanguages(entry: import('../interfaces/ParsedFile').ParsedEntry): string[] {
 		const languages: string[] = [];
 		if (entry.type === 'codeblock' && entry.language) {
@@ -547,18 +570,7 @@ export class FilterParser {
 			languages.push(...entry.inlineCodeLanguages);
 		}
 		if (entry.subItems) {
-			for (const subItem of entry.subItems) {
-				if (subItem.codeBlockLanguage) {
-					languages.push(subItem.codeBlockLanguage);
-				}
-				if (subItem.nestedCodeBlock?.language) {
-					languages.push(subItem.nestedCodeBlock.language);
-				}
-				// Add inline code languages from subitem
-				if (subItem.inlineCodeLanguages) {
-					languages.push(...subItem.inlineCodeLanguages);
-				}
-			}
+			languages.push(...this.collectSubItemLanguages(entry.subItems));
 		}
 		return languages;
 	}
@@ -674,6 +686,26 @@ export class FilterParser {
 	 * @param categories - Categories for category matching
 	 * @param modifiers - Filter modifiers
 	 */
+	/**
+	 * Recursively collect keywords from subItems and their children
+	 */
+	private static collectSubItemKeywords(subItems: ParsedEntrySubItem[]): string[] {
+		const keywords: string[] = [];
+		for (const subItem of subItems) {
+			if (subItem.keywords) {
+				keywords.push(...subItem.keywords);
+			}
+			if (subItem.inlineKeywords) {
+				keywords.push(...subItem.inlineKeywords);
+			}
+			// Recursively collect from children
+			if (subItem.children && subItem.children.length > 0) {
+				keywords.push(...this.collectSubItemKeywords(subItem.children));
+			}
+		}
+		return keywords;
+	}
+
 	static evaluateFlatEntry(
 		node: FilterNode | null,
 		entry: FlatEntry,
@@ -702,21 +734,14 @@ export class FilterParser {
 			headerTags.push(...(entry.h3.tags || []));
 		}
 
-		// Collect keywords from entry and subItems
+		// Collect keywords from entry and subItems (recursively)
 		const entryKeywords = [...(entry.keywords || [])];
 		if (entry.inlineKeywords) {
 			entryKeywords.push(...entry.inlineKeywords);
 		}
 		// Only include subItem keywords if topLevelOnly modifier is NOT set
 		if (!modifiers?.topLevelOnly && entry.subItems) {
-			for (const subItem of entry.subItems) {
-				if (subItem.keywords) {
-					entryKeywords.push(...subItem.keywords);
-				}
-				if (subItem.inlineKeywords) {
-					entryKeywords.push(...subItem.inlineKeywords);
-				}
-			}
+			entryKeywords.push(...this.collectSubItemKeywords(entry.subItems));
 		}
 
 		const languages = this.getAllLanguages(entry);
