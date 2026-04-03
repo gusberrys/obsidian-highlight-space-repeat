@@ -43,17 +43,18 @@ span.${className} {
 }`);
 
           // Add rule for list items following highlighted paragraphs
-          cssRules.push(`
-.el-p:has(.kh-highlighted.${className}) + .el-ul > ul,
-.el-p:has(.kh-highlighted.${className}) + .el-ol > ol {
-  margin-top: 0px;
-}
-
-.el-p:has(.kh-highlighted.${className}) + .el-ul > ul > li,
-.el-p:has(.kh-highlighted.${className}) + .el-ol > ol > li {
-  color: ${color};
-  background-color: ${backgroundColor};
-}`);
+          // DISABLED: Feature turned off for now
+          // cssRules.push(`
+// .el-p:has(.kh-highlighted.${className}) + .el-ul > ul,
+// .el-p:has(.kh-highlighted.${className}) + .el-ol > ol {
+//   margin-top: 0px;
+// }
+//
+// .el-p:has(.kh-highlighted.${className}) + .el-ul > ul > li,
+// .el-p:has(.kh-highlighted.${className}) + .el-ol > ol > li {
+//   color: ${color};
+//   background-color: ${backgroundColor};
+// }`);
         }
 
         // Add ::before pseudo-element for icon if generateIcon exists (always, regardless of stylePriority)

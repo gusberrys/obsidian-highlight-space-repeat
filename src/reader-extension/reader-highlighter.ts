@@ -45,13 +45,44 @@ export const readerHighlighter: MarkdownPostProcessor = (el: HTMLElement) => {
  * Returns: [matched keywords, VWord keywords, text content] or undefined
  */
 function extractAndMatch(textValue: string): [KeywordStyle[], string[], string] | undefined {
-  // 1. Find :: separator (fastest)
-  const colonIndex = textValue.indexOf('::');
-  if (colonIndex === -1) return undefined;
+  // 1. Find :: separator - must have space before OR after (to avoid matching :::)
+  // Match patterns:
+  // - " :: " (normal: keyword :: text)
+  // - ":: " (header with text: # keyword :: text)
+  // - " ::" at end (normal: keyword ::)
+  // - "::" at end (header: # keyword ::)
+
+  let colonIndex = -1;
+  let skipLength = 2;
+
+  // Try " :: " first (most common)
+  colonIndex = textValue.indexOf(' :: ');
+  if (colonIndex !== -1) {
+    skipLength = 4;
+  } else {
+    // Try ":: " (header with text after)
+    colonIndex = textValue.indexOf(':: ');
+    if (colonIndex !== -1) {
+      // Make sure not part of :::
+      if (colonIndex > 0 && textValue[colonIndex - 1] === ':') return undefined;
+      skipLength = 3;
+    } else {
+      // Try " ::" at end or "::" at end (headers with no text)
+      const endMatch = textValue.match(/\s::$|::$/);
+      if (endMatch) {
+        colonIndex = textValue.lastIndexOf('::');
+        skipLength = 2;
+        // Make sure not part of :::
+        if (colonIndex > 0 && textValue[colonIndex - 1] === ':') return undefined;
+      } else {
+        return undefined;
+      }
+    }
+  }
 
   // 2. Split before/after
   let beforeColon = textValue.substring(0, colonIndex).trim();
-  const afterColon = textValue.substring(colonIndex + 2).trim();
+  const afterColon = textValue.substring(colonIndex + skipLength).trim();
 
   // 3. Check for header markers (# ## ###)
   if (beforeColon.startsWith('#')) {
@@ -83,8 +114,8 @@ function extractAndMatch(textValue: string): [KeywordStyle[], string[], string] 
     }
   }
 
-  // Must have at least one REGULAR keyword (VWords alone are not enough)
-  if (matchedKeywords.length === 0) return undefined;
+  // Allow VWords alone to trigger highlighting (no color, just layout classes)
+  if (matchedKeywords.length === 0 && vwordKeywords.length === 0) return undefined;
 
   return [matchedKeywords, vwordKeywords, afterColon];
 }
@@ -105,6 +136,14 @@ function replaceWithHighlight(node: Node) {
   ) {
     return;
   } else if (node.nodeType === Node.TEXT_NODE && node.nodeValue) {
+    // Skip text nodes that are already inside a kh-highlighted element
+    let parent = node.parentElement;
+    while (parent) {
+      if (parent.classList.contains('kh-highlighted')) {
+        return; // Already processed, don't process again
+      }
+      parent = parent.parentElement;
+    }
 
     const result = extractAndMatch(node.nodeValue);
 
@@ -156,50 +195,49 @@ function getHighlightNode(
 ): { iconWinners: KeywordStyle[]; highlight: Node } {
   const highlight = parent.createSpan();
 
-  // Safety check
-  if (matchedKeywords.length === 0) {
-    const emptyNode = parent.createSpan();
-    emptyNode.setText(textContent);
-    return { iconWinners: [], highlight: emptyNode };
-  }
-
-  // Resolve style winner (color)
-  // Only keywords with stylePriority !== 'append' compete for colors
-  const colorCompetitors = matchedKeywords.filter(kw =>
-    kw.stylePriority !== 'append'
-  );
-
-  let colorWinner = colorCompetitors[0] || matchedKeywords[0];
-
-  // If any keyword has stylePriority === 'priority', first one wins
-  const prioritized = colorCompetitors.filter(kw => kw.stylePriority === 'priority');
-  if (prioritized.length > 0) {
-    colorWinner = prioritized[0];
-  }
-
-  // Resolve icon winners (ALL keywords with highest priority)
-  // Highest iconPriority wins, ties = show ALL icons
-  const maxIconPriority = Math.max(...matchedKeywords.map(kw => kw.iconPriority || 1));
-  const iconWinners = matchedKeywords.filter(kw => (kw.iconPriority || 1) === maxIconPriority);
-
-  // Apply kh-highlighted class
+  // Apply kh-highlighted class (even for VWords-only)
   parent.classList.add('kh-highlighted');
 
-  // Apply ONLY the color winner's class for styling
-  parent.classList.add(colorWinner.keyword);
+  let colorWinner: KeywordStyle | undefined;
+  let iconWinners: KeywordStyle[] = [];
 
-  // Apply append keywords as classes (they won't provide colors)
-  const appendKeywords = matchedKeywords.filter(kw => kw.stylePriority === 'append');
-  appendKeywords.forEach(kw => parent.classList.add(kw.keyword));
+  // Only resolve colors and icons if we have regular keywords
+  if (matchedKeywords.length > 0) {
+    // Resolve style winner (color)
+    // Only keywords with stylePriority !== 'append' compete for colors
+    const colorCompetitors = matchedKeywords.filter(kw =>
+      kw.stylePriority !== 'append'
+    );
+
+    colorWinner = colorCompetitors[0] || matchedKeywords[0];
+
+    // If any keyword has stylePriority === 'priority', first one wins
+    const prioritized = colorCompetitors.filter(kw => kw.stylePriority === 'priority');
+    if (prioritized.length > 0) {
+      colorWinner = prioritized[0];
+    }
+
+    // Resolve icon winners (ALL keywords with highest priority)
+    // Highest iconPriority wins, ties = show ALL icons
+    const maxIconPriority = Math.max(...matchedKeywords.map(kw => kw.iconPriority || 1));
+    iconWinners = matchedKeywords.filter(kw => (kw.iconPriority || 1) === maxIconPriority);
+
+    // Apply ONLY the color winner's class for styling
+    parent.classList.add(colorWinner.keyword);
+
+    // Apply append keywords as classes (they won't provide colors)
+    const appendKeywords = matchedKeywords.filter(kw => kw.stylePriority === 'append');
+    appendKeywords.forEach(kw => parent.classList.add(kw.keyword));
+
+    // Add data-keywords attribute with all matched keywords (for record badges)
+    const allKeywords = matchedKeywords.map(k => k.keyword);
+    parent.setAttribute('data-keywords', allKeywords.join(' '));
+  }
 
   // Apply VWord keywords as classes (for layout control only, not styling)
   for (const vword of vwordKeywords) {
     parent.classList.add(vword);
   }
-
-  // Add data-keywords attribute with all matched keywords (for record badges)
-  const allKeywords = matchedKeywords.map(k => k.keyword);
-  parent.setAttribute('data-keywords', allKeywords.join(' '));
 
   highlight.setText(textContent);
   return { iconWinners, highlight };
