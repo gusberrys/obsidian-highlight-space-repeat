@@ -1,9 +1,10 @@
 /**
  * VWord (Visual Word) - special pattern-based keywords for visual layout control
  *
- * Two types:
+ * Three types:
  * - i-keywords: Control image column width (i10 to i90, step 5)
  * - h-keywords: Control horizontal list item ratios (2-5 elements, sum 2-7)
+ * - l-keywords: Control last-item grid layout (l10 to l90, step 5)
  */
 
 export interface VWordSettings {
@@ -16,7 +17,7 @@ export const DEFAULT_VWORD_SETTINGS: VWordSettings = {
   backgroundColor: '#666666'
 };
 
-export type VWordType = 'i' | 'h';
+export type VWordType = 'i' | 'h' | 'l';
 
 export interface VWordKeyword {
   keyword: string;  // e.g., "i67", "r123"
@@ -28,9 +29,10 @@ export interface VWordKeyword {
  * Check if a keyword matches VWord pattern
  * i-keywords: i10, i15, i20, ..., i90 (17 total)
  * h-keywords: 2-5 elements, sum 2-7 (112 total)
+ * l-keywords: l10, l15, l20, ..., l90 (17 total)
  */
 export function isVWordKeyword(keyword: string): boolean {
-  return isIKeyword(keyword) || isHKeyword(keyword);
+  return isIKeyword(keyword) || isHKeyword(keyword) || isLKeyword(keyword);
 }
 
 /**
@@ -38,6 +40,18 @@ export function isVWordKeyword(keyword: string): boolean {
  */
 export function isIKeyword(keyword: string): boolean {
   const match = keyword.match(/^i(\d+)$/);
+  if (!match) return false;
+
+  const value = parseInt(match[1], 10);
+  // Must be 10-90 and divisible by 5
+  return value >= 10 && value <= 90 && value % 5 === 0;
+}
+
+/**
+ * Check if keyword is l-keyword (l10 to l90, step 5)
+ */
+export function isLKeyword(keyword: string): boolean {
+  const match = keyword.match(/^l(\d+)$/);
   if (!match) return false;
 
   const value = parseInt(match[1], 10);
@@ -84,6 +98,11 @@ export function parseVWordKeyword(keyword: string): VWordKeyword | null {
     return { keyword, type: 'h', value };
   }
 
+  if (isLKeyword(keyword)) {
+    const value = keyword.substring(1); // Remove 'l' prefix
+    return { keyword, type: 'l', value };
+  }
+
   return null;
 }
 
@@ -94,6 +113,17 @@ export function generateIKeywords(): string[] {
   const keywords: string[] = [];
   for (let i = 10; i <= 90; i += 5) {
     keywords.push(`i${i}`);
+  }
+  return keywords;
+}
+
+/**
+ * Generate all valid l-keywords
+ */
+export function generateLKeywords(): string[] {
+  const keywords: string[] = [];
+  for (let i = 10; i <= 90; i += 5) {
+    keywords.push(`l${i}`);
   }
   return keywords;
 }
@@ -148,10 +178,10 @@ export function generateHKeywords(): string[] {
 }
 
 /**
- * Generate all VWord keywords (129 total: 17 i + 112 h)
+ * Generate all VWord keywords (146 total: 17 i + 112 h + 17 l)
  */
 export function generateAllVWordKeywords(): string[] {
-  return [...generateIKeywords(), ...generateHKeywords()];
+  return [...generateIKeywords(), ...generateHKeywords(), ...generateLKeywords()];
 }
 
 /**

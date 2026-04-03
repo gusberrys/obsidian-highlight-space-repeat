@@ -37,4 +37,5 @@ export interface Settings {
   keywordsDashboardFileName?: string;  // File name where the auto-generated keywords reference will be created (e.g., "home page")
   badgeExcludedPaths?: string;  // Comma-separated list of paths where badges should not be shown (e.g., "_journal, templates")
   pathToSubjects?: string;  // Directory path where subject files are stored (e.g., "/kb" -> "/kb/work.md" for subject "work")
+  layoutRetryDelayMs?: number;  // Delay in milliseconds before retrying layout restructuring (default: 100)
 }

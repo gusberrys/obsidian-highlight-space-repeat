@@ -115,6 +115,7 @@ const DEFAULT_SETTINGS: PluginSettings = {
 const DEFAULT_SETTINGS_DATA: Settings = {
   keywordDescriptionsPath: '',
   pathToSubjects: '',
+  layoutRetryDelayMs: 100,
 };
 
 const DEFAULT_CODEBLOCKS: CodeBlockLanguage[] = [

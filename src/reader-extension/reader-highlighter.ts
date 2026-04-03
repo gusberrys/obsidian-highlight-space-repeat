@@ -10,6 +10,7 @@ let keywordMap: Map<string, KeywordStyle>;
 export const readerHighlighter: MarkdownPostProcessor = (el: HTMLElement) => {
 
   const settings = get(settingsStore);
+  const layoutRetryDelay = settings.layoutRetryDelayMs ?? 100;
 
   // Build keyword map from all categories
   keywordMap = new Map(
@@ -36,6 +37,12 @@ export const readerHighlighter: MarkdownPostProcessor = (el: HTMLElement) => {
   // Use requestAnimationFrame to wait for the next render cycle
   requestAnimationFrame(() => {
     restructureImagesLayout(el);
+    restructureListsLayout(el);
+
+    // Lists might render slower, retry after a configurable delay
+    setTimeout(() => {
+      restructureListsLayout(el);
+    }, layoutRetryDelay);
   });
 };
 
@@ -387,5 +394,120 @@ function restructureImagesLayout(el: HTMLElement) {
       // Mark as restructured
       paragraph.classList.add('kh-record-with-images');
     }
+  });
+}
+
+/**
+ * Restructure lists with l-keywords into two-column layout
+ * ONLY applies when an l-keyword (l10-l90) is present
+ * Left column: all items except last
+ * Right column: last item
+ */
+function restructureListsLayout(el: HTMLElement) {
+  // Find all highlighted paragraphs
+  const highlightedElements = el.querySelectorAll('.kh-highlighted');
+
+  highlightedElements.forEach((highlightedEl) => {
+    const paragraph = highlightedEl as HTMLElement;
+
+    // Check if this paragraph has an l-keyword (l10-l90)
+    const lKeywordClass = Array.from(paragraph.classList).find(className => {
+      return className.match(/^l\d{2}$/); // Matches l10, l15, l20, ..., l90
+    });
+
+    // ONLY restructure if l-keyword is present
+    if (!lKeywordClass) {
+      return; // No l-keyword, skip restructuring
+    }
+
+    console.log('[l-keyword] Found paragraph with', lKeywordClass, paragraph);
+
+    // Find the parent paragraph element (.el-p)
+    const elP = paragraph.closest('.el-p');
+    if (!elP) {
+      console.log('[l-keyword] No .el-p parent found');
+      return;
+    }
+
+    console.log('[l-keyword] Found .el-p parent', elP);
+
+    // Find the next sibling that is a list wrapper (.el-ul or .el-ol)
+    let listWrapper = elP.nextElementSibling;
+    while (listWrapper && !listWrapper.classList.contains('el-ul') && !listWrapper.classList.contains('el-ol')) {
+      listWrapper = listWrapper.nextElementSibling;
+    }
+
+    if (!listWrapper) {
+      console.log('[l-keyword] No .el-ul or .el-ol sibling found');
+      return; // No list found
+    }
+
+    console.log('[l-keyword] Found list wrapper', listWrapper);
+
+    // Get the inner ul or ol element
+    const list = listWrapper.querySelector('ul, ol') as HTMLUListElement | HTMLOListElement;
+    if (!list) {
+      console.log('[l-keyword] No inner ul/ol found inside list wrapper');
+      return;
+    }
+
+    console.log('[l-keyword] Found inner list', list);
+
+    // Check if already restructured to avoid double-processing
+    if (listWrapper.classList.contains('kh-l-layout')) {
+      console.log('[l-keyword] Already restructured, skipping');
+      return;
+    }
+
+    // Get all list items
+    const listItems = Array.from(list.children) as HTMLLIElement[];
+    if (listItems.length < 2) {
+      console.log('[l-keyword] Not enough items, need at least 2, found', listItems.length);
+      return; // Need at least 2 items
+    }
+
+    console.log('[l-keyword] Restructuring', listItems.length, 'items');
+
+    // Create wrapper with l-keyword class for CSS targeting
+    const wrapper = document.createElement('div');
+    wrapper.className = `kh-l-layout ${lKeywordClass}`;
+
+    // Create left column
+    const leftColumn = document.createElement('div');
+    leftColumn.className = 'kh-l-left-column';
+
+    // Create right column
+    const rightColumn = document.createElement('div');
+    rightColumn.className = 'kh-l-right-column';
+
+    // Create new ul/ol for left column (all items except last)
+    const leftList = list.cloneNode(false) as HTMLUListElement | HTMLOListElement;
+    leftList.innerHTML = ''; // Clear any attributes/content
+
+    // Create new ul/ol for right column (last item only)
+    const rightList = list.cloneNode(false) as HTMLUListElement | HTMLOListElement;
+    rightList.innerHTML = ''; // Clear any attributes/content
+
+    // Move all items except last to left list
+    for (let i = 0; i < listItems.length - 1; i++) {
+      leftList.appendChild(listItems[i]);
+    }
+
+    // Move last item to right list
+    rightList.appendChild(listItems[listItems.length - 1]);
+
+    // Assemble structure
+    leftColumn.appendChild(leftList);
+    rightColumn.appendChild(rightList);
+    wrapper.appendChild(leftColumn);
+    wrapper.appendChild(rightColumn);
+
+    // Replace original list with wrapper
+    list.parentNode?.replaceChild(wrapper, list);
+
+    // Mark as restructured
+    listWrapper.classList.add('kh-l-layout');
+
+    console.log('[l-keyword] ✓ Restructuring complete');
   });
 }

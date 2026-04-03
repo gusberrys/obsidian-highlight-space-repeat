@@ -1,4 +1,4 @@
-import { Plugin, Modal, WorkspaceLeaf, Notice, TFile } from 'obsidian';
+import { Plugin, Modal, WorkspaceLeaf, Notice, TFile, MarkdownView } from 'obsidian';
 import { editorHighlighter, recordBadgeGutter } from 'src/editor-extension';
 import { SettingTab } from 'src/settings/setting-tab';
 import { readerHighlighter, addRecordBadgesToReadingView, addGoalStatusBadges } from './reader-extension';
@@ -319,6 +319,35 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
           }
         } else {
           new Notice('Matrix view not open. Open it first to edit subjects.');
+        }
+      }
+    });
+
+    // Add command to reload/refresh current file
+    this.addCommand({
+      id: 'reload-current-file',
+      name: 'Reload Current File',
+      callback: async () => {
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (view && view.file) {
+          const file = view.file;
+          const allFiles = this.app.vault.getMarkdownFiles();
+          const otherFile = allFiles.find(f => f.path !== file.path);
+
+          const leaf = view.leaf;
+          if (leaf && otherFile) {
+            await leaf.openFile(otherFile);
+            setTimeout(async () => {
+              await leaf.openFile(file);
+              new Notice('File reloaded');
+            }, 100);
+          } else if (leaf) {
+            leaf.detach();
+            await this.app.workspace.getLeaf(true).openFile(file);
+            new Notice('File reloaded');
+          }
+        } else {
+          new Notice('No active markdown file to reload');
         }
       }
     });

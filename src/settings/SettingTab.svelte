@@ -1554,6 +1554,33 @@
           </span>
         </div>
       </div>
+
+      <div class="vword-layout-settings">
+        <h3>⚙️ Layout Restructuring</h3>
+        <p class="description">Control timing for layout restructuring (i-keywords, l-keywords).</p>
+
+        <div class="setting-item">
+          <div class="setting-item-info">
+            <div class="setting-item-name">Retry Delay (ms)</div>
+            <div class="setting-item-description">
+              Delay in milliseconds before retrying layout restructuring for slow-rendering lists.
+              Increase if some layouts don't apply correctly on page load.
+            </div>
+          </div>
+          <div class="setting-item-control">
+            <input
+              type="number"
+              min="0"
+              max="1000"
+              step="50"
+              bind:value={$settingsDataStore.layoutRetryDelayMs}
+              on:change={async () => await saveSettingsData()}
+              placeholder="100"
+              class="layout-retry-delay-input"
+            />
+          </div>
+        </div>
+      </div>
     </div>
   {:else if activeTab === 'parser'}
     <div class="parser-settings-section">

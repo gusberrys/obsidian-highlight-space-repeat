@@ -1,5 +1,5 @@
 import type { KeywordStyle, Category, VWordSettings } from './keyword-style';
-import { generateIKeywords, generateHKeywords, calculateHKeywordWidths } from './vword';
+import { generateIKeywords, generateHKeywords, generateLKeywords, calculateHKeywordWidths } from './vword';
 
 export function generateKeywordCSS(categories: Category[]): string {
   const cssRules: string[] = [];
@@ -108,6 +108,77 @@ export function generateIKeywordCSS(vwordSettings: VWordSettings): string {
 }
 
 /**
+ * Generate CSS for VWord l-keywords (last-item grid layout)
+ * l10 to l90, step 5 - controls 2-column grid where last item spans right column
+ */
+export function generateLKeywordCSS(vwordSettings: VWordSettings): string {
+  const cssRules: string[] = [];
+  const lKeywords = generateLKeywords();
+
+  lKeywords.forEach(keyword => {
+    const percentage = parseInt(keyword.substring(1), 10); // Remove 'l' prefix
+    const leftPercentage = 100 - percentage;
+
+    // Reading view - restructured layout with wrapper divs
+    const readingRules: string[] = [];
+
+    // Flex container for the wrapper
+    readingRules.push(`
+.kh-l-layout.${keyword} {
+  display: flex;
+  align-items: flex-start;
+}`);
+
+    // Left column (items except last)
+    readingRules.push(`
+.kh-l-layout.${keyword} .kh-l-left-column {
+  flex: 0 0 ${leftPercentage}%;
+}
+
+.kh-l-layout.${keyword} .kh-l-left-column ul,
+.kh-l-layout.${keyword} .kh-l-left-column ol {
+  margin: 0;
+}`);
+
+    // Right column (last item)
+    readingRules.push(`
+.kh-l-layout.${keyword} .kh-l-right-column {
+  flex: 0 0 ${percentage}%;
+}
+
+.kh-l-layout.${keyword} .kh-l-right-column ul,
+.kh-l-layout.${keyword} .kh-l-right-column ol {
+  margin: 0;
+  list-style: none;
+  padding-left: 0;
+}
+
+.kh-l-layout.${keyword} .kh-l-right-column .list-bullet {
+  display: none;
+}`);
+
+    cssRules.push(readingRules.join('\n'));
+
+    // Records view - TODO: implement restructuring in KHEntry.ts
+    // For now, just stack items normally
+    const recordsRules: string[] = [];
+
+    recordsRules.push(`
+.kh-entry.${keyword} .kh-sub-items,
+.kh-entry-compact.${keyword} .kh-sub-items,
+.kh-entry-full.${keyword} .kh-sub-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}`);
+
+    cssRules.push(recordsRules.join('\n'));
+  });
+
+  return cssRules.join('\n');
+}
+
+/**
  * Generate CSS for VWord h-keywords (horizontal list item ratio control)
  * 2-5 elements, sum 2-7 - controls horizontal list layout
  */
@@ -186,12 +257,13 @@ export function generateHKeywordCSS(vwordSettings: VWordSettings): string {
 }
 
 /**
- * Generate all VWord CSS (i-keywords + h-keywords)
+ * Generate all VWord CSS (i-keywords + h-keywords + l-keywords)
  */
 export function generateVWordCSS(vwordSettings: VWordSettings): string {
   const iCSS = generateIKeywordCSS(vwordSettings);
   const hCSS = generateHKeywordCSS(vwordSettings);
-  return [iCSS, hCSS].join('\n\n');
+  const lCSS = generateLKeywordCSS(vwordSettings);
+  return [iCSS, hCSS, lCSS].join('\n\n');
 }
 
 export function injectKeywordCSS(categories: Category[]): void {
