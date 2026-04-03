@@ -84,7 +84,7 @@
   let collapsedGroups: Set<string> = new Set();
 
   // Tab state
-  let activeTab: 'keywords' | 'cBlocks' | 'vword' | 'parser' | 'subjects' | 'generic' | 'filters' | 'srs' = 'keywords';
+  let activeTab: 'keywords' | 'cBlocks' | 'vword' | 'parser' | 'generic' | 'filters' | 'srs' = 'keywords';
 
   // SRS container reference
   let srsContainer: HTMLElement;
@@ -1000,13 +1000,6 @@
   </button>
   <button
     class="tab-button"
-    class:active={activeTab === 'subjects'}
-    on:click={() => activeTab = 'subjects'}
-  >
-    📚 Subjects
-  </button>
-  <button
-    class="tab-button"
     class:active={activeTab === 'filters'}
     on:click={() => activeTab = 'filters'}
   >
@@ -1227,36 +1220,6 @@
             </div>
             <button on:click={handleAddCategory}>Add Category</button>
           </div>
-        </div>
-      </div>
-    </div>
-  {:else if activeTab === 'subjects'}
-    <div class="kb-subjects-tab">
-      <h2>Subjects</h2>
-
-      <p class="kb-description">
-        Create subjects with filter expressions to organize and filter your knowledge base.
-      </p>
-
-      <!-- Path to Subjects Files -->
-      <div class="subjects-path-section">
-        <h3>Subjects Files Path</h3>
-        <p class="description">Specify a directory path where subject .md files are stored. Each subject will link to {'{'}path{'}'}/{'{'}subjectName{'}'}.md</p>
-        <input
-          type="text"
-          bind:value={$settingsDataStore.pathToSubjects}
-          on:change={async () => await saveSettingsData()}
-          placeholder="Enter directory path (e.g., /kb)"
-          class="subjects-path-input"
-        />
-      </div>
-
-      <!-- Subject management moved to Subject Matrix plugin -->
-      <div class="kb-filter-list">
-        <div style="padding: 20px; background-color: rgba(255, 165, 0, 0.1); border-left: 4px solid orange; margin: 10px 0;">
-          <p><strong>📦 Subject Management Moved</strong></p>
-          <p>Subject and topic management has been moved to the <strong>Subject Matrix</strong> plugin.</p>
-          <p>Please install the "Subject Matrix" plugin to manage subjects and topics.</p>
         </div>
       </div>
     </div>
