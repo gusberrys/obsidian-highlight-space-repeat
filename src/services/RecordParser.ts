@@ -124,7 +124,7 @@ export class RecordParser {
 				// Update header context for flat entries
 				// Header is valid if it has text OR keywords OR inlineKeywords
 				currentH1Info = (h1Header.text || h1Header.keywords || h1Header.inlineKeywords) ? {
-					text: h1Header.text,
+					text: h1Header.text || '',
 					tags: h1Header.tags,
 					keywords: h1Header.keywords || [],
 					inlineKeywords: h1Header.inlineKeywords
@@ -169,7 +169,7 @@ export class RecordParser {
 					// Create record unless blocked by another keyword entry or header
 					if (!shouldSkip) {
 						// Filter to only valid keywords
-						const validKeywords = h1Header.keywords.filter(k => parsedKeywords.includes(k));
+						const validKeywords = (h1Header.keywords || []).filter(k => parsedKeywords.includes(k));
 						const keywordsStr = validKeywords.join(' ');
 						const headerText = h1Header.text || '';
 
@@ -225,7 +225,7 @@ export class RecordParser {
 				// Update header context for flat entries
 				// Header is valid if it has text OR keywords OR inlineKeywords
 				currentH2Info = (h2Header.text || h2Header.keywords || h2Header.inlineKeywords) ? {
-					text: h2Header.text,
+					text: h2Header.text || '',
 					tags: h2Header.tags,
 					keywords: h2Header.keywords || [],
 					inlineKeywords: h2Header.inlineKeywords
@@ -269,7 +269,7 @@ export class RecordParser {
 					// Create record unless blocked by another keyword entry or header
 					if (!shouldSkip) {
 						// Filter to only valid keywords
-						const validKeywords = h2Header.keywords.filter(k => parsedKeywords.includes(k));
+						const validKeywords = (h2Header.keywords || []).filter(k => parsedKeywords.includes(k));
 						const keywordsStr = validKeywords.join(' ');
 						const headerText = h2Header.text || '';
 
@@ -325,7 +325,7 @@ export class RecordParser {
 				// Update header context for flat entries
 				// Header is valid if it has text OR keywords OR inlineKeywords
 				currentH3Info = (h3Header.text || h3Header.keywords || h3Header.inlineKeywords) ? {
-					text: h3Header.text,
+					text: h3Header.text || '',
 					tags: h3Header.tags,
 					keywords: h3Header.keywords || [],
 					inlineKeywords: h3Header.inlineKeywords
@@ -368,7 +368,7 @@ export class RecordParser {
 					// Create record unless blocked by another keyword entry or header
 					if (!shouldSkip) {
 						// Filter to only valid keywords
-						const validKeywords = h3Header.keywords.filter(k => parsedKeywords.includes(k));
+						const validKeywords = (h3Header.keywords || []).filter(k => parsedKeywords.includes(k));
 						const keywordsStr = validKeywords.join(' ');
 						const headerText = h3Header.text || '';
 
@@ -1173,7 +1173,7 @@ export class RecordParser {
 		// Build tree structure from flat subItems array based on indentation
 		const treeSubItems = this.buildSubItemTree(subItems);
 
-		const entry = {
+		const entry: ParsedEntry = {
 			type: 'keyword',
 			lineNumber: startIndex + 1,
 			text,

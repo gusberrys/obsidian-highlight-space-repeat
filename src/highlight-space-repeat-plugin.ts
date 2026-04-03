@@ -4,19 +4,15 @@ import { SettingTab } from 'src/settings/setting-tab';
 import { readerHighlighter, addRecordBadgesToReadingView, addGoalStatusBadges } from './reader-extension';
 import { createInsertKeywordCommand } from './commands';
 import { initStore, saveStore, type PluginSettings, type Settings } from './stores/settings-store';
-import { DATA_PATHS, type CodeBlockLanguage, type SubjectsData, type VWordSettings } from './shared';
-import type { HighlightSpaceRepeatAPI } from './public-api';
-import { KHMatrixWidget, KH_MATRIX_VIEW_TYPE } from './widgets/KHMatrixWidget';
-import { PinnedView, PINNED_VIEW_TYPE } from './widgets/PinnedView';
+import { DATA_PATHS, type CodeBlockLanguage, type VWordSettings } from './shared';
+import { HighlightSpaceRepeatAPI } from './public-api';
 import { SRSReviewView, SRS_REVIEW_VIEW_TYPE } from './widgets/SRSReviewView';
+import { RecordsViewWidget, RECORDS_VIEW_TYPE } from './widgets/RecordsViewWidget';
+// Matrix and Pinned views removed - now in Subject Matrix plugin
 import { SRSManager } from './services/SRSManager';
 
 export class HighlightSpaceRepeatPlugin extends Plugin {
   static settings: PluginSettings;
-  static currentSubject: any = null; // Global selected subject for matrix/commands/ribbon
-
-  // Track registered subject selection command IDs for cleanup
-  private subjectCommandIds: string[] = [];
 
   // SRS (Spaced Repetition System) manager
   public srsManager!: SRSManager;
@@ -24,135 +20,18 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
   // Parsed records cache (in RAM only)
   public parsedRecords: any[] = [];
 
+  // Public API instance
+  private _api!: HighlightSpaceRepeatAPI;
+
   /**
    * Public API for external plugins to access highlight space repeat functionality
    * Access via: app.plugins.plugins['obsidian-highlight-space-repeat'].api
    */
   public get api(): HighlightSpaceRepeatAPI {
-    // console.log('[Keyword Highlighter API] API getter called');
-    // console.log('[Keyword Highlighter API] Settings available:', !!HighlightSpaceRepeatPlugin.settings);
-    // console.log('[Keyword Highlighter API] Categories count:', HighlightSpaceRepeatPlugin.settings?.categories?.length || 0);
-
-    return {
-      getAllKeywordStyles: () => {
-        const categories = HighlightSpaceRepeatPlugin.settings?.categories || [];
-        // console.log('[API] getAllKeywordStyles - returning', categories.flatMap(cat => cat.keywords || []).length, 'keyword styles');
-        return categories.flatMap(cat => cat.keywords || []);
-      },
-
-      getKeywordStyle: (keyword: string) => {
-        const categories = HighlightSpaceRepeatPlugin.settings?.categories || [];
-        for (const category of categories) {
-          const found = category.keywords?.find(kw => kw.keyword === keyword);
-          if (found) return found;
-        }
-        return undefined;
-      },
-
-      getCategories: () => {
-        const categories = HighlightSpaceRepeatPlugin.settings?.categories || [];
-        // console.log('[API] getCategories - returning', categories.length, 'categories');
-        if (categories.length > 0) {
-          // console.log('[API] First category:', categories[0].icon);
-        }
-        return categories;
-      },
-
-      hasKeyword: (keyword: string) => {
-        const categories = HighlightSpaceRepeatPlugin.settings?.categories || [];
-        return categories.some(cat =>
-          cat.keywords?.some(kw => kw.keyword === keyword)
-        );
-      },
-
-      getVersion: () => {
-        return this.manifest.version;
-      }
-    };
+    return this._api;
   }
 
-  /**
-   * Unregister all existing subject selection commands
-   */
-  private unregisterSubjectCommands(): void {
-    // Note: Obsidian doesn't provide a direct way to unregister commands
-    // Commands are stored in app.commands.commands and app.commands.editorCommands
-    // We'll track IDs and clear them from the internal maps
-    for (const commandId of this.subjectCommandIds) {
-      // @ts-ignore - accessing internal API
-      if (this.app.commands?.commands?.[commandId]) {
-        // @ts-ignore
-        delete this.app.commands.commands[commandId];
-      }
-      // @ts-ignore
-      if (this.app.commands?.editorCommands?.[commandId]) {
-        // @ts-ignore
-        delete this.app.commands.editorCommands[commandId];
-      }
-    }
-    this.subjectCommandIds = [];
-  }
-
-  /**
-   * Register commands for selecting each subject in the matrix view
-   * Creates commands like "Select Subject: Work", "Select Subject: Personal", etc.
-   * This is public so it can be called when subjects are updated
-   */
-  async registerSubjectCommands(): Promise<void> {
-    // Unregister existing commands first
-    this.unregisterSubjectCommands();
-
-    // Load subjects
-    const subjectsData = await this.loadSubjects();
-    if (!subjectsData || !subjectsData.subjects || subjectsData.subjects.length === 0) {
-      console.log('[Keyword Highlighter] No subjects found for command registration');
-      return;
-    }
-
-    // Register a command for each subject
-    for (const subject of subjectsData.subjects) {
-      const commandId = `select-subject-${subject.id}`;
-      const commandName = `Select Subject: ${subject.icon || '📁'} ${subject.name}`;
-
-      this.addCommand({
-        id: commandId,
-        name: commandName,
-        callback: async () => {
-          // Get or create matrix view
-          const leaves = this.app.workspace.getLeavesOfType(KH_MATRIX_VIEW_TYPE);
-
-          if (leaves.length > 0) {
-            // Matrix view exists, set the subject
-            const matrixView = leaves[0].view as KHMatrixWidget;
-            if (matrixView && 'selectSubject' in matrixView) {
-              (matrixView as any).selectSubject(subject.id);
-            }
-            // Reveal the view
-            this.app.workspace.revealLeaf(leaves[0]);
-          } else {
-            // Matrix view doesn't exist, open it first then select subject
-            await this.activateMatrixView();
-
-            // Wait a bit for the view to fully load
-            setTimeout(() => {
-              const newLeaves = this.app.workspace.getLeavesOfType(KH_MATRIX_VIEW_TYPE);
-              if (newLeaves.length > 0) {
-                const matrixView = newLeaves[0].view as KHMatrixWidget;
-                if (matrixView && 'selectSubject' in matrixView) {
-                  (matrixView as any).selectSubject(subject.id);
-                }
-              }
-            }, 100);
-          }
-        }
-      });
-
-      // Track this command ID
-      this.subjectCommandIds.push(commandId);
-    }
-
-    console.log(`[Keyword Highlighter] Registered ${this.subjectCommandIds.length} subject selection commands`);
-  }
+  // Subject commands removed - now handled by Subject Matrix plugin
 
   async onload(): Promise<void> {
     console.log('[Keyword Highlighter] Starting plugin load...');
@@ -165,14 +44,15 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     await initStore(this);
     console.log('[Keyword Highlighter] Settings loaded, categories:', HighlightSpaceRepeatPlugin.settings?.categories?.length || 0);
 
+    // Initialize public API
+    this._api = new HighlightSpaceRepeatAPI(this);
+    console.log('[Keyword Highlighter] Public API initialized');
+
     // Initialize SRS (Spaced Repetition System)
     console.log('[Keyword Highlighter] Initializing SRS...');
     this.srsManager = new SRSManager(this.app);
     await this.srsManager.load();
     console.log('[Keyword Highlighter] SRS initialized');
-
-    // Register subject selection commands
-    await this.registerSubjectCommands();
 
     this.registerEditorExtension(editorHighlighter);
     this.registerEditorExtension(recordBadgeGutter(this));
@@ -180,17 +60,7 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     this.registerMarkdownPostProcessor((el, ctx) => addRecordBadgesToReadingView(el, ctx, this));
     this.registerMarkdownPostProcessor((el, ctx) => addGoalStatusBadges(el, ctx, this, this.app));
 
-    // Register KH Matrix Widget
-    this.registerView(
-      KH_MATRIX_VIEW_TYPE,
-      (leaf) => new KHMatrixWidget(leaf, this)
-    );
-
-    // Register Pinned View
-    this.registerView(
-      PINNED_VIEW_TYPE,
-      (leaf) => new PinnedView(leaf, this)
-    );
+    // Matrix and Pinned views removed - now in Subject Matrix plugin
 
     // Register SRS Review View
     this.registerView(
@@ -198,42 +68,16 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       (leaf) => new SRSReviewView(leaf, this)
     );
 
+    // Register Records View Widget
+    this.registerView(
+      RECORDS_VIEW_TYPE,
+      (leaf) => new RecordsViewWidget(leaf, this)
+    );
+
     // Add command to insert keyword
     this.addCommand(createInsertKeywordCommand(this.app));
 
-    // Add command to open KH Matrix Widget
-    this.addCommand({
-      id: 'open-kh-matrix',
-      name: 'Open Topic Matrix',
-      callback: () => {
-        this.activateMatrixView();
-      }
-    });
-
-    // Add command to toggle F/H/R expressions display in matrix
-    this.addCommand({
-      id: 'toggle-matrix-expressions',
-      name: 'Toggle Matrix Filter Expressions',
-      callback: () => {
-        const leaves = this.app.workspace.getLeavesOfType(KH_MATRIX_VIEW_TYPE);
-        if (leaves.length > 0) {
-          const matrixView = leaves[0].view as KHMatrixWidget;
-          if (matrixView && 'toggleExpressions' in matrixView) {
-            (matrixView as any).toggleExpressions();
-          }
-        }
-      }
-    });
-
-    // Add command to open Dashboard
-    // Add command to open Pinned View
-    this.addCommand({
-      id: 'open-kh-pinned',
-      name: 'Open Pinned Items',
-      callback: () => {
-        this.activatePinnedView();
-      }
-    });
+    // Matrix and Pinned view commands removed - now in Subject Matrix plugin
 
     // Add command to start SRS review
     this.addCommand({
@@ -300,26 +144,12 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       }
     });
 
-    // Add command to edit current subject
+    // Add command to open Records View
     this.addCommand({
-      id: 'edit-current-subject',
-      name: 'Edit Current Subject',
-      callback: () => {
-        if (!HighlightSpaceRepeatPlugin.currentSubject) {
-          new Notice('No subject selected. Open matrix view and select a subject first.');
-          return;
-        }
-
-        // Find matrix view to call openSubjectEditor
-        const leaves = this.app.workspace.getLeavesOfType(KH_MATRIX_VIEW_TYPE);
-        if (leaves.length > 0) {
-          const matrixView = leaves[0].view as KHMatrixWidget;
-          if (matrixView && 'openSubjectEditor' in matrixView) {
-            (matrixView as any).openSubjectEditor();
-          }
-        } else {
-          new Notice('Matrix view not open. Open it first to edit subjects.');
-        }
+      id: 'open-records-view',
+      name: 'Open Records View',
+      callback: async () => {
+        await this.activateRecordsView();
       }
     });
 
@@ -352,29 +182,17 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       }
     });
 
-    // Add command to start SRS review of filtered records
-    this.addCommand({
-      id: 'srs-review-filtered',
-      name: 'SRS: Review Filtered Records',
-      callback: async () => {
-        // Find matrix view to call startSRSReview
-        const leaves = this.app.workspace.getLeavesOfType(KH_MATRIX_VIEW_TYPE);
-        if (leaves.length > 0) {
-          const matrixView = leaves[0].view as KHMatrixWidget;
-          if (matrixView && 'startSRSReview' in matrixView) {
-            await (matrixView as any).startSRSReview();
-          }
-        } else {
-          new Notice('Matrix view not open. Open it first to use filtered SRS review.');
-        }
-      }
-    });
 
     // Add ribbon icon for knowledge base rescan
     this.addRibbonIcon('refresh-cw', 'Knowledge Base Rescan', async () => {
       new Notice('Rescanning knowledge base...');
       await this.triggerScan();
       new Notice('Knowledge base rescan complete!');
+    });
+
+    // Add ribbon icon for Records View
+    this.addRibbonIcon('list-filter', 'Open Records View', async () => {
+      await this.activateRecordsView();
     });
 
     // Add ribbon icon for SRS review of current file
@@ -407,38 +225,8 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       await this.activateSRSReviewView(dueFileEntries);
     });
 
-    // Add ribbon icon for editing current subject
-    this.addRibbonIcon('settings', 'Edit Current Subject', () => {
-      if (!HighlightSpaceRepeatPlugin.currentSubject) {
-        new Notice('No subject selected. Open matrix view and select a subject first.');
-        return;
-      }
 
-      // Find matrix view to call openSubjectEditor
-      const leaves = this.app.workspace.getLeavesOfType(KH_MATRIX_VIEW_TYPE);
-      if (leaves.length > 0) {
-        const matrixView = leaves[0].view as KHMatrixWidget;
-        if (matrixView && 'openSubjectEditor' in matrixView) {
-          (matrixView as any).openSubjectEditor();
-        }
-      } else {
-        new Notice('Matrix view not open. Open it first to edit subjects.');
-      }
-    });
-
-    // Add ribbon icon for SRS review of filtered records
-    this.addRibbonIcon('brain', 'SRS: Review Filtered Records', async () => {
-      // Find matrix view to call startSRSReview
-      const leaves = this.app.workspace.getLeavesOfType(KH_MATRIX_VIEW_TYPE);
-      if (leaves.length > 0) {
-        const matrixView = leaves[0].view as KHMatrixWidget;
-        if (matrixView && 'startSRSReview' in matrixView) {
-          await (matrixView as any).startSRSReview();
-        }
-      } else {
-        new Notice('Matrix view not open. Open it first to use filtered SRS review.');
-      }
-    });
+    // SRS: Review Filtered Records - Will be added back when RecordsViewWidget is created
 
     const settingTab = new SettingTab(this.app, this);
     this.addSettingTab(settingTab);
@@ -454,58 +242,7 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     );
   }
 
-  async activateMatrixView() {
-    const { workspace } = this.app;
-
-    let leaf: WorkspaceLeaf | null = null;
-    const leaves = workspace.getLeavesOfType(KH_MATRIX_VIEW_TYPE);
-
-    if (leaves.length > 0) {
-      // View already exists, reveal it
-      leaf = leaves[0];
-    } else {
-      // Create new view in right sidebar
-      leaf = workspace.getRightLeaf(false);
-      if (leaf) {
-        await leaf.setViewState({
-          type: KH_MATRIX_VIEW_TYPE,
-          active: true,
-        });
-      }
-    }
-
-    // Reveal the leaf
-    if (leaf) {
-      workspace.revealLeaf(leaf);
-    }
-  }
-
-  async activatePinnedView() {
-    const { workspace } = this.app;
-
-    let leaf: WorkspaceLeaf | null = null;
-    const leaves = workspace.getLeavesOfType(PINNED_VIEW_TYPE);
-
-    if (leaves.length > 0) {
-      // View already exists, reveal it
-      leaf = leaves[0];
-    } else {
-      // Create new view in right sidebar
-      leaf = workspace.getRightLeaf(false);
-      if (leaf) {
-        await leaf.setViewState({
-          type: PINNED_VIEW_TYPE,
-          active: true,
-        });
-      }
-    }
-
-    // Reveal the leaf
-    if (leaf) {
-      workspace.revealLeaf(leaf);
-    }
-  }
-
+  // Matrix and Pinned view activation methods removed - now in Subject Matrix plugin
 
   async activateSRSReviewView(entries: Array<{ entry: any; file: any }>) {
     const { workspace } = this.app;
@@ -539,10 +276,33 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     }
   }
 
-  async onunload(): Promise<void> {
-    // Clean up subject selection commands
-    this.unregisterSubjectCommands();
+  async activateRecordsView() {
+    const { workspace } = this.app;
 
+    let leaf: WorkspaceLeaf | null = null;
+    const leaves = workspace.getLeavesOfType(RECORDS_VIEW_TYPE);
+
+    if (leaves.length > 0) {
+      // View already exists, reveal it
+      leaf = leaves[0];
+    } else {
+      // Create new view in right sidebar
+      leaf = workspace.getRightLeaf(false);
+      if (leaf) {
+        await leaf.setViewState({
+          type: RECORDS_VIEW_TYPE,
+          active: true,
+        });
+      }
+    }
+
+    // Reveal the leaf
+    if (leaf) {
+      workspace.revealLeaf(leaf);
+    }
+  }
+
+  async onunload(): Promise<void> {
     // Save SRS data
     if (this.srsManager) {
       await this.srsManager.save();
@@ -575,10 +335,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     // If settings tab component is available, use it
     if (this.settingTab && this.settingTab.component && (this.settingTab.component as any).handleScanFiles) {
       await (this.settingTab.component as any).handleScanFiles();
-
-      // Refresh views if open
-      this.refreshPinnedView();
-      await this.refreshMatrixWidget();
       return;
     }
 
@@ -635,40 +391,13 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       this.parsedRecords.push(parsed);
     }
 
-    // Refresh views if open
-    this.refreshPinnedView();
-    this.refreshMatrixWidget();
-  }
-
-  /**
-   * Refresh Pinned View if it's currently open
-   */
-  private refreshPinnedView(): void {
-    const leaves = this.app.workspace.getLeavesOfType(PINNED_VIEW_TYPE);
-    if (leaves.length > 0) {
-      const pinnedView = leaves[0].view as PinnedView;
-      if (pinnedView && 'render' in pinnedView && typeof (pinnedView as any).render === 'function') {
-        (pinnedView as any).render();
-        console.log('[Knowledge Base Rescan] Refreshed Pinned View');
-      }
+    // Notify API subscribers that records have changed (matrix/pinned refresh removed)
+    if (this._api) {
+      this._api.notifyRecordsChanged();
     }
   }
 
-
-
-  /**
-   * Refresh Matrix Widget if it's currently open
-   */
-  private async refreshMatrixWidget(): Promise<void> {
-    const leaves = this.app.workspace.getLeavesOfType(KH_MATRIX_VIEW_TYPE);
-    if (leaves.length > 0) {
-      const matrixWidget = leaves[0].view as KHMatrixWidget;
-      if (matrixWidget && 'recalculateMatrixCounts' in matrixWidget && typeof (matrixWidget as any).recalculateMatrixCounts === 'function') {
-        await (matrixWidget as any).recalculateMatrixCounts();
-        console.log('[Knowledge Base Rescan] Refreshed Matrix Widget counts');
-      }
-    }
-  }
+  // Matrix and Pinned view refresh methods removed - now in Subject Matrix plugin
 
   // Override loadData to use keyword.json
   async loadData(): Promise<PluginSettings | null> {
@@ -734,32 +463,7 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     await this.app.vault.adapter.write(DATA_PATHS.VWORD_SETTINGS, JSON.stringify(data, null, 2));
   }
 
-  // Load subjects and topics from subjects.json
-  async loadSubjects(): Promise<SubjectsData | null> {
-    try {
-      const data = await this.app.vault.adapter.read(DATA_PATHS.SUBJECTS);
-      return JSON.parse(data);
-    } catch (error) {
-      console.log('[Plugin] No subjects file found or error reading:', error);
-      return null;
-    }
-  }
-
-  // Save subjects and topics to subjects.json
-  async saveSubjects(data: SubjectsData): Promise<void> {
-    // Count topics from nested structure
-    let topicsCount = 0;
-    data.subjects.forEach(s => {
-      topicsCount += (s.primaryTopics?.length || 0) + (s.secondaryTopics?.length || 0);
-    });
-
-    console.log('[Plugin.saveSubjects] Writing to file:', DATA_PATHS.SUBJECTS, {
-      subjectsCount: data.subjects.length,
-      topicsCount
-    });
-    await this.app.vault.adapter.write(DATA_PATHS.SUBJECTS, JSON.stringify(data, null, 2));
-    console.log('[Plugin.saveSubjects] Write completed successfully');
-  }
+  // Subject data management removed - now handled by Subject Matrix plugin
 
   // Handle opening reference files - auto-show records for that keyword
   async handleReferenceFileOpen(_file: any): Promise<void> {

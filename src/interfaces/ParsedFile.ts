@@ -101,6 +101,9 @@ export interface ParsedHeader {
 	/** Tags parsed from header line */
 	tags: string[];
 
+	/** Inline code languages extracted from header (for filtering only) */
+	inlineCodeLanguages?: string[];
+
 	/** Entries directly under this header */
 	entries: ParsedEntry[];
 
