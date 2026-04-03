@@ -8,9 +8,7 @@ import { injectKeywordCSS, injectVWordCSS, injectAllCSS } from 'src/shared/dynam
 import { get, writable } from 'svelte/store';
 import type { ParserSettings } from 'src/interfaces/ParserSettings';
 import { DEFAULT_PARSER_SETTINGS } from 'src/interfaces/ParserSettings';
-import type { Subject } from 'src/interfaces/Subject';
-import type { Topic } from 'src/interfaces/Topic';
-import type { SubjectsData } from 'src/shared/subjects-data';
+// Subject, Topic, SubjectsData imports removed - now managed by Subject Matrix plugin
 
 export interface PluginSettings {
   categories: Category[];
@@ -129,7 +127,7 @@ export const settingsStore = writable<PluginSettings>(DEFAULT_SETTINGS);
 export const settingsDataStore = writable<Settings>(DEFAULT_SETTINGS_DATA);
 export const codeBlocksStore = writable<CodeBlockLanguage[]>(DEFAULT_CODEBLOCKS);
 export const vwordSettingsStore = writable<VWordSettings>(DEFAULT_VWORD_SETTINGS);
-export const subjectsStore = writable<SubjectsData>({ subjects: [] });
+// subjectsStore removed - now managed by Subject Matrix plugin
 
 let plugin: HighlightSpaceRepeatPlugin | null = null;
 let appInstance: App | null = null;
@@ -147,7 +145,6 @@ export async function initStore(pluginInstance: HighlightSpaceRepeatPlugin): Pro
   // These can load in parallel with plugin initialization
   loadSettingsData();
   loadCodeBlocks();
-  loadSubjects();
 
 }
 
@@ -378,160 +375,4 @@ export async function saveVWordSettings(): Promise<void> {
   refreshViews();
 }
 
-// Subjects and Topics functions
-export async function loadSubjects(): Promise<void> {
-  if (!plugin) return;
-
-  const loadedData = await plugin.loadSubjects();
-  const subjectsData = loadedData || { subjects: [] };
-
-  subjectsStore.set(subjectsData);
-}
-
-export async function saveSubjects(): Promise<void> {
-  if (!plugin) {
-    console.error('[saveSubjects] Plugin not initialized');
-    return;
-  }
-
-  const currentSubjects = get(subjectsStore);
-
-  // Count topics across all subjects
-  let totalTopics = 0;
-  currentSubjects.subjects.forEach(s => {
-    totalTopics += (s.primaryTopics?.length || 0) + (s.secondaryTopics?.length || 0);
-  });
-
-  await plugin.saveSubjects(currentSubjects);
-
-  // Refresh subject selection commands
-  await plugin.registerSubjectCommands();
-}
-
-// Subjects functions
-export function addSubject(name: string): string {
-  const newId = `subject-${Date.now()}`;
-  subjectsStore.update((data) => {
-    data.subjects.push({
-      id: newId,
-      name: name.trim(),
-      enabled: true
-    });
-    return data;
-  });
-  saveSubjects();
-  return newId;
-}
-
-export function removeSubject(subjectId: string): void {
-  subjectsStore.update((data) => {
-    data.subjects = data.subjects.filter((s: Subject) => s.id !== subjectId);
-    // Topics are nested under subjects, so they're automatically removed
-    return data;
-  });
-  saveSubjects();
-}
-
-export function updateSubject(subjectId: string, updates: Partial<Subject>): void {
-  subjectsStore.update((data) => {
-    const subject = data.subjects.find((s: Subject) => s.id === subjectId);
-    if (subject) {
-      Object.assign(subject, updates);
-    }
-    return data;
-  });
-  saveSubjects();
-}
-
-// Topics functions - work with nested arrays
-export function addTopic(subjectId: string, topic: Topic, isPrimary: boolean): void {
-  subjectsStore.update((data) => {
-    const subject = data.subjects.find((s: Subject) => s.id === subjectId);
-    if (subject) {
-      if (isPrimary) {
-        if (!subject.primaryTopics) subject.primaryTopics = [];
-        subject.primaryTopics.push(topic);
-      } else {
-        if (!subject.secondaryTopics) subject.secondaryTopics = [];
-        subject.secondaryTopics.push(topic);
-      }
-    }
-    return data;
-  });
-  saveSubjects();
-}
-
-export function removeTopic(topicId: string): void {
-  subjectsStore.update((data) => {
-    // Find and remove topic from whichever subject contains it
-    for (const subject of data.subjects) {
-      if (subject.primaryTopics) {
-        const index = subject.primaryTopics.findIndex(t => t.id === topicId);
-        if (index >= 0) {
-          subject.primaryTopics.splice(index, 1);
-          if (subject.primaryTopics.length === 0) delete subject.primaryTopics;
-          return data;
-        }
-      }
-      if (subject.secondaryTopics) {
-        const index = subject.secondaryTopics.findIndex(t => t.id === topicId);
-        if (index >= 0) {
-          subject.secondaryTopics.splice(index, 1);
-          if (subject.secondaryTopics.length === 0) delete subject.secondaryTopics;
-          return data;
-        }
-      }
-    }
-    return data;
-  });
-  saveSubjects();
-}
-
-export function updateTopic(topicId: string, updates: Partial<Topic>): void {
-  subjectsStore.update((data) => {
-    // Find topic in any subject and update it
-    for (const subject of data.subjects) {
-      if (subject.primaryTopics) {
-        const topic = subject.primaryTopics.find(t => t.id === topicId);
-        if (topic) {
-          Object.assign(topic, updates);
-          return data;
-        }
-      }
-      if (subject.secondaryTopics) {
-        const topic = subject.secondaryTopics.find(t => t.id === topicId);
-        if (topic) {
-          Object.assign(topic, updates);
-          return data;
-        }
-      }
-    }
-    return data;
-  });
-  saveSubjects();
-}
-
-export function addPrimaryTopic(subjectId: string): void {
-  const newTopic: Topic = {
-    id: `topic-${Date.now()}`,
-    name: '',
-    icon: '📌',
-    topicTag: '',
-    topicKeyword: '',
-    topicText: ''
-  };
-  addTopic(subjectId, newTopic, true);
-}
-
-export function addSecondaryTopic(subjectId: string): void {
-  const newTopic: Topic = {
-    id: `topic-${Date.now()}`,
-    name: '',
-    icon: '🔗',
-    topicTag: '',
-    topicKeyword: ''
-  };
-  addTopic(subjectId, newTopic, false);
-}
-
-
+// Subject management functions removed - now in Subject Matrix plugin's subject-store.ts

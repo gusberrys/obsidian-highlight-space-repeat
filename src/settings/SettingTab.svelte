@@ -10,9 +10,6 @@
     codeBlocksStore, saveCodeBlocks,
     vwordSettingsStore, saveVWordSettings,
     updateCategoryClass,
-    subjectsStore,
-    addSubject, removeSubject, updateSubject,
-    addTopic, removeTopic, updateTopic, addPrimaryTopic, addSecondaryTopic,
   } from 'src/stores/settings-store';
   import { setIcon, Notice, TFile } from 'obsidian';
   import type { HighlightSpaceRepeatPlugin } from 'src/highlight-space-repeat-plugin';
@@ -20,7 +17,7 @@
   import { FilterParser } from 'src/services/FilterParser';
   import type { ParserScanResult } from 'src/interfaces/ParserSettings';
   import type { ParsedRecord } from 'src/interfaces/ParsedRecord';
-  import { SubjectModal } from './SubjectModal';
+  // import { SubjectModal } from './SubjectModal'; // Removed - now in Subject Matrix plugin
   import { DATA_PATHS } from 'src/shared/data-paths';
   import { addSRSSettings } from './SRSSettings';
 
@@ -560,38 +557,17 @@
     collapsedGroups = collapsedGroups;
   }
 
-  // Subjects handlers - Modal-based
+  // Subjects handlers - Moved to Subject Matrix plugin
   function openNewSubjectModal() {
-    const modal = new SubjectModal(plugin.app, plugin, null, async (subject) => {
-      // Subject and topics are already saved by the modal
-      // Just trigger a re-render by updating the store reference
-      settingsStore.set($settingsStore);
-    });
-    modal.open();
+    new Notice('Subject management moved to Subject Matrix plugin');
   }
 
   function openEditSubjectModal(index: number) {
-    const subject = $subjectsStore.subjects![index];
-    const modal = new SubjectModal(plugin.app, plugin, subject, async (updatedSubject) => {
-      // Subject and topics are already saved by the modal
-      // Just trigger a re-render by updating the store reference
-      settingsStore.set($settingsStore);
-    });
-    modal.open();
+    new Notice('Subject management moved to Subject Matrix plugin');
   }
 
   async function handleDeleteSubject(index: number) {
-    const subject = $subjectsStore.subjects![index];
-
-    // Remove subject
-    $subjectsStore.subjects!.splice(index, 1);
-
-    // Remove all topics for this subject
-    if ($subjectsStore.topics) {
-      $subjectsStore.topics = $subjectsStore.topics.filter(t => t.subjectId !== subject.id);
-    }
-
-    await saveStore();
+    new Notice('Subject management moved to Subject Matrix plugin');
   }
 
   function getKeywordIndex(categoryIndex: number, keywordIndex: number): number {
@@ -1275,68 +1251,13 @@
         />
       </div>
 
-      <!-- List of existing subjects -->
+      <!-- Subject management moved to Subject Matrix plugin -->
       <div class="kb-filter-list">
-        {#if !$subjectsStore.subjects || $subjectsStore.subjects.length === 0}
-          <p class="kb-empty-message">No subjects yet. Click "Add Subject" to create one.</p>
-        {:else}
-          {#each $subjectsStore.subjects as subject, index}
-            <div class="kb-filter-item">
-              <!-- Single compact row with everything -->
-              <div class="kb-filter-header">
-                <span class="kb-filter-icon" style={subject.color ? `color: ${subject.color}` : ''}>
-                  {subject.icon || '🎯'}
-                </span>
-                <span class="kb-filter-name">{subject.name}</span>
-
-                {#if subject.mainTag}
-                  <span class="kb-filter-maintag">
-                    <code>{subject.mainTag}</code>
-                  </span>
-                {/if}
-
-                {#if subject.dashOnlyFilterExp}
-                  <span class="kb-filter-expression-inline" style="background-color: rgba(0, 0, 139, 0.7); color: white; padding: 2px 6px; border-radius: 3px; margin-right: 4px;">
-                    <code style="color: white;">Dash: {subject.dashOnlyFilterExp}</code>
-                  </span>
-                {/if}
-                {#if subject.matrixOnlyFilterExp}
-                  <span class="kb-filter-expression-inline" style="background-color: rgba(255, 0, 0, 0.6); color: white; padding: 2px 6px; border-radius: 3px;">
-                    <code style="color: white;">Matrix: {subject.matrixOnlyFilterExp}</code>
-                  </span>
-                {/if}
-                {#if !subject.dashOnlyFilterExp && !subject.matrixOnlyFilterExp && subject.expression}
-                  <span class="kb-filter-expression-inline" style="opacity: 0.6;">
-                    <code>Legacy: {subject.expression}</code>
-                  </span>
-                {/if}
-
-                <button
-                  class="kb-filter-btn-inline"
-                  on:click={() => openEditSubjectModal(index)}
-                >
-                  Edit
-                </button>
-                <button
-                  class="kb-filter-btn-inline kb-filter-btn-danger"
-                  on:click={() => handleDeleteSubject(index)}
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          {/each}
-        {/if}
-      </div>
-
-      <!-- Add Subject button -->
-      <div class="kb-add-subject-section">
-        <button
-          class="kb-add-subject-btn"
-          on:click={openNewSubjectModal}
-        >
-          Add Subject
-        </button>
+        <div style="padding: 20px; background-color: rgba(255, 165, 0, 0.1); border-left: 4px solid orange; margin: 10px 0;">
+          <p><strong>📦 Subject Management Moved</strong></p>
+          <p>Subject and topic management has been moved to the <strong>Subject Matrix</strong> plugin.</p>
+          <p>Please install the "Subject Matrix" plugin to manage subjects and topics.</p>
+        </div>
       </div>
     </div>
   {:else if activeTab === 'generic'}

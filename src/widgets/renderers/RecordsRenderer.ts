@@ -1,10 +1,8 @@
 import type { App } from 'obsidian';
 import { TFile, setIcon, MarkdownRenderer, MarkdownView } from 'obsidian';
-import type { Subject } from '../../interfaces/Subject';
 import type { ParsedFile, FlatEntry } from '../../interfaces/ParsedFile';
 import type { ActiveChip } from '../../interfaces/ActiveChip';
 import type { KeywordStyle } from '../../shared/keyword-style';
-import type { MatrixCell } from '../cells/MatrixCell';
 import { HighlightSpaceRepeatPlugin } from '../../highlight-space-repeat-plugin';
 import { FilterParser } from '../../services/FilterParser';
 import { FilterExpressionService } from '../../services/FilterExpressionService';
@@ -21,11 +19,9 @@ export class RecordsRenderer {
 	private app: App;
 	private plugin: HighlightSpaceRepeatPlugin;
 	private parsedRecords: ParsedFile[];
-	private currentSubject: Subject | null;
 
 	// Filter state
 	private filterType: 'F' | 'H' | 'R' | 'D' | null;
-	private filterCell: MatrixCell | null;
 	private filterExpression: string;
 	private filterText: string;
 
@@ -58,10 +54,8 @@ export class RecordsRenderer {
 		app: App,
 		plugin: HighlightSpaceRepeatPlugin,
 		parsedRecords: ParsedFile[],
-		currentSubject: Subject | null,
 		filterState: {
 			filterType: 'F' | 'H' | 'R' | 'D' | null;
-			filterCell: MatrixCell | null;
 			filterExpression: string;
 			filterText: string;
 			fileSearchText: string;
@@ -91,10 +85,8 @@ export class RecordsRenderer {
 		this.app = app;
 		this.plugin = plugin;
 		this.parsedRecords = parsedRecords;
-		this.currentSubject = currentSubject;
 
 		this.filterType = filterState.filterType;
-		this.filterCell = filterState.filterCell;
 		this.filterExpression = filterState.filterExpression;
 		this.filterText = filterState.filterText;
 		this.fileSearchText = filterState.fileSearchText;
@@ -232,8 +224,8 @@ export class RecordsRenderer {
 				indicatorSpan.style.fontSize = '0.8em';
 				indicatorSpan.style.opacity = '0.6';
 				indicatorSpan.style.marginLeft = '2px';
-			} else if (chip.type === 'codeblock') {
-				// For codeblock, show backtick + language name
+			} else if (chip.type === 'language') {
+				// For language/codeblock, show backtick + language name
 				chipEl.createEl('span', {
 					text: `\`${chip.label}`
 				});
@@ -258,24 +250,20 @@ export class RecordsRenderer {
 
 		const resultsContainer = filterSection.createDiv({ cls: 'kh-widget-filter-results' });
 
-		// Use cell-based rendering if we have a cell, otherwise use expression-based
-		if (this.filterCell) {
-			// Cell-based filtering - use cell's collect methods
-			if (this.filterType === 'F') {
-				await this.renderFileFilterResults(resultsContainer);
-			} else if (this.filterType === 'H') {
-				await this.renderHeaderFilterResults(resultsContainer);
+		// Render based on filter type
+		if (this.filterType === 'F') {
+			await this.renderFileFilterResults(resultsContainer);
+		} else if (this.filterType === 'H') {
+			await this.renderHeaderFilterResults(resultsContainer);
 			} else if (this.filterType === 'R') {
 				await this.renderRecordFilterResults(resultsContainer);
 			} else if (this.filterType === 'D') {
 				await this.renderDashFilterResults(resultsContainer);
+			} else if (this.filterExpression) {
+				// Expression-based filtering
+				await this.renderExpressionRecords(resultsContainer);
 			}
-		} else if (this.filterExpression) {
-			// Expression-based filtering - use FilterExpressionService
-			// (for manual text filters typed by user)
-			await this.renderExpressionRecords(resultsContainer);
 		}
-	}
 
 	/**
 	 * Get currently displayed records (with file search filter applied)
@@ -387,10 +375,11 @@ export class RecordsRenderer {
 	 * Render file filter results with entries (like H mode shows headers with entries)
 	 */
 	private async renderFileFilterResults(container: HTMLElement): Promise<void> {
-		if (!this.filterCell) return;
-
-		// Get files from cell
-		let matchingFiles = this.filterCell.collectFiles(this.parsedRecords);
+		// Get matching records and extract unique files
+		const compiledFilter = FilterParser.compile(this.filterExpression);
+		const matchingRecords = FilterExpressionService.getMatchingRecords(this.parsedRecords, this.filterExpression);
+		const filePathSet = new Set(matchingRecords.map(({ file }) => file.filePath));
+		let matchingFiles = this.parsedRecords.filter(file => filePathSet.has(file.filePath));
 
 		// Apply text filter
 		if (this.filterText) {
@@ -424,10 +413,25 @@ export class RecordsRenderer {
 	 * Render header filter results with expandable entries
 	 */
 	private async renderHeaderFilterResults(container: HTMLElement): Promise<void> {
-		if (!this.filterCell) return;
+		// Get matching records and group by header
+		const matchingRecords = FilterExpressionService.getMatchingRecords(this.parsedRecords, this.filterExpression);
 
-		// Get headers from cell instead of manual collection
-		let headerGroups = this.filterCell.collectHeaders(this.parsedRecords);
+		// Group records by their parent header
+		let headerGroups = new Map<string, { file: ParsedFile; headerText: string; headerLevel: number; entries: FlatEntry[] }>();
+
+		for (const { entry, file } of matchingRecords) {
+			const h1Text = entry.h1?.text || '';
+			const h2Text = entry.h2?.text || '';
+			const h3Text = entry.h3?.text || '';
+			const headerKey = `${file.filePath}::${h1Text}::${h2Text}::${h3Text}`;
+			const headerText = h3Text || h2Text || h1Text || '';
+			const headerLevel = entry.h3 ? 3 : entry.h2 ? 2 : entry.h1 ? 1 : 0;
+
+			if (!headerGroups.has(headerKey)) {
+				headerGroups.set(headerKey, { file, headerText, headerLevel, entries: [] });
+			}
+			headerGroups.get(headerKey)!.entries.push(entry);
+		}
 
 		// Apply text filter to header groups
 		if (this.filterText) {
@@ -731,10 +735,8 @@ export class RecordsRenderer {
 	 * Render record filter results from cell
 	 */
 	private async renderRecordFilterResults(container: HTMLElement): Promise<void> {
-		if (!this.filterCell) return;
-
-		// Get records from cell instead of manual filtering
-		let matchingRecords = this.filterCell.collectRecords(this.parsedRecords);
+		// Get matching records
+		let matchingRecords = FilterExpressionService.getMatchingRecords(this.parsedRecords, this.filterExpression);
 
 		// Apply text filter
 		if (this.filterText) {
@@ -763,10 +765,8 @@ export class RecordsRenderer {
 	 * Uses dashOnlyFilterExpSide expression
 	 */
 	private async renderDashFilterResults(container: HTMLElement): Promise<void> {
-		if (!this.filterCell) return;
-
-		// Get dashboard records from cell
-		let matchingRecords = this.filterCell.collectDashRecords(this.parsedRecords);
+		// Get dashboard records
+		let matchingRecords = FilterExpressionService.getMatchingRecords(this.parsedRecords, this.filterExpression);
 
 		// Apply text filter
 		if (this.filterText) {
@@ -798,13 +798,9 @@ export class RecordsRenderer {
 	private async renderExpressionRecords(container: HTMLElement): Promise<void> {
 		try {
 			// Use FilterExpressionService.getMatchingRecords() - SINGLE SOURCE OF TRUTH
-			// Expression-based filtering doesn't have topic context - just raw expression matching
 			const matchingFiles = FilterExpressionService.getMatchingRecords(
 				this.parsedRecords,
-				this.filterExpression,
-				null, // No primary topic for manual expressions
-				this.currentSubject || undefined,
-				false // No subject tag inclusion for manual expressions
+				this.filterExpression
 			);
 
 			if (matchingFiles.length === 0) {

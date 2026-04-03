@@ -1,5 +1,5 @@
-import type { KeywordStyle, Category, VWordSettings } from './keyword-style';
-import { generateIKeywords, generateHKeywords, generateLKeywords, calculateHKeywordWidths } from './vword';
+import type { KeywordStyle, Category } from './keyword-style';
+import { generateIKeywords, generateHKeywords, generateLKeywords, calculateHKeywordWidths, type VWordSettings } from './vword';
 
 export function generateKeywordCSS(categories: Category[]): string {
   const cssRules: string[] = [];
