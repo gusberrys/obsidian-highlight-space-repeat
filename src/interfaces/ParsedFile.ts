@@ -65,6 +65,12 @@ export interface ParsedEntrySubItem {
 	/** Type of list marker */
 	listType: 'dash' | 'asterisk' | 'numbered' | 'checkbox' | 'code-block' | 'blockquote';
 
+	/** Indentation level (number of spaces/tabs before the list marker) */
+	indent?: number;
+
+	/** Child subitems (nested lists) */
+	children?: ParsedEntrySubItem[];
+
 	/** Checkbox state (for checkbox items) */
 	checked?: boolean;
 

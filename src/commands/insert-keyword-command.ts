@@ -17,7 +17,6 @@ class KeywordSuggestModal extends SuggestModal<KeywordWithCategory> {
     const settings = get(settingsStore);
     const allKeywords: KeywordWithCategory[] = [];
 
-    // Add individual keywords
     settings.categories.forEach(category => {
       category.keywords.forEach(keyword => {
         allKeywords.push({
@@ -26,8 +25,6 @@ class KeywordSuggestModal extends SuggestModal<KeywordWithCategory> {
         });
       });
     });
-
-    // No more combinations - combinable feature removed
 
     if (!query) {
       return allKeywords;
@@ -56,19 +53,13 @@ class KeywordSuggestModal extends SuggestModal<KeywordWithCategory> {
     }
     keywordPart.createSpan({ text: keywordWithCategory.keyword, cls: 'keyword-text' });
 
-    // Category
-    mainLine.createSpan({
-      text: `: ${keywordWithCategory.description}`,
-      cls: 'keyword-suggestion-category'
-    });
-
     // Description
-    // if (keywordWithCategory.description) {
-    //   container.createDiv({
-    //     text: `${keywordWithCategory.categoryName}`,
-    //     cls: 'keyword-suggestion-description'
-    //   });
-    // }
+    if (keywordWithCategory.description) {
+      mainLine.createSpan({
+        text: ` - ${keywordWithCategory.description}`,
+        cls: 'keyword-suggestion-category'
+      });
+    }
 
     // Add CSS for styling
     if (!document.querySelector('#keyword-suggestion-styles')) {
@@ -92,12 +83,6 @@ class KeywordSuggestModal extends SuggestModal<KeywordWithCategory> {
           color: var(--text-muted);
           font-style: italic;
         }
-        .keyword-suggestion-description {
-          font-size: 0.8em;
-          color: var(--text-faint);
-          margin-top: 1px;
-          padding-left: 2px;
-        }
       `;
       document.head.appendChild(style);
     }
@@ -109,8 +94,8 @@ class KeywordSuggestModal extends SuggestModal<KeywordWithCategory> {
 }
 
 export const createInsertKeywordCommand: (app: App) => Command = (app: App) => ({
-  id: 'kh-insert-keyword-with-line',
-  name: 'Insert keyword with current line content',
+  id: 'kh-insert-keyword',
+  name: 'Insert keyword',
   editorCallback: (editor) => {
     const cursor = editor.getCursor();
     const line = editor.getLine(cursor.line);
@@ -120,51 +105,32 @@ export const createInsertKeywordCommand: (app: App) => Command = (app: App) => (
       const className = keyword.keyword;
 
       if (selection && selection.trim()) {
-        // If there's a selection, surround it with keyword (icon displays via CSS ::before)
+        // If there's a selection, surround it with mark tag
         const newSelection = `<mark class="${className}"> ${selection} </mark>`;
         editor.replaceSelection(newSelection);
-      } else {
-        // No selection - use existing logic
-        let newContent: string;
-
-        // Combinable feature removed - just insert the keyword
-        // Always insert keyword at the current position
-        if (false) {
-          // This block is never reached - kept for code structure
-          newContent = line;
-        } else if (/^xtab/.test(line)) {
-          // For xtab lines: insert only the icon
-          newContent = line + " " + (keyword.generateIcon || '');
-        } else if (/^\s*#/.test(line)) {
-          // For headers: insert keyword with :: after the header marker
-          const headerMatch = line.match(/^(\s*#+\s*)(.*)/);
-          if (headerMatch) {
-            const headerPart = headerMatch[1]; // "# " or "## " etc
-            const contentPart = headerMatch[2]; // rest of the line
-            newContent = `${headerPart}${keyword.keyword} :: ${contentPart}`;
-          } else {
-            // Fallback if regex doesn't match
-            newContent = `${keyword.keyword} :: ${line}`;
-          }
-        } else if (/^\s*$/.test(line)) {
-          // For empty lines: insert keyword with ::
-          newContent = `${keyword.keyword} ::`;
-        } else {
-          // For other lines: insert mark at cursor position
-          const cursorPos = cursor.ch;
-          const beforeCursor = line.substring(0, cursorPos);
-          const afterCursor = line.substring(cursorPos);
-
-          newContent = beforeCursor + `<mark class="${className}">` + afterCursor;
+      } else if (/^\s*#/.test(line)) {
+        // For headers: insert keyword with :: after the header marker
+        const headerMatch = line.match(/^(\s*#+\s*)(.*)/);
+        if (headerMatch) {
+          const headerPart = headerMatch[1]; // "# " or "## " etc
+          const contentPart = headerMatch[2]; // rest of the line
+          const newContent = `${headerPart}${keyword.keyword} :: ${contentPart}`;
+          editor.setLine(cursor.line, newContent);
+          editor.setCursor({ line: cursor.line, ch: newContent.length });
         }
-
+      } else if (/^\s*$/.test(line)) {
+        // For empty lines: insert keyword with ::
+        const newContent = `${keyword.keyword} :: `;
         editor.setLine(cursor.line, newContent);
-
-        // Position cursor at the end of the line
-        editor.setCursor({
-          line: cursor.line,
-          ch: newContent.length
-        });
+        editor.setCursor({ line: cursor.line, ch: newContent.length });
+      } else {
+        // For other lines: insert mark at cursor position
+        const cursorPos = cursor.ch;
+        const beforeCursor = line.substring(0, cursorPos);
+        const afterCursor = line.substring(cursorPos);
+        const newContent = beforeCursor + `<mark class="${className}"> </mark>` + afterCursor;
+        editor.setLine(cursor.line, newContent);
+        editor.setCursor({ line: cursor.line, ch: cursorPos + `<mark class="${className}"> `.length });
       }
     }).open();
   },

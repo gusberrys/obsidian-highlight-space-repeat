@@ -1330,3 +1330,13 @@
   font-weight: normal;
   white-space: nowrap;
 }
+
+/* Nested subitems */
+.kh-sub-items {
+  margin-top: 4px;
+}
+
+/* Nested sub-items have left margin for indentation */
+.kh-sub-item .kh-sub-items {
+  margin-left: 20px;
+}

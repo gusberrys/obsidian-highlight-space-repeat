@@ -1,6 +1,7 @@
 /* KH Matrix Widget */
 .kh-matrix-widget {
   /*padding: 2px;*/
+  padding: 0px !important;
   margin-top: -13px;
   border: 3px solid rgba(0, 0, 255, 0.3);
   border-radius: 4px;
@@ -136,9 +137,11 @@
   z-index: 2;
 }
 
+
+
 /* Mini subject selector in 1x1 cell - pinned to top-left corner */
 .kh-matrix-subject-cell {
-  padding: 2px !important;
+  padding-top: 6px !important;
   position: sticky;
   top: 0;
   left: 0;
@@ -573,5 +576,108 @@
 .kh-widget-filter-entry mark.kh-icon::before {
   /* Icons from keyword settings will appear here via dynamic CSS */
   /* The mark.keywordname::before rules will apply */
+}
+
+/* Column view for matrix */
+.kh-dashboard-columns {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.kh-dashboard-column {
+  flex: 1;
+  min-width: 115px;
+  max-width: 145px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  overflow: hidden;
+  padding: 2px 0px;
+}
+
+.kh-dashboard-column-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+
+.kh-dashboard-column-title {
+  font-weight: 600;
+  font-size: 0.95em;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1;
+}
+
+.kh-dashboard-column-count {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.kh-dashboard-files-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.kh-dashboard-files-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.kh-dashboard-files-list::-webkit-scrollbar-track {
+  background: var(--background-modifier-border);
+  border-radius: 3px;
+}
+
+.kh-dashboard-files-list::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  border-radius: 3px;
+}
+
+.kh-dashboard-files-list::-webkit-scrollbar-thumb:hover {
+  background: var(--text-normal);
+}
+
+.kh-dashboard-chip {
+  font-size: 1.1em;
+  transition: all 0.2s ease;
+  opacity: 0.5;
+}
+
+.kh-dashboard-chip:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.kh-chip-active {
+  opacity: 1;
+  box-shadow: 0 0 0 3px var(--interactive-accent);
+  transform: scale(1.05);
+}
+
+.kh-dashboard-file-item {
+  margin: -2px 0;
+  border-radius: 3px;
+  transition: background-color 0.15s ease;
+}
+
+.kh-dashboard-file-item:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.kh-dashboard-file-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
 }
 

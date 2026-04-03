@@ -40,6 +40,7 @@ export class KHMatrixWidget extends ItemView {
 
 	// Prevent concurrent renders
 	private isRendering: boolean = false;
+	private pendingRender: boolean = false;
 
 	// Chips and flags
 	private activeChips: Map<string, ActiveChip> = new Map();
@@ -140,8 +141,11 @@ export class KHMatrixWidget extends ItemView {
 	private async render(): Promise<void> {
 		// Prevent concurrent renders
 		if (this.isRendering) {
+			console.log('[render] BLOCKED - already rendering, setting pendingRender flag');
+			this.pendingRender = true;
 			return;
 		}
+		console.log('[render] Starting render');
 		this.isRendering = true;
 
 		try {
@@ -152,37 +156,66 @@ export class KHMatrixWidget extends ItemView {
 			// Update chips from dashboard filter
 			this.updateChipsFromDashboardFilter();
 
-			// ========================================
-			// PART 1: MATRIX HEADER
-			// ========================================
+			// Render header (chips/flags) - synchronous, fast
 			this.renderMatrixHeader(container);
 
-			// ========================================
-			// PART 2: MATRIX TABLE
-			// ========================================
-			if (this.currentSubject) {
-				await this.renderMatrixTable(container);
-			} else {
-				container.createEl('p', {
-					text: 'No subjects available',
-					cls: 'kh-empty-message'
-				});
-			}
+			// Create placeholder containers for matrix and records
+			const matrixContainer = container.createDiv('kh-matrix-section');
+			const recordsContainer = container.createDiv('kh-records-section');
 
-			// ========================================
-			// PART 3: COLUMNS (when row selected)
-			// ========================================
-			if (this.currentSubject && this.selectedRowId) {
-				await this.renderMatrixColumns(container);
-			}
-
-			// ========================================
-			// PART 4: RECORDS (always visible)
-			// ========================================
-			await this.renderWidgetFilter(container);
+			// Render matrix and records in parallel (independently)
+			await Promise.all([
+				this.renderMatrixSection(matrixContainer),
+				this.renderRecordsSection(recordsContainer)
+			]);
 		} finally {
+			console.log('[render] Completed render');
 			this.isRendering = false;
+
+			// If a render was requested while we were rendering, execute it now
+			if (this.pendingRender) {
+				console.log('[render] Executing pending render');
+				this.pendingRender = false;
+				this.render();
+			}
 		}
+	}
+
+	/**
+	 * Render matrix section (table + columns)
+	 */
+	private async renderMatrixSection(container: HTMLElement): Promise<void> {
+		console.log('[renderMatrixSection] Starting matrix render');
+
+		// ========================================
+		// MATRIX TABLE
+		// ========================================
+		if (this.currentSubject) {
+			await this.renderMatrixTable(container);
+		} else {
+			container.createEl('p', {
+				text: 'No subjects available',
+				cls: 'kh-empty-message'
+			});
+		}
+
+		// ========================================
+		// COLUMNS (when row selected)
+		// ========================================
+		if (this.currentSubject && this.selectedRowId) {
+			await this.renderMatrixColumns(container);
+		}
+
+		console.log('[renderMatrixSection] Completed matrix render');
+	}
+
+	/**
+	 * Render records section (widget filter)
+	 */
+	private async renderRecordsSection(container: HTMLElement): Promise<void> {
+		console.log('[renderRecordsSection] Starting records render');
+		await this.renderWidgetFilter(container);
+		console.log('[renderRecordsSection] Completed records render');
 	}
 
 	/**
@@ -259,6 +292,61 @@ export class KHMatrixWidget extends ItemView {
 					this.widgetFilterExpression = expression;
 					this.widgetFilterType = 'R'; // Default to Record filter
 					this.widgetFilterCell = null; // Manual expression, not cell-based
+
+					// Safety check
+					if (!this.plugin?.settings) {
+						this.render();
+						return;
+					}
+
+					// Extract and create chips from expression
+					const extracted = this.extractChipsFromFilterExpression(expression);
+					this.activeChips.clear();
+
+					// Add keyword chips
+					extracted.keywords.forEach(kw => {
+						const keywordStyle = this.plugin.settings.categories
+							.flatMap(cat => cat.keywords)
+							.find(k => k.keyword === kw.value);
+
+						if (keywordStyle) {
+							this.activeChips.set(kw.value, {
+								type: 'keyword',
+								value: kw.value,
+								label: kw.value,
+								mode: kw.mode,
+								active: true,
+								backgroundColor: keywordStyle.backgroundColor,
+								color: keywordStyle.color
+							});
+						}
+					});
+
+					// Add category chips
+					extracted.categoryIds.forEach(cat => {
+						const category = this.plugin.settings.categories.find(c => c.id === cat.value);
+						if (category) {
+							this.activeChips.set(`cat-${cat.value}`, {
+								type: 'category',
+								value: cat.value,
+								label: category.icon || cat.value,
+								mode: cat.mode,
+								active: true
+							});
+						}
+					});
+
+					// Add language chips
+					extracted.languages.forEach(lang => {
+						this.activeChips.set(`lang-${lang.value}`, {
+							type: 'language',
+							value: lang.value,
+							label: lang.value,
+							mode: lang.mode,
+							active: true
+						});
+					});
+
 					this.render();
 				},
 				onExpressionInput: (expression: string) => {
@@ -633,12 +721,16 @@ export class KHMatrixWidget extends ItemView {
 	private async renderRecordsOnly(): Promise<void> {
 		const container = this.containerEl.children[1] as HTMLElement;
 
-		// Remove existing records section
-		const existingRecords = container.querySelector('.kh-widget-filter');
-		if (existingRecords) existingRecords.remove();
+		// Find the records section container
+		const recordsContainer = container.querySelector('.kh-records-section') as HTMLElement;
+		if (!recordsContainer) {
+			console.warn('[renderRecordsOnly] Records container not found');
+			return;
+		}
 
-		// Re-render records (always visible)
-		await this.renderWidgetFilter(container);
+		// Clear and re-render records section
+		recordsContainer.empty();
+		await this.renderRecordsSection(recordsContainer);
 	}
 
 	/**
@@ -673,15 +765,21 @@ export class KHMatrixWidget extends ItemView {
 					this.renderRecordsOnly();
 				},
 				onSubjectChange: async (subjectId: string) => {
+					console.log('[onSubjectChange] Switching to subject:', subjectId);
 					this.currentSubject = this.subjects.find(s => s.id === subjectId) || null;
+					console.log('[onSubjectChange] Current subject:', this.currentSubject?.name);
 					// Sync global subject
 					HighlightSpaceRepeatPlugin.currentSubject = this.currentSubject;
 					// Load dashboard filter into expression
 					this.loadDashboardFilterIntoExpression();
+					console.log('[onSubjectChange] Filter expression:', this.widgetFilterExpression);
+					console.log('[onSubjectChange] Active chips:', Array.from(this.activeChips.keys()));
 					// Clear filter cell so expression-based filtering is used
 					this.widgetFilterCell = null;
 					if (this.currentSubject) {
+						console.log('[onSubjectChange] Calling recalculateMatrixCounts');
 						await this.recalculateMatrixCounts();
+						console.log('[onSubjectChange] recalculateMatrixCounts done');
 					} else {
 						this.render();
 					}
@@ -1571,6 +1669,61 @@ export class KHMatrixWidget extends ItemView {
 		if (dashFilterExpression) {
 			this.widgetFilterExpression = dashFilterExpression;
 			this.syncButtonsFromExpression();
+
+			// Only rebuild chips if plugin is initialized
+			if (!this.plugin?.settings) return;
+
+			// Clear old chips and create new ones from expression
+			const extracted = this.extractChipsFromFilterExpression(dashFilterExpression);
+			this.activeChips.clear();
+
+			// Add keyword chips
+			extracted.keywords.forEach(kw => {
+				const keywordStyle = this.plugin.settings.categories
+					.flatMap(cat => cat.keywords)
+					.find(k => k.keyword === kw.value);
+
+				if (keywordStyle) {
+					this.activeChips.set(kw.value, {
+						type: 'keyword',
+						value: kw.value,
+						label: kw.value,
+						mode: kw.mode,
+						active: true,
+						backgroundColor: keywordStyle.backgroundColor,
+						color: keywordStyle.color
+					});
+				}
+			});
+
+			// Add category chips
+			extracted.categoryIds.forEach(cat => {
+				const category = this.plugin.settings.categories.find(c => c.id === cat.value);
+				if (category) {
+					this.activeChips.set(`cat-${cat.value}`, {
+						type: 'category',
+						value: cat.value,
+						label: category.icon || cat.value,
+						mode: cat.mode,
+						active: true
+					});
+				}
+			});
+
+			// Add language chips
+			extracted.languages.forEach(lang => {
+				this.activeChips.set(`lang-${lang.value}`, {
+					type: 'language',
+					value: lang.value,
+					label: lang.value,
+					mode: lang.mode,
+					active: true
+				});
+			});
+		} else {
+			// No dashboard filter, clear everything
+			this.widgetFilterExpression = '';
+			this.activeChips.clear();
 		}
 	}
 

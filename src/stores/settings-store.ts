@@ -4,7 +4,6 @@ import { generateInitialColors } from 'src/settings/generate-initial-colors';
 import type { KeywordStyle, Category, Settings, CodeBlockLanguage, VWordSettings } from 'src/shared';
 import { DEFAULT_VWORD_SETTINGS } from 'src/shared';
 import { CollectingStatus } from 'src/shared/collecting-status';
-import { MainCombinePriority } from 'src/shared/combine-priority';
 import { injectKeywordCSS, injectVWordCSS, injectAllCSS } from 'src/shared/dynamic-css';
 import { get, writable } from 'svelte/store';
 import type { ParserSettings } from 'src/interfaces/ParserSettings';
@@ -116,6 +115,7 @@ const DEFAULT_SETTINGS: PluginSettings = {
 const DEFAULT_SETTINGS_DATA: Settings = {
   keywordDescriptionsPath: '',
   pathToSubjects: '',
+  layoutRetryDelayMs: 100,
 };
 
 const DEFAULT_CODEBLOCKS: CodeBlockLanguage[] = [
@@ -164,7 +164,7 @@ export async function loadStore(): Promise<void> {
     needsMigration = true;
   }
 
-  // Set default collectingStatus and combinePriority for keywords that don't have them set
+  // Set default collectingStatus and priorities for keywords that don't have them set
   settings.categories.forEach(category => {
     category.keywords.forEach(keyword => {
       // Only set if not already defined - default to PARSED for backward compatibility
@@ -172,9 +172,12 @@ export async function loadStore(): Promise<void> {
         keyword.collectingStatus = CollectingStatus.PARSED;
       }
 
-      // Set default combinePriority
-      if (keyword.combinePriority === undefined) {
-        keyword.combinePriority = MainCombinePriority.None;
+      // Set default priorities
+      if (keyword.iconPriority === undefined) {
+        keyword.iconPriority = 1;
+      }
+      if (keyword.stylePriority === undefined) {
+        keyword.stylePriority = 'normal';
       }
     });
   });
@@ -268,7 +271,8 @@ export function addKeyword(value?: string, categoryName?: string, container?: HT
       backgroundColor: backgroundColor,
       description: '',
       collectingStatus: CollectingStatus.PARSED,  // Default to parsed
-      combinePriority: MainCombinePriority.StyleAndIcon,
+      iconPriority: 1,  // Default icon priority
+      stylePriority: 'normal',  // Default style priority
     });
     return settings;
   });

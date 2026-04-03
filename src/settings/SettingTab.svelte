@@ -102,9 +102,6 @@
   $: if (categories.length > 0 && collapsedCategories.size === 0) {
     collapsedCategories = new Set(categories.map(cat => cat.icon));
   }
-  let editingCategoryName: string | null = null;
-  let editedCategoryName = '';
-  let editedCategoryId = '';
 
   let editingGroupName: string | null = null;
   let editedGroupName = '';
@@ -386,40 +383,6 @@
     collapsedCategories = collapsedCategories;
   }
 
-  function startEditingCategory(categoryName: string) {
-    const category = categories.find(cat => cat.icon === categoryName);
-    editingCategoryName = categoryName;
-    editedCategoryName = categoryName;
-    editedCategoryId = category?.id || '';
-  }
-
-  function saveEditedCategory() {
-    if (editingCategoryName) {
-      const currentCategory = categories.find(cat => cat.icon === editingCategoryName);
-      const hasChanges = (editedCategoryName.trim() !== editingCategoryName) ||
-                        (editedCategoryId.trim() !== (currentCategory?.id || ''));
-
-      if (hasChanges && editedCategoryName.trim()) {
-        settingsStore.update((settings) => {
-          const category = settings.categories.find(cat => cat.icon === editingCategoryName);
-          if (category) {
-            category.icon = editedCategoryName.trim();
-            category.id = editedCategoryId.trim() || undefined;
-          }
-          return settings;
-        });
-      }
-    }
-    editingCategoryName = null;
-    editedCategoryName = '';
-    editedCategoryId = '';
-  }
-
-  function cancelEditingCategory() {
-    editingCategoryName = null;
-    editedCategoryName = '';
-    editedCategoryId = '';
-  }
 
   // Keyword Group handlers
   function startEditingGroup(groupName: string) {
@@ -865,7 +828,7 @@
         keywordCounts
       };
 
-      new Notice(`Scan complete! Parsed ${includedFiles.length} files. Created ${srsCardsCreated} SRS cards.`);
+      new Notice(`Scan complete! Parsed ${includedFiles.length} files.`);
     } catch (error) {
       console.error('Error scanning files:', error);
       new Notice('Error scanning files');
@@ -1169,60 +1132,49 @@
                 <span class="category-toggle" class:collapsed={collapsedCategories.has(category.icon)}>
                   ▼
                 </span>
-                {#if editingCategoryName === category.icon}
-                  <div class="category-edit-container">
-                    <div class="category-edit-field">
-                      <label class="category-edit-label">Icon:</label>
-                      <input
-                        type="text"
-                        bind:value={editedCategoryName}
-                        on:blur={saveEditedCategory}
-                        on:keydown={(e) => {
-                          if (e.key === 'Enter') saveEditedCategory();
-                          if (e.key === 'Escape') cancelEditingCategory();
-                        }}
-                        on:click|stopPropagation
-                        class="category-name-input"
-                        placeholder="Category icon"
-                      />
-                    </div>
-                    <div class="category-edit-field">
-                      <label class="category-edit-label">ID:</label>
-                      <input
-                        type="text"
-                        bind:value={editedCategoryId}
-                        on:blur={saveEditedCategory}
-                        on:keydown={(e) => {
-                          if (e.key === 'Enter') saveEditedCategory();
-                          if (e.key === 'Escape') cancelEditingCategory();
-                        }}
-                        on:click|stopPropagation
-                        class="category-id-input"
-                        placeholder="category-id (optional)"
-                      />
-                    </div>
-                  </div>
-                {:else}
-                  <h3 on:dblclick|stopPropagation={() => startEditingCategory(category.icon)}>
-                    {category.icon}
-                    {#if category.id}
-                      <span class="category-id-badge">:{category.id}</span>
-                    {/if}
-                    <span class="keyword-count">({filteredKeywords.length}{#if keywordSearchFilter.trim()}/{category.keywords.length}{/if})</span>
-                    <span class="category-icons">
-                      {#each filteredKeywords as kw}
-                        {#if kw.generateIcon && kw.generateIcon.trim()}
-                          <span
-                            class="category-icon-item"
-                            class:is-parsed={isCollected(kw.collectingStatus) && highlightMode === 'parsed'}
-                          >
-                            {kw.generateIcon}
-                          </span>
-                        {/if}
-                      {/each}
-                    </span>
-                  </h3>
-                {/if}
+                <div class="category-edit-container">
+                  <input
+                    type="text"
+                    value={category.icon}
+                    on:change={(e) => {
+                      settingsStore.update((settings) => {
+                        const cat = settings.categories.find(c => c.icon === category.icon);
+                        if (cat) cat.icon = e.target.value.trim();
+                        return settings;
+                      });
+                    }}
+                    on:click|stopPropagation
+                    class="category-icon-input"
+                    placeholder="Icon"
+                  />
+                  <input
+                    type="text"
+                    value={category.id || ''}
+                    on:change={(e) => {
+                      settingsStore.update((settings) => {
+                        const cat = settings.categories.find(c => c.icon === category.icon);
+                        if (cat) cat.id = e.target.value.trim() || undefined;
+                        return settings;
+                      });
+                    }}
+                    on:click|stopPropagation
+                    class="category-id-input"
+                    placeholder="id (optional)"
+                  />
+                  <span class="keyword-count">({filteredKeywords.length}{#if keywordSearchFilter.trim()}/{category.keywords.length}{/if})</span>
+                  <span class="category-icons">
+                    {#each filteredKeywords as kw}
+                      {#if kw.generateIcon && kw.generateIcon.trim()}
+                        <span
+                          class="category-icon-item"
+                          class:is-parsed={isCollected(kw.collectingStatus) && highlightMode === 'parsed'}
+                        >
+                          {kw.generateIcon}
+                        </span>
+                      {/if}
+                    {/each}
+                  </span>
+                </div>
               </div>
               <div class="category-controls">
                 <button
@@ -1259,8 +1211,8 @@
                         </button>
                       </th>
                       <th title="Collecting Status">S</th>
-                      <th title="Combine Priority">P</th>
-                      <th title="Sub-keywords">⚙️</th>
+                      <th title="Icon Priority">🖼️</th>
+                      <th title="Style Priority">🎨</th>
                       <th>Keyword</th>
                       <th>Description</th>
                       <th>Icon</th>
@@ -1600,6 +1552,33 @@
           >
             VWord keyword
           </span>
+        </div>
+      </div>
+
+      <div class="vword-layout-settings">
+        <h3>⚙️ Layout Restructuring</h3>
+        <p class="description">Control timing for layout restructuring (i-keywords, l-keywords).</p>
+
+        <div class="setting-item">
+          <div class="setting-item-info">
+            <div class="setting-item-name">Retry Delay (ms)</div>
+            <div class="setting-item-description">
+              Delay in milliseconds before retrying layout restructuring for slow-rendering lists.
+              Increase if some layouts don't apply correctly on page load.
+            </div>
+          </div>
+          <div class="setting-item-control">
+            <input
+              type="number"
+              min="0"
+              max="1000"
+              step="50"
+              bind:value={$settingsDataStore.layoutRetryDelayMs}
+              on:change={async () => await saveSettingsData()}
+              placeholder="100"
+              class="layout-retry-delay-input"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -2260,43 +2239,35 @@
 
   .category-edit-container {
     display: flex;
-    flex-direction: row;
-    gap: 0.5rem;
-    padding: 0.5rem;
-    background: var(--background-secondary);
-    border-radius: 4px;
-  }
-
-  .category-edit-field {
-    display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.3rem;
+    flex: 1;
   }
 
-  .category-edit-label {
-    font-size: 0.85rem;
+  .category-icon-input {
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    padding: 0.2rem 0.3rem;
+    font-size: 0.95rem;
+    color: var(--text-accent);
     font-weight: 600;
-    color: var(--text-muted);
-    min-width: 40px;
+    width: 40px;
+    text-align: center;
   }
 
-  .category-name-input,
   .category-id-input {
     background: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
     border-radius: 4px;
-    padding: 0.25rem 0.5rem;
-    font-size: 0.95rem;
+    padding: 0.2rem 0.4rem;
+    font-size: 0.85rem;
     color: var(--text-normal);
-    flex: 1;
+    width: 100px;
+    font-family: var(--font-monospace);
   }
 
-  .category-name-input {
-    font-weight: 600;
-    color: var(--text-accent);
-  }
-
-  .category-name-input:focus,
+  .category-icon-input:focus,
   .category-id-input:focus {
     outline: none;
     border-color: var(--interactive-accent);

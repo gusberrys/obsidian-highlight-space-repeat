@@ -1,9 +1,7 @@
 import type { MarkdownPostProcessor } from 'obsidian';
 import { type KeywordStyle } from 'src/shared';
-import { MainCombinePriority } from 'src/shared/combine-priority';
 import { settingsStore, vwordSettingsStore } from 'src/stores/settings-store';
 import { get } from 'svelte/store';
-import { resolveIcon } from 'src/shared/priority-resolver';
 import { isVWordKeyword, parseVWordKeyword } from 'src/shared/vword';
 import { CollectingStatus } from 'src/shared/collecting-status';
 
@@ -12,6 +10,7 @@ let keywordMap: Map<string, KeywordStyle>;
 export const readerHighlighter: MarkdownPostProcessor = (el: HTMLElement) => {
 
   const settings = get(settingsStore);
+  const layoutRetryDelay = settings.layoutRetryDelayMs ?? 100;
 
   // Build keyword map from all categories
   keywordMap = new Map(
@@ -38,6 +37,12 @@ export const readerHighlighter: MarkdownPostProcessor = (el: HTMLElement) => {
   // Use requestAnimationFrame to wait for the next render cycle
   requestAnimationFrame(() => {
     restructureImagesLayout(el);
+    restructureListsLayout(el);
+
+    // Lists might render slower, retry after a configurable delay
+    setTimeout(() => {
+      restructureListsLayout(el);
+    }, layoutRetryDelay);
   });
 };
 
@@ -47,13 +52,44 @@ export const readerHighlighter: MarkdownPostProcessor = (el: HTMLElement) => {
  * Returns: [matched keywords, VWord keywords, text content] or undefined
  */
 function extractAndMatch(textValue: string): [KeywordStyle[], string[], string] | undefined {
-  // 1. Find :: separator (fastest)
-  const colonIndex = textValue.indexOf('::');
-  if (colonIndex === -1) return undefined;
+  // 1. Find :: separator - must have space before OR after (to avoid matching :::)
+  // Match patterns:
+  // - " :: " (normal: keyword :: text)
+  // - ":: " (header with text: # keyword :: text)
+  // - " ::" at end (normal: keyword ::)
+  // - "::" at end (header: # keyword ::)
+
+  let colonIndex = -1;
+  let skipLength = 2;
+
+  // Try " :: " first (most common)
+  colonIndex = textValue.indexOf(' :: ');
+  if (colonIndex !== -1) {
+    skipLength = 4;
+  } else {
+    // Try ":: " (header with text after)
+    colonIndex = textValue.indexOf(':: ');
+    if (colonIndex !== -1) {
+      // Make sure not part of :::
+      if (colonIndex > 0 && textValue[colonIndex - 1] === ':') return undefined;
+      skipLength = 3;
+    } else {
+      // Try " ::" at end or "::" at end (headers with no text)
+      const endMatch = textValue.match(/\s::$|::$/);
+      if (endMatch) {
+        colonIndex = textValue.lastIndexOf('::');
+        skipLength = 2;
+        // Make sure not part of :::
+        if (colonIndex > 0 && textValue[colonIndex - 1] === ':') return undefined;
+      } else {
+        return undefined;
+      }
+    }
+  }
 
   // 2. Split before/after
   let beforeColon = textValue.substring(0, colonIndex).trim();
-  const afterColon = textValue.substring(colonIndex + 2).trim();
+  const afterColon = textValue.substring(colonIndex + skipLength).trim();
 
   // 3. Check for header markers (# ## ###)
   if (beforeColon.startsWith('#')) {
@@ -85,8 +121,8 @@ function extractAndMatch(textValue: string): [KeywordStyle[], string[], string] 
     }
   }
 
-  // Must have at least one REGULAR keyword (VWords alone are not enough)
-  if (matchedKeywords.length === 0) return undefined;
+  // Allow VWords alone to trigger highlighting (no color, just layout classes)
+  if (matchedKeywords.length === 0 && vwordKeywords.length === 0) return undefined;
 
   return [matchedKeywords, vwordKeywords, afterColon];
 }
@@ -107,6 +143,14 @@ function replaceWithHighlight(node: Node) {
   ) {
     return;
   } else if (node.nodeType === Node.TEXT_NODE && node.nodeValue) {
+    // Skip text nodes that are already inside a kh-highlighted element
+    let parent = node.parentElement;
+    while (parent) {
+      if (parent.classList.contains('kh-highlighted')) {
+        return; // Already processed, don't process again
+      }
+      parent = parent.parentElement;
+    }
 
     const result = extractAndMatch(node.nodeValue);
 
@@ -114,24 +158,22 @@ function replaceWithHighlight(node: Node) {
       const parent = node.parentNode!;
       const [matchedKeywords, vwordKeywords, textContent] = result;
 
-      // All keywords are now MAIN type
-      const primaryKeyword = matchedKeywords[0];
-
-      // Resolve icon based on priority (centralized)
-      const iconToDisplay = resolveIcon(matchedKeywords);
-
-      // Create highlight node with resolved colors
-      const highlight = getHighlightNode(
+      // Create highlight node (returns iconWinners and highlight span)
+      const { iconWinners, highlight } = getHighlightNode(
         parent as HTMLElement,
         textContent,
-        primaryKeyword,
         matchedKeywords,
         vwordKeywords
       );
 
-      // Only insert icon if it exists
-      if (iconToDisplay) {
-        parent.insertBefore(document.createTextNode(iconToDisplay + " "), node);
+      // Insert ALL icons from keywords with highest icon priority (separated by /)
+      const iconsToDisplay = iconWinners
+        .filter(kw => kw.generateIcon)
+        .map(kw => kw.generateIcon);
+
+      if (iconsToDisplay.length > 0) {
+        const iconText = iconsToDisplay.join('/') + ' ';
+        parent.insertBefore(document.createTextNode(iconText), node);
       }
       parent.insertBefore(highlight, node);
       node.nodeValue = ""; // original node fully replaced
@@ -150,76 +192,53 @@ function replaceWithHighlight(node: Node) {
 
 /**
  * Create highlight span with resolved colors and classes
+ * Returns iconWinners (all tied for highest priority) and highlight node
  */
 function getHighlightNode(
   parent: HTMLElement,
   textContent: string,
-  primaryKeyword: KeywordStyle,
   matchedKeywords: KeywordStyle[],
   vwordKeywords: string[]
-): Node {
+): { iconWinners: KeywordStyle[]; highlight: Node } {
   const highlight = parent.createSpan();
 
-  // Resolve colors based on priority
-  // Standard priority rules:
-  // 1. Different priorities → highest priority wins
-  // 2. Same priority → FIRST one wins (most generic)
-  // 3. No Style/StyleAndIcon priority → first keyword wins
-
-  // Safety check: if primaryKeyword is undefined, use first matched keyword
-  const fallbackKeyword = primaryKeyword || matchedKeywords[0];
-  if (!fallbackKeyword) {
-    // No keywords at all - shouldn't happen, but return empty node
-    const emptyNode = parent.createSpan();
-    emptyNode.setText(textContent);
-    return emptyNode;
-  }
-
-  const keywordsWithStylePriority = matchedKeywords.filter(kw =>
-    kw.combinePriority === MainCombinePriority.Style ||
-    kw.combinePriority === MainCombinePriority.StyleAndIcon
-  );
-
-  // Start with fallback keyword colors (with defaults if undefined)
-  let finalColor = fallbackKeyword.color || '#000000';
-  let finalBackgroundColor = fallbackKeyword.backgroundColor || '#ffffff';
-
-  if (keywordsWithStylePriority.length > 0) {
-    // Map priority enum values to numbers for comparison
-    const getPriorityValue = (priority: MainCombinePriority) => {
-      if (priority === MainCombinePriority.StyleAndIcon) return 3;
-      if (priority === MainCombinePriority.Style) return 2;
-      return 0;
-    };
-
-    // Find the highest priority value
-    const maxPriority = Math.max(...keywordsWithStylePriority.map(kw => getPriorityValue(kw.combinePriority)));
-
-    // Filter to only those with the highest priority
-    const highestPriorityKeywords = keywordsWithStylePriority.filter(kw =>
-      getPriorityValue(kw.combinePriority) === maxPriority
-    );
-
-    // Take FIRST with highest priority (most generic)
-    if (highestPriorityKeywords.length > 0) {
-      const winner = highestPriorityKeywords[0];
-      if (winner.color) finalColor = winner.color;
-      if (winner.backgroundColor) finalBackgroundColor = winner.backgroundColor;
-    }
-  }
-
-  // Apply final colors to parent paragraph
-  parent.style.setProperty("--kh-c", finalColor);
-  parent.style.setProperty("color", finalColor, "important");
-  parent.style.setProperty("--kh-bgc", finalBackgroundColor);
-  parent.style.setProperty("background-color", finalBackgroundColor, "important");
-
-  // Apply kh-highlighted class
+  // Apply kh-highlighted class (even for VWords-only)
   parent.classList.add('kh-highlighted');
 
-  // Apply ALL matched keywords' classes (MAIN and HELP)
-  for (const kw of matchedKeywords) {
-    parent.classList.add(kw.keyword);
+  let colorWinner: KeywordStyle | undefined;
+  let iconWinners: KeywordStyle[] = [];
+
+  // Only resolve colors and icons if we have regular keywords
+  if (matchedKeywords.length > 0) {
+    // Resolve style winner (color)
+    // Only keywords with stylePriority !== 'append' compete for colors
+    const colorCompetitors = matchedKeywords.filter(kw =>
+      kw.stylePriority !== 'append'
+    );
+
+    colorWinner = colorCompetitors[0] || matchedKeywords[0];
+
+    // If any keyword has stylePriority === 'priority', first one wins
+    const prioritized = colorCompetitors.filter(kw => kw.stylePriority === 'priority');
+    if (prioritized.length > 0) {
+      colorWinner = prioritized[0];
+    }
+
+    // Resolve icon winners (ALL keywords with highest priority)
+    // Highest iconPriority wins, ties = show ALL icons
+    const maxIconPriority = Math.max(...matchedKeywords.map(kw => kw.iconPriority || 1));
+    iconWinners = matchedKeywords.filter(kw => (kw.iconPriority || 1) === maxIconPriority);
+
+    // Apply ONLY the color winner's class for styling
+    parent.classList.add(colorWinner.keyword);
+
+    // Apply append keywords as classes (they won't provide colors)
+    const appendKeywords = matchedKeywords.filter(kw => kw.stylePriority === 'append');
+    appendKeywords.forEach(kw => parent.classList.add(kw.keyword));
+
+    // Add data-keywords attribute with all matched keywords (for record badges)
+    const allKeywords = matchedKeywords.map(k => k.keyword);
+    parent.setAttribute('data-keywords', allKeywords.join(' '));
   }
 
   // Apply VWord keywords as classes (for layout control only, not styling)
@@ -227,12 +246,8 @@ function getHighlightNode(
     parent.classList.add(vword);
   }
 
-  // Add data-keywords attribute with all matched keywords (for record badges)
-  const allKeywords = matchedKeywords.map(k => k.keyword);
-  parent.setAttribute('data-keywords', allKeywords.join(' '));
-
   highlight.setText(textContent);
-  return highlight;
+  return { iconWinners, highlight };
 }
 
 /**
@@ -379,5 +394,120 @@ function restructureImagesLayout(el: HTMLElement) {
       // Mark as restructured
       paragraph.classList.add('kh-record-with-images');
     }
+  });
+}
+
+/**
+ * Restructure lists with l-keywords into two-column layout
+ * ONLY applies when an l-keyword (l10-l90) is present
+ * Left column: all items except last
+ * Right column: last item
+ */
+function restructureListsLayout(el: HTMLElement) {
+  // Find all highlighted paragraphs
+  const highlightedElements = el.querySelectorAll('.kh-highlighted');
+
+  highlightedElements.forEach((highlightedEl) => {
+    const paragraph = highlightedEl as HTMLElement;
+
+    // Check if this paragraph has an l-keyword (l10-l90)
+    const lKeywordClass = Array.from(paragraph.classList).find(className => {
+      return className.match(/^l\d{2}$/); // Matches l10, l15, l20, ..., l90
+    });
+
+    // ONLY restructure if l-keyword is present
+    if (!lKeywordClass) {
+      return; // No l-keyword, skip restructuring
+    }
+
+    console.log('[l-keyword] Found paragraph with', lKeywordClass, paragraph);
+
+    // Find the parent paragraph element (.el-p)
+    const elP = paragraph.closest('.el-p');
+    if (!elP) {
+      console.log('[l-keyword] No .el-p parent found');
+      return;
+    }
+
+    console.log('[l-keyword] Found .el-p parent', elP);
+
+    // Find the next sibling that is a list wrapper (.el-ul or .el-ol)
+    let listWrapper = elP.nextElementSibling;
+    while (listWrapper && !listWrapper.classList.contains('el-ul') && !listWrapper.classList.contains('el-ol')) {
+      listWrapper = listWrapper.nextElementSibling;
+    }
+
+    if (!listWrapper) {
+      console.log('[l-keyword] No .el-ul or .el-ol sibling found');
+      return; // No list found
+    }
+
+    console.log('[l-keyword] Found list wrapper', listWrapper);
+
+    // Get the inner ul or ol element
+    const list = listWrapper.querySelector('ul, ol') as HTMLUListElement | HTMLOListElement;
+    if (!list) {
+      console.log('[l-keyword] No inner ul/ol found inside list wrapper');
+      return;
+    }
+
+    console.log('[l-keyword] Found inner list', list);
+
+    // Check if already restructured to avoid double-processing
+    if (listWrapper.classList.contains('kh-l-layout')) {
+      console.log('[l-keyword] Already restructured, skipping');
+      return;
+    }
+
+    // Get all list items
+    const listItems = Array.from(list.children) as HTMLLIElement[];
+    if (listItems.length < 2) {
+      console.log('[l-keyword] Not enough items, need at least 2, found', listItems.length);
+      return; // Need at least 2 items
+    }
+
+    console.log('[l-keyword] Restructuring', listItems.length, 'items');
+
+    // Create wrapper with l-keyword class for CSS targeting
+    const wrapper = document.createElement('div');
+    wrapper.className = `kh-l-layout ${lKeywordClass}`;
+
+    // Create left column
+    const leftColumn = document.createElement('div');
+    leftColumn.className = 'kh-l-left-column';
+
+    // Create right column
+    const rightColumn = document.createElement('div');
+    rightColumn.className = 'kh-l-right-column';
+
+    // Create new ul/ol for left column (all items except last)
+    const leftList = list.cloneNode(false) as HTMLUListElement | HTMLOListElement;
+    leftList.innerHTML = ''; // Clear any attributes/content
+
+    // Create new ul/ol for right column (last item only)
+    const rightList = list.cloneNode(false) as HTMLUListElement | HTMLOListElement;
+    rightList.innerHTML = ''; // Clear any attributes/content
+
+    // Move all items except last to left list
+    for (let i = 0; i < listItems.length - 1; i++) {
+      leftList.appendChild(listItems[i]);
+    }
+
+    // Move last item to right list
+    rightList.appendChild(listItems[listItems.length - 1]);
+
+    // Assemble structure
+    leftColumn.appendChild(leftList);
+    rightColumn.appendChild(rightList);
+    wrapper.appendChild(leftColumn);
+    wrapper.appendChild(rightColumn);
+
+    // Replace original list with wrapper
+    list.parentNode?.replaceChild(wrapper, list);
+
+    // Mark as restructured
+    listWrapper.classList.add('kh-l-layout');
+
+    console.log('[l-keyword] ✓ Restructuring complete');
   });
 }

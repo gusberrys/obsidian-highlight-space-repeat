@@ -107,16 +107,6 @@ export class RecordParser {
 		let currentH3Info: HeaderInfo | undefined;
 
 		// Header context for first-list entries (parent headers only)
-		let firstListH1Info: HeaderInfo | undefined;
-		let firstListH2Info: HeaderInfo | undefined;
-		let firstListH3Info: HeaderInfo | undefined;
-
-		// Track first list after header with keywords
-		let firstListAfterKeywordHeader: string[] | null = null;
-		let hasSeenContentAfterHeader = false;
-		let firstListHeaderEntry: ParsedEntry | null = null;
-		let firstListHeaderLineNumber: number | null = null;
-
 		let i = 0;
 		while (i < lines.length) {
 			const line = lines[i];
@@ -128,17 +118,6 @@ export class RecordParser {
 				const headerContent = headerMatch[2];
 
 				if (level === 1) {
-				// Finalize any pending first-list header entry
-				if (firstListHeaderEntry && firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0) {
-					const flatEntry = this.createFlatEntry(firstListHeaderEntry,
-						firstListH1Info,
-						firstListH2Info,
-						firstListH3Info
-					);
-					flatEntries.push(flatEntry);
-					firstListHeaderEntry = null;
-				}
-
 				// Parse new H1 header
 				const h1Header = this.parseHeader(headerContent, 1);
 
@@ -153,44 +132,95 @@ export class RecordParser {
 				currentH2Info = undefined;
 				currentH3Info = undefined;
 
-				// Track if header has keywords for first-list conversion
-				if (h1Header.keywords && h1Header.keywords.length > 0) {
-					firstListAfterKeywordHeader = h1Header.keywords;
-					hasSeenContentAfterHeader = false;
-					// Create entry for keyword header
-					firstListHeaderEntry = {
-						type: 'keyword',
-						lineNumber: i + 1,
-						text: h1Header.text || '',
-						keywords: h1Header.keywords,
-						subItems: []
-					};
-					firstListHeaderLineNumber = i + 1;
-					// H1 entries have no parent headers
-					firstListH1Info = undefined;
-					firstListH2Info = undefined;
-					firstListH3Info = undefined;
-				} else {
-					firstListAfterKeywordHeader = null;
-					hasSeenContentAfterHeader = false;
-					firstListHeaderEntry = null;
-					firstListHeaderLineNumber = null;
+				// Track if header has keywords - create record unless followed by another keyword entry/header
+				const hasValidHeaderKeyword = h1Header.keywords?.some(k => parsedKeywords.includes(k));
+				if (hasValidHeaderKeyword) {
+					// Look ahead to check if next non-empty line blocks record creation
+					let shouldSkip = false;
+					let textLineIndex = -1;
+					for (let j = i + 1; j < lines.length; j++) {
+						const nextLine = lines[j].trim();
+						if (!nextLine) continue; // skip blank
+
+						// Check if next line is a header - blocks record creation
+						if (nextLine.match(/^#+\s/)) {
+							shouldSkip = true;
+							break;
+						}
+
+						// Check if line has keyword syntax with VALID parsed keywords - blocks record creation
+						const kwMatch = nextLine.match(/^([\w\s]+)::/);
+						if (kwMatch) {
+							const kws = kwMatch[1].trim().split(/\s+/).map(k => k.toLowerCase());
+							const hasValidKeyword = kws.some(k => parsedKeywords.includes(k));
+							if (hasValidKeyword) {
+								shouldSkip = true;
+								break;
+							}
+						}
+
+						// Check if it's plain text (not list or code block)
+						if (!nextLine.match(/^[-*]\s/) && !nextLine.match(/^```/)) {
+							textLineIndex = j;
+						}
+						break;
+					}
+
+					// Create record unless blocked by another keyword entry or header
+					if (!shouldSkip) {
+						// Filter to only valid keywords
+						const validKeywords = h1Header.keywords.filter(k => parsedKeywords.includes(k));
+						const keywordsStr = validKeywords.join(' ');
+						const headerText = h1Header.text || '';
+
+						if (textLineIndex !== -1) {
+							// Plain text found: combine with header text
+							const textLine = lines[textLineIndex].trim();
+							const combinedText = headerText ? `${headerText} ::: ${textLine}` : textLine;
+							const reconstructedLine = `${keywordsStr} :: ${combinedText}`;
+							const tempLines = [...lines];
+							tempLines[textLineIndex] = reconstructedLine;
+
+							const { entry: parsedEntry, nextIndex } = await this.parseKeywordEntry(
+								tempLines,
+								textLineIndex,
+								validKeywords,
+								parsedKeywords
+							);
+
+							parsedEntry.lineNumber = textLineIndex + 1;
+							const flatEntry = this.createFlatEntry(parsedEntry, currentH1Info, undefined, undefined);
+							flatEntries.push(flatEntry);
+							i = nextIndex - 1;
+						} else {
+							// No plain text, but create record from header (will consume code blocks, lists, etc.)
+							// Reconstruct as keyword-only line so parseKeywordEntry consumes subitems
+							const reconstructedLine = `${keywordsStr} :: `;
+							const tempLines = [...lines];
+							tempLines[i] = reconstructedLine;
+
+							const { entry: parsedEntry, nextIndex } = await this.parseKeywordEntry(
+								tempLines,
+								i,
+								validKeywords,
+								parsedKeywords
+							);
+
+							// Set text from header
+							if (headerText) {
+								parsedEntry.text = headerText;
+							}
+							parsedEntry.lineNumber = i + 1;
+							const flatEntry = this.createFlatEntry(parsedEntry, currentH1Info, undefined, undefined);
+							flatEntries.push(flatEntry);
+							i = nextIndex - 1;
+						}
+					}
 				}
 
-			} else if (level === 2) {
-				// Finalize any pending first-list header entry
-				if (firstListHeaderEntry && firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0) {
-					const flatEntry = this.createFlatEntry(firstListHeaderEntry,
-						firstListH1Info,
-						firstListH2Info,
-						firstListH3Info
-					);
-					flatEntries.push(flatEntry);
-					firstListHeaderEntry = null;
-				}
-
-				// Parse new H2 header
-				const h2Header = this.parseHeader(headerContent, 2);
+				} else if (level === 2) {
+					// Parse new H2 header
+					const h2Header = this.parseHeader(headerContent, 2);
 
 				// Update header context for flat entries
 				// Header is valid if it has text OR keywords OR inlineKeywords
@@ -202,44 +232,95 @@ export class RecordParser {
 				} : undefined;
 				currentH3Info = undefined;
 
-				// Track if header has keywords for first-list conversion
-				if (h2Header.keywords && h2Header.keywords.length > 0) {
-					firstListAfterKeywordHeader = h2Header.keywords;
-					hasSeenContentAfterHeader = false;
-					// Create entry for keyword header
-					firstListHeaderEntry = {
-						type: 'keyword',
-						lineNumber: i + 1,
-						text: h2Header.text || '',
-						keywords: h2Header.keywords,
-						subItems: []
-					};
-					firstListHeaderLineNumber = i + 1;
-					// H2 entries have H1 parent (if it exists)
-					firstListH1Info = currentH1Info;
-					firstListH2Info = undefined;
-					firstListH3Info = undefined;
-				} else {
-					firstListAfterKeywordHeader = null;
-					hasSeenContentAfterHeader = false;
-					firstListHeaderEntry = null;
-					firstListHeaderLineNumber = null;
+				// Track if header has keywords - create record unless followed by another keyword entry/header
+				const hasValidHeaderKeyword = h2Header.keywords?.some(k => parsedKeywords.includes(k));
+				if (hasValidHeaderKeyword) {
+					// Look ahead to check if next non-empty line blocks record creation
+					let shouldSkip = false;
+					let textLineIndex = -1;
+					for (let j = i + 1; j < lines.length; j++) {
+						const nextLine = lines[j].trim();
+						if (!nextLine) continue; // skip blank
+
+						// Check if next line is a header - blocks record creation
+						if (nextLine.match(/^#+\s/)) {
+							shouldSkip = true;
+							break;
+						}
+
+						// Check if line has keyword syntax with VALID parsed keywords - blocks record creation
+						const kwMatch = nextLine.match(/^([\w\s]+)::/);
+						if (kwMatch) {
+							const kws = kwMatch[1].trim().split(/\s+/).map(k => k.toLowerCase());
+							const hasValidKeyword = kws.some(k => parsedKeywords.includes(k));
+							if (hasValidKeyword) {
+								shouldSkip = true;
+								break;
+							}
+						}
+
+						// Check if it's plain text (not list or code block)
+						if (!nextLine.match(/^[-*]\s/) && !nextLine.match(/^```/)) {
+							textLineIndex = j;
+						}
+						break;
+					}
+
+					// Create record unless blocked by another keyword entry or header
+					if (!shouldSkip) {
+						// Filter to only valid keywords
+						const validKeywords = h2Header.keywords.filter(k => parsedKeywords.includes(k));
+						const keywordsStr = validKeywords.join(' ');
+						const headerText = h2Header.text || '';
+
+						if (textLineIndex !== -1) {
+							// Plain text found: combine with header text
+							const textLine = lines[textLineIndex].trim();
+							const combinedText = headerText ? `${headerText} ::: ${textLine}` : textLine;
+							const reconstructedLine = `${keywordsStr} :: ${combinedText}`;
+							const tempLines = [...lines];
+							tempLines[textLineIndex] = reconstructedLine;
+
+							const { entry: parsedEntry, nextIndex } = await this.parseKeywordEntry(
+								tempLines,
+								textLineIndex,
+								validKeywords,
+								parsedKeywords
+							);
+
+							parsedEntry.lineNumber = textLineIndex + 1;
+							const flatEntry = this.createFlatEntry(parsedEntry, currentH1Info, currentH2Info, undefined);
+							flatEntries.push(flatEntry);
+							i = nextIndex - 1;
+						} else {
+							// No plain text, but create record from header (will consume code blocks, lists, etc.)
+							// Reconstruct as keyword-only line so parseKeywordEntry consumes subitems
+							const reconstructedLine = `${keywordsStr} :: `;
+							const tempLines = [...lines];
+							tempLines[i] = reconstructedLine;
+
+							const { entry: parsedEntry, nextIndex } = await this.parseKeywordEntry(
+								tempLines,
+								i,
+								validKeywords,
+								parsedKeywords
+							);
+
+							// Set text from header
+							if (headerText) {
+								parsedEntry.text = headerText;
+							}
+							parsedEntry.lineNumber = i + 1;
+							const flatEntry = this.createFlatEntry(parsedEntry, currentH1Info, currentH2Info, undefined);
+							flatEntries.push(flatEntry);
+							i = nextIndex - 1;
+						}
+					}
 				}
 
-			} else if (level === 3) {
-				// Finalize any pending first-list header entry
-				if (firstListHeaderEntry && firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0) {
-					const flatEntry = this.createFlatEntry(firstListHeaderEntry,
-						firstListH1Info,
-						firstListH2Info,
-						firstListH3Info
-					);
-					flatEntries.push(flatEntry);
-					firstListHeaderEntry = null;
-				}
-
-				// Parse new H3 header
-				const h3Header = this.parseHeader(headerContent, 3);
+				} else if (level === 3) {
+					// Parse new H3 header
+					const h3Header = this.parseHeader(headerContent, 3);
 
 				// Update header context for flat entries
 				// Header is valid if it has text OR keywords OR inlineKeywords
@@ -250,34 +331,97 @@ export class RecordParser {
 					inlineKeywords: h3Header.inlineKeywords
 				} : undefined;
 
-				// Track if header has keywords for first-list conversion
-				if (h3Header.keywords && h3Header.keywords.length > 0) {
-					firstListAfterKeywordHeader = h3Header.keywords;
-					hasSeenContentAfterHeader = false;
-					// Create entry for keyword header
-					firstListHeaderEntry = {
-						type: 'keyword',
-						lineNumber: i + 1,
-						text: h3Header.text || '',
-						keywords: h3Header.keywords,
-						subItems: []
-					};
-					firstListHeaderLineNumber = i + 1;
-					// H3 entries have H1 and H2 parents (if they exist)
-					firstListH1Info = currentH1Info;
-					firstListH2Info = currentH2Info;
-					firstListH3Info = undefined;
-				} else {
-					firstListAfterKeywordHeader = null;
-					hasSeenContentAfterHeader = false;
-					firstListHeaderEntry = null;
-					firstListHeaderLineNumber = null;
-				}
-			}
+				// Track if header has keywords - create record unless followed by another keyword entry/header
+				const hasValidHeaderKeyword = h3Header.keywords?.some(k => parsedKeywords.includes(k));
+				if (hasValidHeaderKeyword) {
+					// Look ahead to check if next non-empty line blocks record creation
+					let shouldSkip = false;
+					let textLineIndex = -1;
+					for (let j = i + 1; j < lines.length; j++) {
+						const nextLine = lines[j].trim();
+						if (!nextLine) continue; // skip blank
 
-				i++;
-				continue;
-			}
+						// Check if next line is a header - blocks record creation
+						if (nextLine.match(/^#+\s/)) {
+							shouldSkip = true;
+							break;
+						}
+
+						// Check if line has keyword syntax with VALID parsed keywords - blocks record creation
+						const kwMatch = nextLine.match(/^([\w\s]+)::/);
+						if (kwMatch) {
+							const kws = kwMatch[1].trim().split(/\s+/).map(k => k.toLowerCase());
+							const hasValidKeyword = kws.some(k => parsedKeywords.includes(k));
+							if (hasValidKeyword) {
+								shouldSkip = true;
+								break;
+							}
+						}
+
+						// Check if it's plain text (not list or code block)
+						if (!nextLine.match(/^[-*]\s/) && !nextLine.match(/^```/)) {
+							textLineIndex = j;
+						}
+						break;
+					}
+
+					// Create record unless blocked by another keyword entry or header
+					if (!shouldSkip) {
+						// Filter to only valid keywords
+						const validKeywords = h3Header.keywords.filter(k => parsedKeywords.includes(k));
+						const keywordsStr = validKeywords.join(' ');
+						const headerText = h3Header.text || '';
+
+						if (textLineIndex !== -1) {
+							// Plain text found: combine with header text
+							const textLine = lines[textLineIndex].trim();
+							const combinedText = headerText ? `${headerText} ::: ${textLine}` : textLine;
+							const reconstructedLine = `${keywordsStr} :: ${combinedText}`;
+							const tempLines = [...lines];
+							tempLines[textLineIndex] = reconstructedLine;
+
+							const { entry: parsedEntry, nextIndex } = await this.parseKeywordEntry(
+								tempLines,
+								textLineIndex,
+								validKeywords,
+								parsedKeywords
+							);
+
+							parsedEntry.lineNumber = textLineIndex + 1;
+							const flatEntry = this.createFlatEntry(parsedEntry, currentH1Info, currentH2Info, currentH3Info);
+							flatEntries.push(flatEntry);
+							i = nextIndex - 1;
+						} else {
+							// No plain text, but create record from header (will consume code blocks, lists, etc.)
+							// Reconstruct as keyword-only line so parseKeywordEntry consumes subitems
+							const reconstructedLine = `${keywordsStr} :: `;
+							const tempLines = [...lines];
+							tempLines[i] = reconstructedLine;
+
+							const { entry: parsedEntry, nextIndex } = await this.parseKeywordEntry(
+								tempLines,
+								i,
+								validKeywords,
+								parsedKeywords
+							);
+
+							// Set text from header
+							if (headerText) {
+								parsedEntry.text = headerText;
+							}
+							parsedEntry.lineNumber = i + 1;
+							const flatEntry = this.createFlatEntry(parsedEntry, currentH1Info, currentH2Info, currentH3Info);
+							flatEntries.push(flatEntry);
+							i = nextIndex - 1;
+						}
+					}
+				}
+
+				}
+
+			i++;
+			continue;
+		}
 
 			// Extract inline tags from non-header lines (only if NOT in code block)
 			if (!insideCodeBlock) {
@@ -289,131 +433,9 @@ export class RecordParser {
 				}
 			}
 
-			// NEW RULE: Convert first list after keyword header to subItems of header entry
-			if (firstListAfterKeywordHeader && !hasSeenContentAfterHeader && firstListHeaderEntry) {
-				// Check if this is a list item
-				const listItemMatch = line.match(/^\s*[-*]\s+(.+)$/);
-				if (listItemMatch) {
-					let itemContent = listItemMatch[1];
-					let itemKeywords: string[] | undefined;
-
-					// Check if list item has its own keywords
-					const kwMatch = itemContent.match(/^([\w\s]+)::\s*(.*)$/);
-					if (kwMatch) {
-						const keywordsStr = kwMatch[1].trim();
-						const parsedKws = keywordsStr.split(/\s+/).map(k => k.toLowerCase()).filter(k => k.length > 0);
-						itemKeywords = [...new Set(parsedKws)];
-						itemContent = kwMatch[2];
-
-						// If list item has keyword syntax with non-empty content, treat as separate entry
-						if (itemContent.trim().length > 0) {
-							// Finalize the header entry if it has any subitems
-							if (firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0) {
-
-								// Create flat entry with parent header context
-								const flatEntry = this.createFlatEntry(firstListHeaderEntry,
-									firstListH1Info,
-									firstListH2Info,
-									firstListH3Info
-								);
-								flatEntries.push(flatEntry);
-							}
-							firstListHeaderEntry = null;
-							hasSeenContentAfterHeader = true;
-
-							// Check if any keyword is in parsedKeywords list
-							const hasValidKeyword = itemKeywords.some(k => parsedKeywords.includes(k));
-							if (!hasValidKeyword) {
-								i++;
-								continue;
-							}
-
-							// Process as keyword entry (reconstruct line without list marker for parseKeywordEntry)
-							const reconstructedLine = `${keywordsStr} :: ${itemContent}`;
-							const tempLines = [...lines];
-							tempLines[i] = reconstructedLine;
-							const entry = await this.parseKeywordEntry(tempLines, i, itemKeywords, parsedKeywords);
-
-							// Create flat entry with header context
-							const flatEntry = this.createFlatEntry(
-								entry.entry,
-								currentH1Info,
-								currentH2Info,
-								currentH3Info
-							);
-							flatEntries.push(flatEntry);
-
-							i = entry.nextIndex;
-							continue;
-						} else {
-							// List item with keyword but no content - treat as subitem
-							const listType = line.trim().startsWith('*') ? 'asterisk' : 'dash';
-							const subItem: ParsedEntrySubItem = {
-								content: itemContent,
-								listType,
-								keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined
-							};
-
-							if (!firstListHeaderEntry.subItems) {
-								firstListHeaderEntry.subItems = [];
-							}
-							firstListHeaderEntry.subItems.push(subItem);
-
-							i++;
-							continue;
-						}
-					} else {
-						// List item without keywords - treat as subitem
-						const listType = line.trim().startsWith('*') ? 'asterisk' : 'dash';
-						const subItem: ParsedEntrySubItem = {
-							content: itemContent,
-							listType,
-							keywords: undefined
-						};
-
-						if (!firstListHeaderEntry.subItems) {
-							firstListHeaderEntry.subItems = [];
-						}
-						firstListHeaderEntry.subItems.push(subItem);
-
-						i++;
-						continue;
-					}
-				} else if (line.trim() !== '') {
-					// Non-list, non-empty content seen - finalize the header entry and disable conversion
-					if (firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0) {
-
-						// Create flat entry with parent header context
-						const flatEntry = this.createFlatEntry(firstListHeaderEntry,
-							firstListH1Info,
-							firstListH2Info,
-							firstListH3Info
-						);
-						flatEntries.push(flatEntry);
-					}
-					firstListHeaderEntry = null;
-					hasSeenContentAfterHeader = true;
-				}
-			}
-
 			// Parse keyword record: foo bar baz :: text (NEW SYNTAX)
 			const keywordMatch = line.match(/^([\w\s]+)::\s*(.*)$/);
 			if (keywordMatch) {
-				// Finalize first-list header entry if exists
-				if (firstListHeaderEntry && firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0) {
-
-					// Create flat entry with parent header context
-					const flatEntry = this.createFlatEntry(firstListHeaderEntry,
-						firstListH1Info,
-						firstListH2Info,
-						firstListH3Info
-					);
-					flatEntries.push(flatEntry);
-
-					firstListHeaderEntry = null;
-				}
-				// Keyword entry seen - disable first-list conversion
-				hasSeenContentAfterHeader = true;
 
 				const keywordsStr = keywordMatch[1].trim();
 				const parsedKws = keywordsStr.split(/\s+/).map(k => k.toLowerCase()).filter(k => k.length > 0);
@@ -444,21 +466,6 @@ export class RecordParser {
 			// Parse code block: ```language (with optional parameters for plugins like Code Styler)
 			const codeBlockMatch = line.match(/^```(\w+).*$/);
 			if (codeBlockMatch) {
-				// Finalize first-list header entry if exists
-				if (firstListHeaderEntry && firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0) {
-
-					// Create flat entry with parent header context
-					const flatEntry = this.createFlatEntry(firstListHeaderEntry,
-						firstListH1Info,
-						firstListH2Info,
-						firstListH3Info
-					);
-					flatEntries.push(flatEntry);
-
-					firstListHeaderEntry = null;
-				}
-				// Code block seen - disable first-list conversion
-				hasSeenContentAfterHeader = true;
 
 				const entry = this.parseCodeBlockEntry(lines, i, codeBlockMatch[1]);
 
@@ -484,17 +491,6 @@ export class RecordParser {
 		}
 
 		// Finalize any pending first-list header entry
-		if (firstListHeaderEntry && firstListHeaderEntry.subItems && firstListHeaderEntry.subItems.length > 0) {
-
-			// Create flat entry with parent header context (not including the header that created this entry)
-			const flatEntry = this.createFlatEntry(firstListHeaderEntry,
-				firstListH1Info,
-				firstListH2Info,
-				firstListH3Info
-			);
-			flatEntries.push(flatEntry);
-		}
-
 		// Combine file tags: frontmatter + inline tags
 		const allFileTags = new Set([...tags, ...fileInlineTags]);
 
@@ -695,19 +691,37 @@ export class RecordParser {
 		while (j < lines.length) {
 			const subLine = lines[j];
 
-			// Empty line ends the record
+			// Skip blank lines if followed by subitems (code, lists), but stop if followed by header/keyword entry
 			if (subLine.trim() === '') {
-				break;
+				// Look ahead to see what comes after blank line(s)
+				let lookAhead = j + 1;
+				while (lookAhead < lines.length && lines[lookAhead].trim() === '') {
+					lookAhead++;
+				}
+				if (lookAhead >= lines.length) break; // End of file
+
+				const nextNonEmpty = lines[lookAhead].trim();
+				// Stop if next content is header or keyword entry
+				if (nextNonEmpty.match(/^#+\s/)) break;
+				if (nextNonEmpty.match(/^[\w\s]+::/)) {
+					const kws = nextNonEmpty.match(/^([\w\s]+)::/)?.[1].trim().split(/\s+/).map(k => k.toLowerCase());
+					const hasValidKeyword = kws?.some(k => parsedKeywords.includes(k));
+					if (hasValidKeyword) break;
+				}
+				// Otherwise skip blank line(s) and continue looking for subitems
+				j++;
+				continue;
 			}
 
 			if (subLine.match(/^#+\s/)) break;
 			if (subLine.match(/^[\w\s]+::/)) break;
 
 			// Checkbox item: - [ ] or - [x] (with optional indentation)
-			const checkboxMatch = subLine.match(/^\s*-\s*\[([x\s])\]\s*(.*)$/);
+			const checkboxMatch = subLine.match(/^(\s*)-\s*\[([x\s])\]\s*(.*)$/);
 			if (checkboxMatch) {
-				const checked = checkboxMatch[1].toLowerCase() === 'x';
-				let content = checkboxMatch[2];
+				const indent = checkboxMatch[1].length;
+				const checked = checkboxMatch[2].toLowerCase() === 'x';
+				let content = checkboxMatch[3];
 				let itemKeywords: string[] | undefined;
 				let itemInlineKeywords: string[] | undefined;
 				let itemInlineCodeLanguages: string[] | undefined;
@@ -777,6 +791,7 @@ export class RecordParser {
 				const subItem: ParsedEntrySubItem = {
 					content,
 					listType: 'checkbox',
+					indent,
 					checked,
 					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined,
 					inlineKeywords: itemInlineKeywords && itemInlineKeywords.length > 0 ? itemInlineKeywords : undefined,
@@ -797,9 +812,10 @@ export class RecordParser {
 			}
 
 			// Dash list item: - content (with optional indentation)
-			const dashMatch = subLine.match(/^\s*-\s*(.*)$/);
+			const dashMatch = subLine.match(/^(\s*)-\s*(.*)$/);
 			if (dashMatch) {
-				let content = dashMatch[1];
+				const indent = dashMatch[1].length;
+				let content = dashMatch[2];
 				let itemKeywords: string[] | undefined;
 				let itemInlineKeywords: string[] | undefined;
 				let itemInlineCodeLanguages: string[] | undefined;
@@ -869,6 +885,7 @@ export class RecordParser {
 				const subItem: ParsedEntrySubItem = {
 					content,
 					listType: 'dash',
+					indent,
 					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined,
 					inlineKeywords: itemInlineKeywords && itemInlineKeywords.length > 0 ? itemInlineKeywords : undefined,
 				};
@@ -887,9 +904,10 @@ export class RecordParser {
 			}
 
 			// Asterisk list item: * content (with optional indentation)
-			const asteriskMatch = subLine.match(/^\s*\*\s*(.*)$/);
+			const asteriskMatch = subLine.match(/^(\s*)\*\s*(.*)$/);
 			if (asteriskMatch) {
-				let content = asteriskMatch[1];
+				const indent = asteriskMatch[1].length;
+				let content = asteriskMatch[2];
 				let itemKeywords: string[] | undefined;
 				let itemInlineKeywords: string[] | undefined;
 				let itemInlineCodeLanguages: string[] | undefined;
@@ -959,6 +977,7 @@ export class RecordParser {
 				const subItem: ParsedEntrySubItem = {
 					content,
 					listType: 'asterisk',
+					indent,
 					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined,
 					inlineKeywords: itemInlineKeywords && itemInlineKeywords.length > 0 ? itemInlineKeywords : undefined,
 				};
@@ -977,9 +996,10 @@ export class RecordParser {
 			}
 
 			// Numbered list item: 1. content, 2. content, etc. (with optional indentation)
-			const numberedMatch = subLine.match(/^\s*(\d+)\.\s*(.*)$/);
+			const numberedMatch = subLine.match(/^(\s*)(\d+)\.\s*(.*)$/);
 			if (numberedMatch) {
-				let content = numberedMatch[2];
+				const indent = numberedMatch[1].length;
+				let content = numberedMatch[3];
 				let itemKeywords: string[] | undefined;
 				let itemInlineKeywords: string[] | undefined;
 				let itemInlineCodeLanguages: string[] | undefined;
@@ -1049,6 +1069,7 @@ export class RecordParser {
 				const subItem: ParsedEntrySubItem = {
 					content,
 					listType: 'numbered',
+					indent,
 					keywords: itemKeywords && itemKeywords.length > 0 ? itemKeywords : undefined,
 					inlineKeywords: itemInlineKeywords && itemInlineKeywords.length > 0 ? itemInlineKeywords : undefined,
 				};
@@ -1149,6 +1170,9 @@ export class RecordParser {
 			break;
 		}
 
+		// Build tree structure from flat subItems array based on indentation
+		const treeSubItems = this.buildSubItemTree(subItems);
+
 		const entry = {
 			type: 'keyword',
 			lineNumber: startIndex + 1,
@@ -1156,7 +1180,7 @@ export class RecordParser {
 			keywords: keywords.length > 0 ? keywords : undefined,
 			inlineKeywords: inlineKeywords && inlineKeywords.length > 0 ? inlineKeywords : undefined,
 			inlineCodeLanguages: inlineCodeLanguages && inlineCodeLanguages.length > 0 ? inlineCodeLanguages : undefined,
-			subItems: subItems.length > 0 ? subItems : undefined,
+			subItems: treeSubItems.length > 0 ? treeSubItems : undefined,
 			srs: srsData
 		};
 
@@ -1164,6 +1188,42 @@ export class RecordParser {
 			entry,
 			nextIndex: j
 		};
+	}
+
+	/**
+	 * Build tree structure from flat subItems array based on indentation
+	 */
+	private buildSubItemTree(flatItems: ParsedEntrySubItem[]): ParsedEntrySubItem[] {
+		if (flatItems.length === 0) return [];
+
+		const root: ParsedEntrySubItem[] = [];
+		const stack: { item: ParsedEntrySubItem; indent: number }[] = [];
+
+		for (const item of flatItems) {
+			const currentIndent = item.indent ?? 0;
+
+			// Pop stack until we find the parent (item with smaller indent)
+			while (stack.length > 0 && stack[stack.length - 1].indent >= currentIndent) {
+				stack.pop();
+			}
+
+			if (stack.length === 0) {
+				// Top-level item
+				root.push(item);
+			} else {
+				// Child of the last item in stack
+				const parent = stack[stack.length - 1].item;
+				if (!parent.children) {
+					parent.children = [];
+				}
+				parent.children.push(item);
+			}
+
+			// Add current item to stack
+			stack.push({ item, indent: currentIndent });
+		}
+
+		return root;
 	}
 
 	/**
