@@ -8,12 +8,12 @@
  * }
  */
 
-import type { KeywordStyle, Category, CodeBlockLanguage } from './shared';
+import type { KeywordStyle, Category } from './shared';
 import type { ParsedFile, FlatEntry } from './interfaces/ParsedFile';
 import type { CompiledFilter } from './interfaces/FilterInterfaces';
 import type { ActiveChip } from './interfaces/ActiveChip';
 import { get } from 'svelte/store';
-import { settingsStore, codeBlocksStore } from './stores/settings-store';
+import { settingsStore } from './stores/settings-store';
 import { FilterParser } from './services/FilterParser';
 import { FilterExpressionService } from './services/FilterExpressionService';
 
@@ -74,14 +74,6 @@ export class HighlightSpaceRepeatAPI {
    */
   hasKeyword(keyword: string): boolean {
     return this.getKeywordStyle(keyword) !== undefined;
-  }
-
-  /**
-   * Get all code block language configurations
-   * @returns Array of code block languages with icons
-   */
-  getCodeBlocks(): CodeBlockLanguage[] {
-    return get(codeBlocksStore);
   }
 
   /**

@@ -243,7 +243,6 @@ Examples:
 		});
 		setIcon(srsReviewBtn, 'brain');
 		srsReviewBtn.addEventListener('click', async () => {
-			console.log('[RecordsControlRenderer] SRS review button clicked');
 			await this.onSRSReview();
 		});
 

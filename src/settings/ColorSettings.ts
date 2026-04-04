@@ -1,125 +1,115 @@
 /**
  * Color highlighting settings
- * Separate from keyword highlighting - uses <mark> tags with color classes
+ * Now integrated with keywords system - each color generates 4 keywords automatically
  */
 
-export interface ColourPair {
-	colourName: string;
-	globalReference: string;
-	globalReferenceClass: string;
-	globalValue: string;
-	globalValueClass: string;
-	localReference: string;
-	localReferenceClass: string;
-	localValue: string;
-	localValueClass: string;
-	localColour: string;
-	localName: string;
+/**
+ * Calculate text color (white or black) based on background brightness
+ */
+function calculateTextColor(backgroundColor: string): string {
+	const r = parseInt(backgroundColor.slice(1, 3), 16);
+	const g = parseInt(backgroundColor.slice(3, 5), 16);
+	const b = parseInt(backgroundColor.slice(5, 7), 16);
+	const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+	return brightness > 155 ? '#000000' : '#ffffff';
 }
 
-export const DEFAULT_COLOR_SETTINGS: ColourPair[] = [
+/**
+ * Simplified color entry - one row per color in settings
+ * Automatically generates 4 keywords: gv{cc}, gr{cc}, lv{cc}, lr{cc}
+ */
+export interface ColorEntry {
+	name: string;           // Display name (e.g., "red")
+	cc: string;             // Color class - short identifier (e.g., "r")
+	gvIcon: string;         // Global Value icon (🔴)
+	grIcon: string;         // Global Reference icon (🟥)
+	lvIcon: string;         // Local Value icon (💔)
+	lrIcon: string;         // Local Reference icon (📕)
+	backgroundColor: string; // Hex color for background
+	textColor: string;       // Hex color for text (auto-calculated or manual)
+}
+
+
+export const DEFAULT_COLOR_ENTRIES: ColorEntry[] = [
 	{
-		colourName: 'red',
-		globalReference: '🔴',
-		globalReferenceClass: 'grr',
-		globalValue: '🟥',
-		globalValueClass: 'gvr',
-		localReference: '📕',
-		localReferenceClass: 'lrr',
-		localValue: '💔',
-		localValueClass: 'lvr',
-		localColour: '#a62626',
-		localName: 'r'
+		name: 'red',
+		cc: 'r',
+		gvIcon: '🟥',
+		grIcon: '🔴',
+		lvIcon: '💔',
+		lrIcon: '📕',
+		backgroundColor: '#a62626',
+		textColor: '#ffffff'
 	},
 	{
-		colourName: 'green',
-		globalReference: '🟢',
-		globalReferenceClass: 'grg',
-		globalValue: '🟩',
-		globalValueClass: 'gvg',
-		localReference: '📗',
-		localReferenceClass: 'lrg',
-		localValue: '💚',
-		localValueClass: 'lvg',
-		localColour: '#079db0',
-		localName: 'g'
+		name: 'green',
+		cc: 'g',
+		gvIcon: '🟩',
+		grIcon: '🟢',
+		lvIcon: '💚',
+		lrIcon: '📗',
+		backgroundColor: '#079db0',
+		textColor: '#ffffff'
 	},
 	{
-		colourName: 'blue',
-		globalReference: '🔵',
-		globalReferenceClass: 'grb',
-		globalValue: '🟦',
-		globalValueClass: 'gvb',
-		localReference: '📘',
-		localReferenceClass: 'lrb',
-		localValue: '💙',
-		localValueClass: 'lvb',
-		localColour: '#0c5ddf',
-		localName: 'b'
+		name: 'blue',
+		cc: 'b',
+		gvIcon: '🟦',
+		grIcon: '🔵',
+		lvIcon: '💙',
+		lrIcon: '📘',
+		backgroundColor: '#0c5ddf',
+		textColor: '#ffffff'
 	},
 	{
-		colourName: 'yellow',
-		globalReference: '🟡',
-		globalReferenceClass: 'gry',
-		globalValue: '🟨',
-		globalValueClass: 'gvy',
-		localReference: '📔',
-		localReferenceClass: 'lry',
-		localValue: '💛',
-		localValueClass: 'lvy',
-		localColour: '#c7c729',
-		localName: 'y'
+		name: 'yellow',
+		cc: 'y',
+		gvIcon: '🟨',
+		grIcon: '🟡',
+		lvIcon: '💛',
+		lrIcon: '📔',
+		backgroundColor: '#c7c729',
+		textColor: '#000000'
 	},
 	{
-		colourName: 'black',
-		globalReference: '⚫️',
-		globalReferenceClass: 'grbk',
-		globalValue: '⬛️',
-		globalValueClass: 'gvbk',
-		localReference: '📓',
-		localReferenceClass: 'lrbk',
-		localValue: '🖤',
-		localValueClass: 'lvbk',
-		localColour: '#000000',
-		localName: 'bk'
+		name: 'black',
+		cc: 'bk',
+		gvIcon: '⬛️',
+		grIcon: '⚫️',
+		lvIcon: '🖤',
+		lrIcon: '📓',
+		backgroundColor: '#000000',
+		textColor: '#ffffff'
 	},
 	{
-		colourName: 'orange',
-		globalReference: '🟠',
-		globalReferenceClass: 'gro',
-		globalValue: '🟧',
-		globalValueClass: 'gvo',
-		localReference: '📙',
-		localReferenceClass: 'lro',
-		localValue: '🧡',
-		localValueClass: 'lvo',
-		localColour: '#b57a0d',
-		localName: 'o'
+		name: 'orange',
+		cc: 'o',
+		gvIcon: '🟧',
+		grIcon: '🟠',
+		lvIcon: '🧡',
+		lrIcon: '📙',
+		backgroundColor: '#b57a0d',
+		textColor: '#ffffff'
 	},
 	{
-		colourName: 'purple',
-		globalReference: '🟣',
-		globalReferenceClass: 'grp',
-		globalValue: '🟪',
-		globalValueClass: 'gvp',
-		localReference: '📕',
-		localReferenceClass: 'lrp',
-		localValue: '💜',
-		localValueClass: 'lvp',
-		localColour: '#800080',
-		localName: 'p'
+		name: 'purple',
+		cc: 'p',
+		gvIcon: '🟪',
+		grIcon: '🟣',
+		lvIcon: '💜',
+		lrIcon: '📕',
+		backgroundColor: '#800080',
+		textColor: '#ffffff'
 	},
 	{
-		colourName: 'white',
-		globalReference: '⚪️',
-		globalReferenceClass: 'grw',
-		globalValue: '⬜️',
-		globalValueClass: 'gvw',
-		localReference: '📒',
-		localReferenceClass: 'lrw',
-		localValue: '🤍',
-		localValueClass: 'lvw',
-		localColour: '#FFFFFF',
-		localName: 'w'
+		name: 'white',
+		cc: 'w',
+		gvIcon: '⬜️',
+		grIcon: '⚪️',
+		lvIcon: '🤍',
+		lrIcon: '📒',
+		backgroundColor: '#FFFFFF',
+		textColor: '#000000'
 	}
 ];
+

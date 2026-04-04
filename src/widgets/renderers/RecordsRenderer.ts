@@ -176,7 +176,6 @@ export class RecordsRenderer {
 		});
 
 		sortedChips.forEach(([chipId, chip]) => {
-			// Build class list to match SubjectDashboard
 			const isActivated = chip.mode === 'include';
 			const classList = [
 				'kh-dashboard-chip',
@@ -194,7 +193,6 @@ export class RecordsRenderer {
 				chipEl.title = `Keyword: ${chip.label} (${chip.mode === 'include' ? 'activated' : 'deactivated'})`;
 			}
 
-			// Inline styles to match SubjectDashboard
 			chipEl.style.padding = '4px 10px';
 			chipEl.style.borderRadius = '12px';
 			chipEl.style.border = '2px solid transparent';
@@ -269,13 +267,8 @@ export class RecordsRenderer {
 	 * Get currently displayed records (with file search filter applied)
 	 */
 	public getCurrentlyDisplayedRecords(): Array<{ entry: FlatEntry; file: ParsedFile }> {
-		console.log('[RecordsRenderer] getCurrentlyDisplayedRecords called');
-		console.log('[RecordsRenderer] Base records:', this.currentlyDisplayedRecords.length);
-		console.log('[RecordsRenderer] File search text:', this.fileSearchText);
-
 		// If no file search, return all
 		if (!this.fileSearchText || this.fileSearchText.trim() === '') {
-			console.log('[RecordsRenderer] No file search, returning all records');
 			return this.currentlyDisplayedRecords;
 		}
 
@@ -285,7 +278,6 @@ export class RecordsRenderer {
 			return this.entryMatchesTextFilter(entry, file, query);
 		});
 
-		console.log('[RecordsRenderer] After file search filter:', filtered.length);
 		return filtered;
 	}
 
@@ -293,7 +285,6 @@ export class RecordsRenderer {
 	 * Update file search text (called when file search input changes)
 	 */
 	public applyFileSearchFilter(searchText: string): void {
-		console.log('[RecordsRenderer] applyFileSearchFilter called with:', searchText);
 		this.fileSearchText = searchText;
 	}
 
@@ -359,16 +350,7 @@ export class RecordsRenderer {
 		const searchable = [fileName, fileAliases, fileTags, entryKeywords, h1Tags, h2Tags, h3Tags, entryText].join(' ').toLowerCase();
 
 		// Check if searchable string contains query (same as DOM)
-		const matches = searchable.includes(query);
-
-		console.log('[RecordsRenderer] Entry match check:', {
-			query,
-			fileName,
-			entryText: entryText.substring(0, 50),
-			matches
-		});
-
-		return matches;
+		return searchable.includes(query);
 	}
 
 	/**
@@ -376,9 +358,7 @@ export class RecordsRenderer {
 	 */
 	private async renderFileFilterResults(container: HTMLElement): Promise<void> {
 		// F mode: Filter files by file-level tags directly (same logic as normal entries)
-		console.log('[F mode] Expression:', this.filterExpression);
 		const compiledFilter = FilterParser.compile(this.filterExpression);
-		console.log('[F mode] Compiled filter:', compiledFilter);
 
 		let matchingFiles = this.parsedRecords.filter(file => {
 			const dummyEntry: any = {
@@ -392,8 +372,6 @@ export class RecordsRenderer {
 
 			return FilterParser.evaluateFlatEntry(compiledFilter.ast, dummyEntry);
 		});
-
-		console.log('[F mode] Matched files:', matchingFiles.length);
 
 		// Apply text filter
 		if (this.filterText) {

@@ -744,10 +744,6 @@ export class FilterParser {
 	): boolean {
 		if (!node) return true;
 
-		if ((entry as any)._debugFile) {
-			console.log('[evaluateFlatEntry] START for', (entry as any)._debugFile, 'node type:', node.type);
-		}
-
 		// Collect header keywords and tags from all header levels
 		const headerKeywords: string[] = [];
 		const headerTags: string[] = [];
@@ -820,10 +816,6 @@ export class FilterParser {
 				const headerTagMatch = headerTags.some(tag => tag.toLowerCase() === tagValue);
 				const result = fileTagMatch || headerTagMatch;
 
-				if ((entry as any)._debugFile) {
-					console.log('[tag]', tagValue, '→', result, '(fileTags:', fileTags, ')');
-				}
-
 				return result;
 
 			case 'header_tag':
@@ -874,10 +866,6 @@ export class FilterParser {
 			case 'not':
 				const childResult = this.evaluateFlatEntry(node.child!, entry, categories, modifiers);
 				const notResult = !childResult;
-
-				if ((entry as any)._debugFile) {
-					console.log('[NOT]', childResult, '→', notResult);
-				}
 
 				return notResult;
 

@@ -2,7 +2,7 @@ import type { ActiveChip } from '../../interfaces/ActiveChip';
 
 /**
  * HeaderRenderer - Handles rendering of matrix widget header
- * Renders subject selector, filter input, buttons, chips, and flags
+ * Renders filter input, buttons, chips, and flags
  */
 export class HeaderRenderer {
 	private activeChips: Map<string, ActiveChip>;

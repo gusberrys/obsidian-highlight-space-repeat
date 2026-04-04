@@ -12,14 +12,14 @@ export function insertColorCommand(plugin: HighlightSpaceRepeatPlugin) {
 
 		// If text is selected, show toggle between local ref and global ref
 		if (selectedText) {
-			new ColourSuggestModalWithToggle(plugin.app, settings.colourPairs, (colour, isAll, isGlobal) => {
-				if (!isAll && colour) {
-					// Use the configured class from settings (L.R. Class or G.R. Class)
-					const markClass = isGlobal
-						? colour.globalReferenceClass
-						: colour.localReferenceClass;
+			new ColourSuggestModalWithToggle(plugin.app, settings.colorEntries, (colorEntry, isAll, isGlobal) => {
+				if (!isAll && colorEntry) {
+					// Generate class name from CC (color class)
+					const className = isGlobal
+						? `gr${colorEntry.cc}`  // Global Reference: grr, grb, etc.
+						: `lr${colorEntry.cc}`;  // Local Reference: lrr, lrb, etc.
 					// Wrap selected text in mark tag with the reference class
-					editor.replaceSelection(`<mark class="${markClass}">${selectedText}</mark>`);
+					editor.replaceSelection(`<mark class="${className}">${selectedText}</mark>`);
 				}
 				// isAll doesn't make sense for text selection, so ignore it
 			}, false, true).open(); // false = value mode, true = for text selection
@@ -32,52 +32,44 @@ export function insertColorCommand(plugin: HighlightSpaceRepeatPlugin) {
 
 		if (codeBlockInfo.isInBlock) {
 			// In code block - go directly to color selection with Tab toggle for references
-			new ColourSuggestModalWithToggle(plugin.app, settings.colourPairs, (colour, isAll, isGlobal) => {
+			new ColourSuggestModalWithToggle(plugin.app, settings.colorEntries, (colorEntry, isAll, isGlobal) => {
 				if (isAll) {
 					// Generate list of all emojis
 					let emojiList = '';
-					settings.colourPairs.forEach(c => {
-						const emoji = isGlobal ? c.globalReference : c.localReference;
+					settings.colorEntries.forEach(c => {
+						const emoji = isGlobal ? c.grIcon : c.lrIcon;
 						emojiList += `- ${emoji}\n`;
 					});
 					const cursor = editor.getCursor();
 					editor.replaceRange(emojiList, cursor);
-				} else if (colour) {
+				} else if (colorEntry) {
 					if (isGlobal) {
 						// Insert global reference emoji on current line
-						const emoji = colour.globalReference;
+						const emoji = colorEntry.grIcon;
 						const cursor = editor.getCursor();
 						editor.replaceRange(emoji, cursor);
 					} else {
-						// Update code block header with current line number for local reference
-						// Use localReferenceClass, strip "lr-" or "lr" prefix
+						// Update code block header with CC (color class)
 						const currentCursor = editor.getCursor();
-						let classToUse = colour.localReferenceClass || colour.localName;
-						// Strip lr- or lr prefix
-						if (classToUse.startsWith('lr-')) {
-							classToUse = classToUse.substring(3);
-						} else if (classToUse.startsWith('lr')) {
-							classToUse = classToUse.substring(2);
-						}
-						updateCodeBlockHeader(editor, codeBlockInfo, classToUse, currentCursor.line);
+						updateCodeBlockHeader(editor, codeBlockInfo, colorEntry.cc, currentCursor.line);
 					}
 				}
 			}, true, false).open(); // true = reference mode, false = not text selection
 		} else {
 			// Not in code block - go directly to color selection with Tab toggle for values
-			new ColourSuggestModalWithToggle(plugin.app, settings.colourPairs, (colour, isAll, isGlobal) => {
+			new ColourSuggestModalWithToggle(plugin.app, settings.colorEntries, (colorEntry, isAll, isGlobal) => {
 				if (isAll) {
 					// Generate list of all emojis
 					let emojiList = '';
-					settings.colourPairs.forEach(c => {
-						const emoji = isGlobal ? c.globalValue : c.localValue;
+					settings.colorEntries.forEach(c => {
+						const emoji = isGlobal ? c.gvIcon : c.lvIcon;
 						emojiList += `- ${emoji}\n`;
 					});
 					const cursor = editor.getCursor();
 					editor.replaceRange(emojiList, cursor);
-				} else if (colour) {
+				} else if (colorEntry) {
 					// Insert the emoji
-					const emoji = isGlobal ? colour.globalValue : colour.localValue;
+					const emoji = isGlobal ? colorEntry.gvIcon : colorEntry.lvIcon;
 					const cursor = editor.getCursor();
 					editor.replaceRange(emoji, cursor);
 				}

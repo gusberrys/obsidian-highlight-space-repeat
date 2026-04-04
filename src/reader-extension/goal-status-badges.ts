@@ -138,6 +138,4 @@ async function changeGoalStatus(filePath: string, element: HTMLElement, newStatu
 
 	// Write back to file
 	await app.vault.modify(file as any, lines.join('\n'));
-
-	console.log(`[GoalStatusBadge] Changed goal status to ${newStatus} in ${filePath}`);
 }

@@ -1,5 +1,5 @@
 import { App, SuggestModal } from 'obsidian';
-import type { ColourPair } from '../settings/ColorSettings';
+import type { ColorEntry } from '../settings/ColorSettings';
 import type { CodeBlockInfo } from '../utils/color-helpers';
 
 interface ColourTypeOption {
@@ -143,20 +143,20 @@ export class ColourTypeModal extends SuggestModal<ColourTypeOption> {
 }
 
 interface ColourOption {
-	colour?: ColourPair;
+	colour?: ColorEntry;
 	isAll: boolean;
 	name: string;
 	description: string;
 }
 
 export class ColourSuggestModalWithToggle extends SuggestModal<ColourOption> {
-	colours: ColourPair[];
-	onSelectCallback: (colour: ColourPair | null, isAll: boolean, isGlobal: boolean) => void;
+	colours: ColorEntry[];
+	onSelectCallback: (colour: ColorEntry | null, isAll: boolean, isGlobal: boolean) => void;
 	isGlobal: boolean = false;
 	isReferenceMode: boolean; // true = reference, false = value
 	isTextSelection: boolean; // true = for text selection (shows cl/cg)
 
-	constructor(app: App, colours: ColourPair[], onSelectCallback: (colour: ColourPair | null, isAll: boolean, isGlobal: boolean) => void, isReferenceMode: boolean = false, isTextSelection: boolean = false) {
+	constructor(app: App, colours: ColorEntry[], onSelectCallback: (colour: ColorEntry | null, isAll: boolean, isGlobal: boolean) => void, isReferenceMode: boolean = false, isTextSelection: boolean = false) {
 		super(app);
 		this.colours = colours;
 		this.onSelectCallback = onSelectCallback;
@@ -180,15 +180,15 @@ export class ColourSuggestModalWithToggle extends SuggestModal<ColourOption> {
 		const options: ColourOption[] = this.colours.map(colour => {
 			let emoji = '';
 			if (this.isReferenceMode) {
-				emoji = this.isGlobal ? colour.globalReference : colour.localReference;
+				emoji = this.isGlobal ? colour.grIcon : colour.lrIcon;
 			} else {
-				emoji = this.isGlobal ? colour.globalValue : colour.localValue;
+				emoji = this.isGlobal ? colour.gvIcon : colour.lvIcon;
 			}
 
 			return {
 				colour: colour,
 				isAll: false,
-				name: colour.colourName,
+				name: colour.name,
 				description: emoji
 			};
 		});
@@ -242,11 +242,11 @@ export class ColourSuggestModalWithToggle extends SuggestModal<ColourOption> {
 }
 
 export class ColourSuggestModal extends SuggestModal<ColourOption> {
-	colours: ColourPair[];
+	colours: ColorEntry[];
 	colourType: string;
-	onSelectCallback: (colour: ColourPair | null, isAll: boolean) => void;
+	onSelectCallback: (colour: ColorEntry | null, isAll: boolean) => void;
 
-	constructor(app: App, colours: ColourPair[], colourType: string, onSelectCallback: (colour: ColourPair | null, isAll: boolean) => void) {
+	constructor(app: App, colours: ColorEntry[], colourType: string, onSelectCallback: (colour: ColorEntry | null, isAll: boolean) => void) {
 		super(app);
 		this.colours = colours;
 		this.colourType = colourType;
@@ -258,23 +258,23 @@ export class ColourSuggestModal extends SuggestModal<ColourOption> {
 			let emoji = '';
 			switch(this.colourType) {
 				case 'global-reference':
-					emoji = colour.globalReference;
+					emoji = colour.grIcon;
 					break;
 				case 'global-value':
-					emoji = colour.globalValue;
+					emoji = colour.gvIcon;
 					break;
 				case 'local-reference':
-					emoji = colour.localReference;
+					emoji = colour.lrIcon;
 					break;
 				case 'local-value':
-					emoji = colour.localValue;
+					emoji = colour.lvIcon;
 					break;
 			}
 
 			return {
 				colour: colour,
 				isAll: false,
-				name: colour.colourName,
+				name: colour.name,
 				description: emoji
 			};
 		});

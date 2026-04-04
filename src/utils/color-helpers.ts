@@ -1,17 +1,6 @@
 import type { Editor } from 'obsidian';
 
 /**
- * Calculate brightness of a color (0-255)
- * Used to determine if text should be white or black
- */
-export function calculateBrightness(hex: string): number {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return (r * 299 + g * 587 + b * 114) / 1000;
-}
-
-/**
  * Code block detection result
  */
 export interface CodeBlockInfo {
