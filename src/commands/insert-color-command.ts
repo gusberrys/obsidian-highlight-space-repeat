@@ -3,16 +3,16 @@ import type { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugi
 import { ColourSuggestModalWithToggle } from './color-modals';
 import { detectCodeBlock, updateCodeBlockHeader } from '../utils/color-helpers';
 import { get } from 'svelte/store';
-import { settingsStore } from '../stores/settings-store';
+import { colorHighlightsStore } from '../stores/settings-store';
 
 export function insertColorCommand(plugin: HighlightSpaceRepeatPlugin) {
 	return (editor: Editor, view: MarkdownView) => {
-		const settings = get(settingsStore);
+		const colorHighlights = get(colorHighlightsStore);
 		const selectedText = editor.getSelection();
 
 		// If text is selected, show toggle between local ref and global ref
 		if (selectedText) {
-			new ColourSuggestModalWithToggle(plugin.app, settings.colorEntries, (colorEntry, isAll, isGlobal) => {
+			new ColourSuggestModalWithToggle(plugin.app, colorHighlights.colorEntries, (colorEntry, isAll, isGlobal) => {
 				if (!isAll && colorEntry) {
 					// Generate class name from CC (color class)
 					const className = isGlobal
@@ -32,11 +32,11 @@ export function insertColorCommand(plugin: HighlightSpaceRepeatPlugin) {
 
 		if (codeBlockInfo.isInBlock) {
 			// In code block - go directly to color selection with Tab toggle for references
-			new ColourSuggestModalWithToggle(plugin.app, settings.colorEntries, (colorEntry, isAll, isGlobal) => {
+			new ColourSuggestModalWithToggle(plugin.app, colorHighlights.colorEntries, (colorEntry, isAll, isGlobal) => {
 				if (isAll) {
 					// Generate list of all emojis
 					let emojiList = '';
-					settings.colorEntries.forEach(c => {
+					colorHighlights.colorEntries.forEach(c => {
 						const emoji = isGlobal ? c.grIcon : c.lrIcon;
 						emojiList += `- ${emoji}\n`;
 					});
@@ -57,11 +57,11 @@ export function insertColorCommand(plugin: HighlightSpaceRepeatPlugin) {
 			}, true, false).open(); // true = reference mode, false = not text selection
 		} else {
 			// Not in code block - go directly to color selection with Tab toggle for values
-			new ColourSuggestModalWithToggle(plugin.app, settings.colorEntries, (colorEntry, isAll, isGlobal) => {
+			new ColourSuggestModalWithToggle(plugin.app, colorHighlights.colorEntries, (colorEntry, isAll, isGlobal) => {
 				if (isAll) {
 					// Generate list of all emojis
 					let emojiList = '';
-					settings.colorEntries.forEach(c => {
+					colorHighlights.colorEntries.forEach(c => {
 						const emoji = isGlobal ? c.gvIcon : c.lvIcon;
 						emojiList += `- ${emoji}\n`;
 					});

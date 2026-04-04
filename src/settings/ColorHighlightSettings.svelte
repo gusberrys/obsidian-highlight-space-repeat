@@ -1,20 +1,21 @@
 <script lang="ts">
   import type { Writable } from 'svelte/store';
   import type { PluginSettings } from 'src/stores/settings-store';
-  import { saveStore } from 'src/stores/settings-store';
+  import { colorHighlightsStore, settingsStore as storeRef, saveStore } from 'src/stores/settings-store';
   import type { HighlightSpaceRepeatPlugin } from 'src/highlight-space-repeat-plugin';
   import type { ColorEntry } from './ColorSettings';
 
   export let settingsStore: Writable<PluginSettings>;
-  export let plugin: HighlightSpaceRepeatPlugin;
 
   // Initialize with empty arrays to prevent undefined errors during component lifecycle
   let colorEntries: ColorEntry[] = [];
   let colorHighlightingEnabled: boolean = false;
 
-  // Update from store reactively
+  // Update from stores reactively
+  $: if ($colorHighlightsStore) {
+    colorEntries = $colorHighlightsStore.colorEntries || [];
+  }
   $: if ($settingsStore) {
-    colorEntries = $settingsStore.colorEntries || [];
     colorHighlightingEnabled = $settingsStore.colorHighlightingEnabled || false;
   }
 
@@ -35,10 +36,10 @@
   }
 
   async function addColor() {
-    if (!$settingsStore.colorEntries) {
-      $settingsStore.colorEntries = [];
+    if (!$colorHighlightsStore.colorEntries) {
+      $colorHighlightsStore.colorEntries = [];
     }
-    $settingsStore.colorEntries = [...$settingsStore.colorEntries, {
+    $colorHighlightsStore.colorEntries = [...$colorHighlightsStore.colorEntries, {
       name: 'new color',
       cc: 'nc',
       gvIcon: '⚫',
@@ -52,18 +53,18 @@
   }
 
   async function removeColor(index: number) {
-    if (!$settingsStore.colorEntries) {
+    if (!$colorHighlightsStore.colorEntries) {
       return;
     }
-    $settingsStore.colorEntries = $settingsStore.colorEntries.filter((_, i) => i !== index);
+    $colorHighlightsStore.colorEntries = $colorHighlightsStore.colorEntries.filter((_, i) => i !== index);
     await saveSettings();
   }
 
   async function updateColor(index: number, field: keyof ColorEntry, value: string) {
-    if (!$settingsStore.colorEntries || !$settingsStore.colorEntries[index]) {
+    if (!$colorHighlightsStore.colorEntries || !$colorHighlightsStore.colorEntries[index]) {
       return;
     }
-    $settingsStore.colorEntries[index][field] = value as any;
+    $colorHighlightsStore.colorEntries[index][field] = value as any;
     await saveSettings();
   }
 </script>
@@ -306,19 +307,8 @@
     color: var(--text-normal);
   }
 
-  .color-picker-wrapper {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-  }
 
-  .color-picker-wrapper input[type="color"] {
-    width: 40px;
-    height: 30px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 3px;
-    cursor: pointer;
-  }
+
 
   .info-panel {
     margin-top: 1.5rem;

@@ -3,16 +3,16 @@ import { editorHighlighter, recordBadgeGutter } from 'src/editor-extension';
 import { SettingTab } from 'src/settings/setting-tab';
 import { readerHighlighter, addRecordBadgesToReadingView, addGoalStatusBadges } from './reader-extension';
 import { createInsertKeywordCommand, insertColorCommand } from './commands';
-import { initStore, saveStore, settingsStore, type PluginSettings, type Settings } from './stores/settings-store';
+import { initStore, saveStore, settingsStore, type PluginSettings, type Settings, type MergedSettings } from './stores/settings-store';
 import { get } from 'svelte/store';
-import { DATA_PATHS, type VWordSettings } from './shared';
+import { PATHS, type VWordSettings } from './shared';
 import { HighlightSpaceRepeatAPI } from './public-api';
 import { SRSReviewView, SRS_REVIEW_VIEW_TYPE } from './widgets/SRSReviewView';
 import { RecordsViewWidget, RECORDS_VIEW_TYPE } from './widgets/RecordsViewWidget';
 import { SRSManager } from './services/SRSManager';
 
 export class HighlightSpaceRepeatPlugin extends Plugin {
-  static settings: PluginSettings;
+  static settings: MergedSettings;
 
   // SRS (Spaced Repetition System) manager
   public srsManager!: SRSManager;
@@ -22,6 +22,16 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
 
   // Public API instance
   private _api!: HighlightSpaceRepeatAPI;
+
+  // Simple data adapter wrapper
+  private adapter = {
+    read: async (path: string): Promise<string> => {
+      return await this.app.vault.adapter.read(`${this.manifest.dir}/${path}`);
+    },
+    write: async (path: string, data: string): Promise<void> => {
+      await this.app.vault.adapter.write(`${this.manifest.dir}/${path}`, data);
+    }
+  };
 
   /**
    * Public API for external plugins to access highlight space repeat functionality
@@ -33,10 +43,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
 
 
   async onload(): Promise<void> {
-    // Initialize data paths FIRST
-    const { initDataPaths } = require('./shared/data-paths');
-    initDataPaths(this.manifest.dir || '.obsidian/plugins/obsidian-highlight-space-repeat');
-
     // CRITICAL: Wait for settings to load before continuing
     await initStore(this);
 
@@ -364,10 +370,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     errorModal.open();
   }
 
-  async saveSettings(): Promise<void> {
-    await saveStore();
-  }
-
   /**
    * Trigger file scan from settings tab
    * This exposes the existing scan functionality to other components
@@ -388,15 +390,16 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     // Otherwise, perform scan directly
     const { RecordParser } = await import('./services/RecordParser');
     const { get } = await import('svelte/store');
-    const { settingsStore } = await import('./stores/settings-store');
+    const { keywordsStore, settingsStore } = await import('./stores/settings-store');
 
+    const keywords = get(keywordsStore);
     const settings = get(settingsStore);
     const recordParser = new RecordParser(this.app, settings.parserSettings);
 
     // Get keywords that should be parsed (PARSED or SPACED status)
     const keywordsToParse: string[] = [];
 
-    for (const category of settings.categories) {
+    for (const category of keywords.categories) {
       for (const keyword of category.keywords) {
         if (keyword.collectingStatus === 'PARSED' || keyword.collectingStatus === 'SPACED') {
           keywordsToParse.push(keyword.keyword);
@@ -445,54 +448,35 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
   }
 
 
-  // Override loadData to use keyword.json
-  async loadData(): Promise<PluginSettings | null> {
+  // Load keywords from app-data/keywords.json
+  async loadKeywords(): Promise<any> {
     try {
-      const data = await this.app.vault.adapter.read(DATA_PATHS.KEYWORD);
+      const data = await this.adapter.read(PATHS.KEYWORDS);
       return JSON.parse(data);
     } catch (error) {
-      // File doesn't exist or can't be read, return null
       return null;
     }
   }
 
-  // Override saveData to use keyword.json
-  async saveData(data: PluginSettings): Promise<void> {
-    await this.app.vault.adapter.write(DATA_PATHS.KEYWORD, JSON.stringify(data, null, 2));
+  // Save keywords to app-data/keywords.json
+  async saveKeywords(data: any): Promise<void> {
+    await this.adapter.write(PATHS.KEYWORDS, JSON.stringify(data, null, 2));
   }
 
-  // Load settings from settings.json
-  async loadSettingsData(): Promise<Settings | null> {
+  // Load color highlights from app-data/color-highlights.json
+  async loadColorHighlights(): Promise<any> {
     try {
-      const data = await this.app.vault.adapter.read(DATA_PATHS.SETTINGS);
+      const data = await this.adapter.read(PATHS.COLOR_HIGHLIGHTS);
       return JSON.parse(data);
     } catch (error) {
-      // File doesn't exist or can't be read, return null
       return null;
     }
   }
 
-  // Save settings to settings.json
-  async saveSettingsData(data: Settings): Promise<void> {
-    await this.app.vault.adapter.write(DATA_PATHS.SETTINGS, JSON.stringify(data, null, 2));
+  // Save color highlights to app-data/color-highlights.json
+  async saveColorHighlights(data: any): Promise<void> {
+    await this.adapter.write(PATHS.COLOR_HIGHLIGHTS, JSON.stringify(data, null, 2));
   }
-
-  // Load VWord settings from vword-settings.json
-  async loadVWordSettings(): Promise<VWordSettings | null> {
-    try {
-      const data = await this.app.vault.adapter.read(DATA_PATHS.VWORD_SETTINGS);
-      return JSON.parse(data);
-    } catch (error) {
-      console.log('[Plugin] No VWord settings file found, using defaults');
-      return null;
-    }
-  }
-
-  // Save VWord settings to vword-settings.json
-  async saveVWordSettings(data: VWordSettings): Promise<void> {
-    await this.app.vault.adapter.write(DATA_PATHS.VWORD_SETTINGS, JSON.stringify(data, null, 2));
-  }
-
 
   // Public API method (no-op, grid view removed)
   async handleReferenceFileOpen(_file: any): Promise<void> {

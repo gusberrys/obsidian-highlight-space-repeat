@@ -27,9 +27,9 @@ export function generateKeywordCSS(categories: Category[]): string {
 
         // Only generate color CSS if NOT append
         if (keyword.stylePriority !== 'append') {
-          // Color keywords: only generate CSS for color mode ON (body.cc-enabled)
-          // Normal keywords: generate base CSS (always visible)
-          const scope = keyword.isColorKeyword ? 'body.cc-enabled ' : '';
+          // Color keywords: only show when color mode ON (body.cc-enabled)
+          // Normal keywords: only show when color mode OFF (body:not(.cc-enabled))
+          const scope = keyword.isColorKeyword ? 'body.cc-enabled ' : 'body:not(.cc-enabled) ';
 
           cssRules.push(`
 ${scope}.${className} {
@@ -106,8 +106,10 @@ mark.${className}::before {
 
   // Combinable feature removed - no combination CSS rules needed
 
-  // No visibility rules needed - color keywords only have CSS when body.cc-enabled
-  // Normal keywords always have their CSS, color keywords override via body.cc-enabled scope
+  // Color mode logic:
+  // - Normal keywords: scoped to body:not(.cc-enabled) - only show when color mode OFF
+  // - Color keywords: scoped to body.cc-enabled - only show when color mode ON
+  // This makes them mutually exclusive without needing override rules
 
   return cssRules.join('\n');
 }

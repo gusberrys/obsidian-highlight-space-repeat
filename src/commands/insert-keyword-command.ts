@@ -1,7 +1,7 @@
 import { App, type Command, SuggestModal } from 'obsidian';
 import { get } from 'svelte/store';
-import { settingsStore } from 'src/stores/settings-store';
-import type { KeywordStyle } from 'src/shared';
+import { keywordsStore } from 'src/stores/settings-store';
+import type { KeywordStyle, Category } from 'src/shared';
 
 type KeywordWithCategory = KeywordStyle & { categoryName: string };
 
@@ -14,11 +14,11 @@ class KeywordSuggestModal extends SuggestModal<KeywordWithCategory> {
   }
 
   getSuggestions(query: string): KeywordWithCategory[] {
-    const settings = get(settingsStore);
+    const keywords = get(keywordsStore);
     const allKeywords: KeywordWithCategory[] = [];
 
-    settings.categories.forEach(category => {
-      category.keywords.forEach(keyword => {
+    keywords.categories.forEach((category: Category) => {
+      category.keywords.forEach((keyword: KeywordStyle) => {
         allKeywords.push({
           ...keyword,
           categoryName: category.icon

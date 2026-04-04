@@ -1,7 +1,7 @@
 import HighlightSpaceRepeatPlugin from 'main';
 import { App, PluginSettingTab } from 'obsidian';
 import SettingTabComponent from './SettingTab.svelte';
-import { saveStore, settingsStore, saveSettingsData } from 'src/stores/settings-store';
+import { saveStore, settingsStore } from 'src/stores/settings-store';
 
 export class SettingTab extends PluginSettingTab {
   plugin: HighlightSpaceRepeatPlugin;
@@ -27,6 +27,5 @@ export class SettingTab extends PluginSettingTab {
 
   async hide(): Promise<void> {
     await saveStore();
-    await saveSettingsData();
   }
 }

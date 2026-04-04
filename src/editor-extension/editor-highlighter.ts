@@ -3,7 +3,7 @@ import { RangeSetBuilder } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, type PluginValue, ViewPlugin, ViewUpdate } from '@codemirror/view';
 import { highlightMark } from 'src/editor-extension';
 import type { KeywordStyle } from 'src/shared';
-import { settingsStore, vwordSettingsStore } from 'src/stores/settings-store';
+import { keywordsStore, settingsStore } from 'src/stores/settings-store';
 import { get } from 'svelte/store';
 import { isVWordKeyword } from 'src/shared/vword';
 
@@ -13,16 +13,17 @@ let keywordMap: Map<string, KeywordStyle> = new Map();
 
 export class EditorHighlighter implements PluginValue {
   decorations: DecorationSet;
-  unsubscribe: () => void;
+  unsubscribeKeywords: () => void;
+  unsubscribeSettings: () => void;
 
   constructor(view: EditorView) {
     this.decorations = this.buildDecorations(view);
 
-    const settings = get(settingsStore);
+    const keywords = get(keywordsStore);
 
     // Build keyword map from all categories
     keywordMap = new Map(
-      settings.categories
+      keywords.categories
         .flatMap(category =>
           category.keywords.flatMap((k: KeywordStyle) =>
             k.keyword
@@ -37,17 +38,19 @@ export class EditorHighlighter implements PluginValue {
         .map((k: KeywordStyle) => [k.keyword.toLowerCase(), k])
     );
 
-    this.unsubscribe = settingsStore.subscribe(() => {
-      setTimeout(() => {
-        try {
-          if (view.state) {
-            this.decorations = this.buildDecorations(view);
-            view.requestMeasure();
-          }
-        } catch (e) {
-          this.unsubscribe();
-        }
-      }, 0);
+    // Subscribe to both keywords and settings changes
+    this.unsubscribeKeywords = keywordsStore.subscribe(() => {
+      if (view.state) {
+        this.decorations = this.buildDecorations(view);
+        view.requestMeasure();
+      }
+    });
+
+    this.unsubscribeSettings = settingsStore.subscribe(() => {
+      if (view.state) {
+        this.decorations = this.buildDecorations(view);
+        view.requestMeasure();
+      }
     });
   }
 
@@ -58,7 +61,8 @@ export class EditorHighlighter implements PluginValue {
   }
 
   destroy(): void {
-    this.unsubscribe();
+    this.unsubscribeKeywords();
+    this.unsubscribeSettings();
   }
 
   buildDecorations(view: EditorView): DecorationSet {
@@ -153,12 +157,12 @@ export class EditorHighlighter implements PluginValue {
 
         // If not a regular keyword, check if it's a VWord
         if (!kwData && isVWordKeyword(trimmedPart)) {
-          const vwordSettings = get(vwordSettingsStore);
+          const settings = get(settingsStore);
           // Create synthetic KeywordStyle for VWord highlighting
           kwData = {
             keyword: trimmedPart,
-            color: vwordSettings.color,
-            backgroundColor: vwordSettings.backgroundColor,
+            color: settings.vword.color,
+            backgroundColor: settings.vword.backgroundColor,
           };
         }
 

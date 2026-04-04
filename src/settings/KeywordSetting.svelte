@@ -8,7 +8,6 @@
 
   export let keyword: KeywordStyle;
   export let keywordIndex: number;  // Local index within category
-  export let categoryName: string;
 
   const dispatch = createEventDispatcher();
 
@@ -226,14 +225,8 @@
     background: var(--background-modifier-hover);
   }
 
-  .keyword-row.kw-dragging {
-    opacity: 0.5;
-    background: var(--interactive-accent);
-  }
 
-  .keyword-row.kw-drag-over {
-    border-top: 2px solid var(--interactive-accent);
-  }
+
 
   .keyword-row td {
     padding: 0.3rem 0.2rem;

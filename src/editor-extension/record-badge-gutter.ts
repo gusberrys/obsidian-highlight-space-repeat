@@ -4,7 +4,7 @@ import type { Extension } from '@codemirror/state';
 import { CollectingStatus, isSpaced } from '../shared/collecting-status';
 import type { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
 import type { ParsedEntry } from '../interfaces/ParsedFile';
-import { settingsStore } from '../stores/settings-store';
+import { keywordsStore } from '../stores/settings-store';
 import { get } from 'svelte/store';
 
 /**
@@ -79,11 +79,11 @@ function generateRecordYaml(lineText: string, lineNumber: number, plugin: Highli
  * Get collecting status for keywords
  */
 function getCollectingStatus(keywords: string[]): CollectingStatus | null {
-	const settings = get(settingsStore);
+	const keywordsData = get(keywordsStore);
 
 	for (const keyword of keywords) {
 		// Find keyword in categories
-		for (const category of settings.categories) {
+		for (const category of keywordsData.categories) {
 			const keywordObj = category.keywords.find((k: any) => k.keyword === keyword);
 			if (keywordObj && keywordObj.collectingStatus) {
 				return keywordObj.collectingStatus;
