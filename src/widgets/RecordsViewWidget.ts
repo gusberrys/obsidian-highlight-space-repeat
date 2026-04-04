@@ -130,7 +130,7 @@ export class RecordsViewWidget extends ItemView {
 				},
 				onExpressionSearch: (expression: string) => {
 					this.widgetFilterExpression = expression;
-					this.widgetFilterType = 'R'; // Default to Record filter
+					// Keep the user's selected filter type (F/H/R) - don't force to R
 
 					// Safety check
 					if (!HighlightSpaceRepeatPlugin.settings) {
@@ -525,9 +525,64 @@ export class RecordsViewWidget extends ItemView {
 	/**
 	 * Set filter expression from external source (e.g., Plugin B)
 	 */
-	public setFilterExpression(expression: string) {
+	public setFilterExpression(expression: string, type?: 'F' | 'H' | 'R' | 'D') {
 		this.widgetFilterExpression = expression;
-		this.widgetFilterType = null;
+		this.widgetFilterType = type || 'R'; // Default to Record filter if not specified
+
+		// Safety check
+		if (!HighlightSpaceRepeatPlugin.settings) {
+			this.render();
+			return;
+		}
+
+		// Extract and create chips from expression
+		const extracted = this.extractChipsFromFilterExpression(expression);
+		this.activeChips.clear();
+
+		// Add keyword chips
+		extracted.keywords.forEach(kw => {
+			const keywordStyle = HighlightSpaceRepeatPlugin.settings.categories
+				.flatMap((cat: any) => cat.keywords)
+				.find((k: any) => k.keyword === kw.value);
+
+			if (keywordStyle) {
+				this.activeChips.set(kw.value, {
+					type: 'keyword',
+					value: kw.value,
+					label: kw.value,
+					mode: kw.mode,
+					active: true,
+					backgroundColor: keywordStyle.backgroundColor,
+					color: keywordStyle.color
+				});
+			}
+		});
+
+		// Add category chips
+		extracted.categoryIds.forEach(cat => {
+			const category = HighlightSpaceRepeatPlugin.settings.categories.find((c: any) => c.id === cat.value);
+			if (category) {
+				this.activeChips.set(`cat-${cat.value}`, {
+					type: 'category',
+					value: cat.value,
+					label: category.icon || cat.value,
+					mode: cat.mode,
+					active: true
+				});
+			}
+		});
+
+		// Add language chips
+		extracted.languages.forEach(lang => {
+			this.activeChips.set(`lang-${lang.value}`, {
+				type: 'language',
+				value: lang.value,
+				label: lang.value,
+				mode: lang.mode,
+				active: true
+			});
+		});
+
 		this.render();
 	}
 }

@@ -258,8 +258,21 @@ export class FilterParser {
 				continue;
 			}
 
-			// Keyword (.foo or .foo.bar for multi-keyword matching)
+			// Header keyword (..foo) or regular keyword (.foo or .foo.bar for multi-keyword matching)
 			if (char === '.') {
+				// Check for double dot (..foo = header keyword)
+				if (i + 1 < expression.length && expression[i + 1] === '.') {
+					i += 2; // Skip both dots
+					let keyword = '';
+					while (i < expression.length && /[a-zA-Z0-9_-]/.test(expression[i])) {
+						keyword += expression[i];
+						i++;
+					}
+					tokens.push({ type: FilterTokenType.HEADER_KEYWORD, value: keyword });
+					continue;
+				}
+
+				// Regular keyword (.foo or .foo.bar)
 				i++;
 				const keywords: string[] = [];
 				let keyword = '';
@@ -306,8 +319,21 @@ export class FilterParser {
 				continue;
 			}
 
-			// Tag (#foo)
+			// Header tag (##foo) or regular tag (#foo)
 			if (char === '#') {
+				// Check for double hash (##foo = header tag only)
+				if (i + 1 < expression.length && expression[i + 1] === '#') {
+					i += 2; // Skip both hashes
+					let tag = '';
+					while (i < expression.length && /[a-zA-Z0-9_-]/.test(expression[i])) {
+						tag += expression[i];
+						i++;
+					}
+					tokens.push({ type: FilterTokenType.HEADER_TAG, value: tag });
+					continue;
+				}
+
+				// Regular tag (#foo = file OR header tag)
 				i++;
 				let tag = '';
 				while (i < expression.length && /[a-zA-Z0-9_-]/.test(expression[i])) {
@@ -493,8 +519,12 @@ export class FilterParser {
 					}
 					return node;
 				}
+				case FilterTokenType.HEADER_KEYWORD:
+					return { type: 'header_keyword', value: token.value };
 				case FilterTokenType.TAG:
 					return { type: 'tag', value: token.value };
+				case FilterTokenType.HEADER_TAG:
+					return { type: 'header_tag', value: token.value };
 				case FilterTokenType.PATH:
 					return { type: 'path', value: token.value };
 				case FilterTokenType.FILENAME:
@@ -714,6 +744,10 @@ export class FilterParser {
 	): boolean {
 		if (!node) return true;
 
+		if ((entry as any)._debugFile) {
+			console.log('[evaluateFlatEntry] START for', (entry as any)._debugFile, 'node type:', node.type);
+		}
+
 		// Collect header keywords and tags from all header levels
 		const headerKeywords: string[] = [];
 		const headerTags: string[] = [];
@@ -780,16 +814,26 @@ export class FilterParser {
 				return entryKeywordMatch;
 
 			case 'tag':
-				// FlatEntry stores tags WITHOUT # prefix, so strip it for comparison
+				// #tag - Match file tags OR header tags (always checks both)
 				const tagValue = node.value!.startsWith('#') ? node.value!.slice(1).toLowerCase() : node.value!.toLowerCase();
 				const fileTagMatch = fileTags.some(tag => tag.toLowerCase() === tagValue);
+				const headerTagMatch = headerTags.some(tag => tag.toLowerCase() === tagValue);
+				const result = fileTagMatch || headerTagMatch;
 
-				const shouldCheckHeaderTags = node.includeHeaders || modifiers?.enableHeaders;
-				if (shouldCheckHeaderTags && headerTags.length > 0) {
-					const headerTagMatch = headerTags.some(tag => tag.toLowerCase() === tagValue);
-					return fileTagMatch || headerTagMatch;
+				if ((entry as any)._debugFile) {
+					console.log('[tag]', tagValue, '→', result, '(fileTags:', fileTags, ')');
 				}
-				return fileTagMatch;
+
+				return result;
+
+			case 'header_tag':
+				// ##tag - Match ONLY header tags
+				const headerTagValue = node.value!.startsWith('#') ? node.value!.slice(1).toLowerCase() : node.value!.toLowerCase();
+				return headerTags.some(tag => tag.toLowerCase() === headerTagValue);
+
+			case 'header_keyword':
+				// ..keyword - Match ONLY header keywords
+				return headerKeywords.some(hk => hk.toLowerCase() === node.value!.toLowerCase());
 
 			case 'path':
 				const pathToMatch = node.value!.startsWith('/') ? node.value!.slice(1) : node.value!;
@@ -828,7 +872,14 @@ export class FilterParser {
 				       this.evaluateFlatEntry(node.right!, entry, categories, modifiers);
 
 			case 'not':
-				return !this.evaluateFlatEntry(node.child!, entry, categories, modifiers);
+				const childResult = this.evaluateFlatEntry(node.child!, entry, categories, modifiers);
+				const notResult = !childResult;
+
+				if ((entry as any)._debugFile) {
+					console.log('[NOT]', childResult, '→', notResult);
+				}
+
+				return notResult;
 
 			default:
 				return false;

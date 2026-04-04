@@ -8,12 +8,12 @@
  * }
  */
 
-import type { KeywordStyle, Category } from './shared';
+import type { KeywordStyle, Category, CodeBlockLanguage } from './shared';
 import type { ParsedFile, FlatEntry } from './interfaces/ParsedFile';
 import type { CompiledFilter } from './interfaces/FilterInterfaces';
 import type { ActiveChip } from './interfaces/ActiveChip';
 import { get } from 'svelte/store';
-import { settingsStore } from './stores/settings-store';
+import { settingsStore, codeBlocksStore } from './stores/settings-store';
 import { FilterParser } from './services/FilterParser';
 import { FilterExpressionService } from './services/FilterExpressionService';
 
@@ -74,6 +74,14 @@ export class HighlightSpaceRepeatAPI {
    */
   hasKeyword(keyword: string): boolean {
     return this.getKeywordStyle(keyword) !== undefined;
+  }
+
+  /**
+   * Get all code block language configurations
+   * @returns Array of code block languages with icons
+   */
+  getCodeBlocks(): CodeBlockLanguage[] {
+    return get(codeBlocksStore);
   }
 
   /**
@@ -198,15 +206,24 @@ export class HighlightSpaceRepeatAPI {
   /**
    * Display filtered records in Plugin A's UI
    * @param expression - Filter expression to apply
+   * @param type - Filter type: 'F' (Files), 'H' (Headers), 'R' (Records), 'D' (Dashboard)
    * @param sourceView - Optional identifier for the source view (e.g., "matrix-cell")
    */
-  displayFilteredRecords(expression: string, sourceView?: string): void {
-    // TODO: Implement record display
-    // This will:
-    // 1. Compile the filter expression
-    // 2. Create chips from the expression
-    // 3. Filter records
-    // 4. Display in the records view with chips UI
+  async displayFilteredRecords(expression: string, type?: 'F' | 'H' | 'R' | 'D', sourceView?: string): Promise<void> {
+    // Activate/open the records view
+    await this.plugin.activateRecordsView();
+
+    // Get the records view instance
+    const { workspace } = this.plugin.app;
+    const leaves = workspace.getLeavesOfType('records-view');
+
+    if (leaves.length > 0) {
+      const recordsView = leaves[0].view as any;
+      if (recordsView && recordsView.setFilterExpression) {
+        // Set the filter expression on the view with the specified type
+        recordsView.setFilterExpression(expression, type);
+      }
+    }
   }
 
   // ==================== Event Subscriptions ====================

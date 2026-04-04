@@ -112,8 +112,8 @@ export class RecordsControlRenderer {
 			this.onFilterTypeChange(newType);
 		});
 
-		// Expression input and search button only enabled for Records (R)
-		const expressionEnabled = this.filterType === 'R';
+		// Expression input and search button enabled for F/H/R (not D)
+		const expressionEnabled = this.filterType === 'F' || this.filterType === 'H' || this.filterType === 'R';
 
 		const expressionInput = expressionContainer.createEl('input', {
 			type: 'text',
@@ -126,46 +126,45 @@ export class RecordsControlRenderer {
 		});
 		expressionInput.disabled = !expressionEnabled;
 
-		const expressionSearchBtn = expressionContainer.createEl('button', {
-			text: '🔍',
-			cls: 'kh-widget-filter-search-btn',
-			title: expressionEnabled ? `Filter Syntax Guide:
+		const getSearchBtnTooltip = () => {
+			if (!expressionEnabled) return '[Only available for Files/Headers/Records]';
+
+			return `Filter Syntax Guide:
 
 MATCHING:
-  .keyword - keyword match (e.g., .goa .def)
-  #tag - tag match (e.g., #kafka #strimzi)
-  \`language - code language (e.g., \`java \`python)
+  .keyword - entry keyword (e.g., .goa .def)
+  ..keyword - header keyword (e.g., ..goa)
+  #tag - file OR header tag (e.g., #kafka)
+  ##tag - header tag only (e.g., ##docker)
+  \`language - code language (e.g., \`java)
   :category - category keywords (e.g., :boo)
 
-KEYWORD COMBINATION (within entry):
-  .kw1.kw2 - entry must have ALL (kw1 AND kw2)
-    Example: .goa.wor = entry with BOTH goa AND wor
+KEYWORD COMBINATION:
+  .kw1.kw2 - entry has ALL (kw1 AND kw2)
 
-  [FUTURE] .goa|f1|f2 - goa with (f1 OR f2)
-    Current: .goa AND (.f1 OR .f2)
-
-  [FUTURE] .goa!f1!f2 - goa WITHOUT f1 or f2
-    Current: .goa AND !.f1 AND !.f2
-
-BOOLEAN OPERATORS (combine conditions):
+BOOLEAN OPERATORS:
   AND - both true (e.g., .goa AND #kafka)
   OR - either true (e.g., .goa OR .def)
   ! - negate (e.g., !.wor)
   ( ) - grouping (e.g., (.goa OR .def) AND #kafka)
 
-FLAGS (modifiers):
+FLAGS (R mode only):
   \\s - Slim: show only matching sub-items
   \\t - Top: show only top-level matches
 
-CLAUSES:
-  S: .keyword - SELECT what to show (default)
+CLAUSES (R mode only):
   W: #tag - WHERE to search (filter files)
 
 Examples:
-  .goa.wor - entries with goa AND wor
-  .goa AND (.f1 OR .f2) - goa with f1 or f2
-  .goa AND !.f1 AND !.f2 - goa without f1 or f2
-  .goa \\t W: #kafka - top-level goa in #kafka files` : '[Only available for Records]',
+  F: #kubernetes - files with kubernetes tag
+  H: ##docker - headers with docker tag
+  R: .goa W: #kafka - goa entries in kafka files`;
+		};
+
+		const expressionSearchBtn = expressionContainer.createEl('button', {
+			text: '🔍',
+			cls: 'kh-widget-filter-search-btn',
+			title: getSearchBtnTooltip(),
 			attr: {
 				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: pointer;' + (expressionEnabled ? '' : ' opacity: 0.3; cursor: not-allowed;')
 			}

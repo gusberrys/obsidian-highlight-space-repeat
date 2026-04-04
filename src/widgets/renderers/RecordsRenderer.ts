@@ -375,11 +375,25 @@ export class RecordsRenderer {
 	 * Render file filter results with entries (like H mode shows headers with entries)
 	 */
 	private async renderFileFilterResults(container: HTMLElement): Promise<void> {
-		// Get matching records and extract unique files
+		// F mode: Filter files by file-level tags directly (same logic as normal entries)
+		console.log('[F mode] Expression:', this.filterExpression);
 		const compiledFilter = FilterParser.compile(this.filterExpression);
-		const matchingRecords = FilterExpressionService.getMatchingRecords(this.parsedRecords, this.filterExpression);
-		const filePathSet = new Set(matchingRecords.map(({ file }) => file.filePath));
-		let matchingFiles = this.parsedRecords.filter(file => filePathSet.has(file.filePath));
+		console.log('[F mode] Compiled filter:', compiledFilter);
+
+		let matchingFiles = this.parsedRecords.filter(file => {
+			const dummyEntry: any = {
+				text: '',
+				keywords: [],
+				fileTags: file.tags || [],
+				h1: null,
+				h2: null,
+				h3: null
+			};
+
+			return FilterParser.evaluateFlatEntry(compiledFilter.ast, dummyEntry);
+		});
+
+		console.log('[F mode] Matched files:', matchingFiles.length);
 
 		// Apply text filter
 		if (this.filterText) {
@@ -413,24 +427,62 @@ export class RecordsRenderer {
 	 * Render header filter results with expandable entries
 	 */
 	private async renderHeaderFilterResults(container: HTMLElement): Promise<void> {
-		// Get matching records and group by header
-		const matchingRecords = FilterExpressionService.getMatchingRecords(this.parsedRecords, this.filterExpression);
-
-		// Group records by their parent header
+		// H mode: Match HEADERS directly (not entries)
+		// Loop through ALL entries and check if their HEADERS match the filter
 		let headerGroups = new Map<string, { file: ParsedFile; headerText: string; headerLevel: number; entries: FlatEntry[] }>();
 
-		for (const { entry, file } of matchingRecords) {
-			const h1Text = entry.h1?.text || '';
-			const h2Text = entry.h2?.text || '';
-			const h3Text = entry.h3?.text || '';
-			const headerKey = `${file.filePath}::${h1Text}::${h2Text}::${h3Text}`;
-			const headerText = h3Text || h2Text || h1Text || '';
-			const headerLevel = entry.h3 ? 3 : entry.h2 ? 2 : entry.h1 ? 1 : 0;
+		// Compile filter expression
+		const compiled = FilterParser.compile(this.filterExpression);
 
-			if (!headerGroups.has(headerKey)) {
-				headerGroups.set(headerKey, { file, headerText, headerLevel, entries: [] });
+		for (const file of this.parsedRecords) {
+			for (const entry of file.entries) {
+				// Check each header level (h1, h2, h3)
+				const headerLevels = [
+					entry.h1 ? { level: 1, info: entry.h1 } : null,
+					entry.h2 ? { level: 2, info: entry.h2 } : null,
+					entry.h3 ? { level: 3, info: entry.h3 } : null
+				].filter(h => h !== null);
+
+				for (const headerLevel of headerLevels) {
+					const header = headerLevel!.info;
+					if (header.text || header.keywords || header.inlineKeywords) {
+						// Evaluate filter on the HEADER object (not the entry)
+						// Create pseudo-entry from header for filter evaluation
+						const headerAsEntry: any = {
+							type: 'keyword',
+							text: header.text,
+							keywords: header.keywords || [],
+							inlineKeywords: header.inlineKeywords || [],
+							tags: header.tags || [],
+							lineNumber: entry.lineNumber,
+							filePath: file.filePath,
+							fileTags: file.tags,
+							h1: entry.h1,
+							h2: entry.h2,
+							h3: entry.h3
+						};
+
+						// Check if this HEADER matches the filter expression
+						if (FilterParser.evaluateFlatEntry(compiled.ast, headerAsEntry, HighlightSpaceRepeatPlugin.settings.categories, compiled.modifiers)) {
+							// Build full header path key
+							const h1Text = entry.h1?.text || '';
+							const h2Text = entry.h2?.text || '';
+							const h3Text = entry.h3?.text || '';
+							const headerKey = `${file.filePath}::${h1Text}::${h2Text}::${h3Text}`;
+
+							if (!headerGroups.has(headerKey)) {
+								headerGroups.set(headerKey, {
+									file,
+									headerText: header.text,
+									headerLevel: headerLevel!.level,
+									entries: []
+								});
+							}
+							headerGroups.get(headerKey)!.entries.push(entry);
+						}
+					}
+				}
 			}
-			headerGroups.get(headerKey)!.entries.push(entry);
 		}
 
 		// Apply text filter to header groups
