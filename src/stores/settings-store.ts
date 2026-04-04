@@ -4,7 +4,7 @@ import { generateInitialColors } from 'src/settings/generate-initial-colors';
 import type { KeywordStyle, Category, Settings, CodeBlockLanguage, VWordSettings } from 'src/shared';
 import { DEFAULT_VWORD_SETTINGS } from 'src/shared';
 import { CollectingStatus } from 'src/shared/collecting-status';
-import { injectKeywordCSS, injectVWordCSS, injectAllCSS, injectColorHighlightCSS } from 'src/shared/dynamic-css';
+import { injectKeywordCSS, injectVWordCSS, injectAllCSS, injectColorHighlightCSS, injectCodeStylerOverrideCSS } from 'src/shared/dynamic-css';
 import { get, writable } from 'svelte/store';
 import type { ParserSettings } from 'src/interfaces/ParserSettings';
 import { DEFAULT_PARSER_SETTINGS } from 'src/interfaces/ParserSettings';
@@ -256,6 +256,7 @@ export async function loadStore(): Promise<void> {
   // Note: Color CSS injected here for initial load
   injectKeywordCSS(settings.categories);
   injectColorHighlightCSS(settings.colourPairs);
+  injectCodeStylerOverrideCSS();
 
   // Save migrated settings back to file if migration occurred
   if (needsMigration) {

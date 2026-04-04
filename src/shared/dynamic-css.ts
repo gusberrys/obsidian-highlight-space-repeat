@@ -602,6 +602,23 @@ body.cc-enabled ul li.${colour.localValueClass}::before {
   return cssRules.join('\n');
 }
 
+/**
+ * Generate CSS to control Code Styler plugin highlights
+ * Hide them by default, show only when color mode is ON
+ */
+export function generateCodeStylerOverrideCSS(): string {
+  return `
+/* Hide Code Styler highlights by default (when color mode is OFF) */
+body:not(.cc-enabled) [class^="code-styler-line-highlighted"],
+body:not(.cc-enabled) [class*=" code-styler-line-highlighted"] {
+  --gradient-background-colour: transparent !important;
+}
+
+/* When color mode is ON, Code Styler's own CSS applies normally */
+/* No override needed - body.cc-enabled allows Code Styler colors to show */
+`.trim();
+}
+
 export function injectKeywordCSS(categories: Category[]): void {
   // Remove existing keyword CSS
   const existingStyle = document.getElementById('highlight-space-repeat-dynamic-css');
@@ -660,10 +677,31 @@ export function injectColorHighlightCSS(colourPairs: ColourPair[]): void {
 }
 
 /**
- * Inject all CSS (keywords + VWords + colors)
+ * Inject Code Styler override CSS into the document
+ */
+export function injectCodeStylerOverrideCSS(): void {
+  // Remove existing Code Styler override CSS
+  const existingStyle = document.getElementById('code-styler-override-css');
+  if (existingStyle) {
+    existingStyle.remove();
+  }
+
+  // Generate and inject new CSS
+  const css = generateCodeStylerOverrideCSS();
+  if (css.trim()) {
+    const style = document.createElement('style');
+    style.id = 'code-styler-override-css';
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+}
+
+/**
+ * Inject all CSS (keywords + VWords + colors + Code Styler override)
  */
 export function injectAllCSS(categories: Category[], vwordSettings: VWordSettings, colourPairs: ColourPair[]): void {
   injectKeywordCSS(categories);
   injectVWordCSS(vwordSettings);
   injectColorHighlightCSS(colourPairs);
+  injectCodeStylerOverrideCSS();
 }
