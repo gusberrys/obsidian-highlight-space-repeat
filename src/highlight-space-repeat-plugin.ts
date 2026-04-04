@@ -2,8 +2,9 @@ import { Plugin, Modal, WorkspaceLeaf, Notice, TFile, MarkdownView } from 'obsid
 import { editorHighlighter, recordBadgeGutter } from 'src/editor-extension';
 import { SettingTab } from 'src/settings/setting-tab';
 import { readerHighlighter, addRecordBadgesToReadingView, addGoalStatusBadges } from './reader-extension';
-import { createInsertKeywordCommand } from './commands';
-import { initStore, saveStore, type PluginSettings, type Settings } from './stores/settings-store';
+import { createInsertKeywordCommand, insertColorCommand } from './commands';
+import { initStore, saveStore, settingsStore, type PluginSettings, type Settings } from './stores/settings-store';
+import { get } from 'svelte/store';
 import { DATA_PATHS, type CodeBlockLanguage, type VWordSettings } from './shared';
 import { HighlightSpaceRepeatAPI } from './public-api';
 import { SRSReviewView, SRS_REVIEW_VIEW_TYPE } from './widgets/SRSReviewView';
@@ -44,6 +45,12 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     await initStore(this);
     console.log('[Keyword Highlighter] Settings loaded, categories:', HighlightSpaceRepeatPlugin.settings?.categories?.length || 0);
 
+    // Apply color highlighting enabled state
+    const settings = get(settingsStore);
+    if (settings.colorHighlightingEnabled) {
+      document.body.addClass('cc-enabled');
+    }
+
     // Initialize public API
     this._api = new HighlightSpaceRepeatAPI(this);
     console.log('[Keyword Highlighter] Public API initialized');
@@ -76,6 +83,32 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
 
     // Add command to insert keyword
     this.addCommand(createInsertKeywordCommand(this.app));
+
+    // Color highlighting commands
+    this.addCommand({
+      id: 'insert-color',
+      name: 'Insert colour',
+      editorCallback: insertColorCommand(this)
+    });
+
+    this.addCommand({
+      id: 'toggle-color-highlights',
+      name: 'Toggle colour highlights',
+      callback: () => {
+        const settings = get(settingsStore);
+        settings.colorHighlightingEnabled = !settings.colorHighlightingEnabled;
+        settingsStore.set(settings);
+
+        // Toggle body class
+        if (settings.colorHighlightingEnabled) {
+          document.body.addClass('cc-enabled');
+        } else {
+          document.body.removeClass('cc-enabled');
+        }
+
+        new Notice(settings.colorHighlightingEnabled ? '✅ Colour highlights enabled' : '❌ Colour highlights disabled');
+      }
+    });
 
     // Matrix and Pinned view commands removed - now in Subject Matrix plugin
 
@@ -225,6 +258,21 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       await this.activateSRSReviewView(dueFileEntries);
     });
 
+    // Color highlighting toggle ribbon
+    this.addRibbonIcon('palette', 'Toggle colour highlights', () => {
+      const settings = get(settingsStore);
+      settings.colorHighlightingEnabled = !settings.colorHighlightingEnabled;
+      settingsStore.set(settings);
+
+      // Toggle body class
+      if (settings.colorHighlightingEnabled) {
+        document.body.addClass('cc-enabled');
+      } else {
+        document.body.removeClass('cc-enabled');
+      }
+
+      new Notice(settings.colorHighlightingEnabled ? '✅ Colour highlights enabled' : '❌ Colour highlights disabled');
+    });
 
     // SRS: Review Filtered Records - Will be added back when RecordsViewWidget is created
 
@@ -308,6 +356,9 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       await this.srsManager.save();
       console.log('[Keyword Highlighter] SRS data saved');
     }
+
+    // Remove color highlighting class
+    document.body.removeClass('cc-enabled');
   }
 
   private showErrorModal(message: string) {

@@ -2,6 +2,7 @@
   import type { KeywordStyle, Category } from 'src/shared';
   import { isCollected, isSpaced } from 'src/shared/collecting-status';
   import KeywordSetting from './KeywordSetting.svelte';
+  import ColorHighlightSettings from './ColorHighlightSettings.svelte';
   import type { Writable } from 'svelte/store';
   import {
     addKeyword, removeKeyword, addCategory, removeCategory,
@@ -84,7 +85,7 @@
   let collapsedGroups: Set<string> = new Set();
 
   // Tab state
-  let activeTab: 'keywords' | 'cBlocks' | 'vword' | 'parser' | 'generic' | 'filters' | 'srs' = 'keywords';
+  let activeTab: 'keywords' | 'cBlocks' | 'vword' | 'parser' | 'generic' | 'filters' | 'srs' | 'colors' = 'keywords';
 
   // SRS container reference
   let srsContainer: HTMLElement;
@@ -1020,6 +1021,14 @@
   >
     🔄 SRS
   </button>
+
+  <button
+    class="tab-button"
+    class:active={activeTab === 'colors'}
+    on:click={() => activeTab = 'colors'}
+  >
+    🎨 Colors
+  </button>
 </div>
 
 <div class="tab-content">
@@ -1776,6 +1785,8 @@
     </div>
   {:else if activeTab === 'srs'}
     <div bind:this={srsContainer} class="srs-settings-content"></div>
+  {:else if activeTab === 'colors'}
+    <ColorHighlightSettings {settingsStore} {plugin} />
   {/if}
 </div>
 

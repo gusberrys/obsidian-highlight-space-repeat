@@ -4,15 +4,21 @@ import { generateInitialColors } from 'src/settings/generate-initial-colors';
 import type { KeywordStyle, Category, Settings, CodeBlockLanguage, VWordSettings } from 'src/shared';
 import { DEFAULT_VWORD_SETTINGS } from 'src/shared';
 import { CollectingStatus } from 'src/shared/collecting-status';
-import { injectKeywordCSS, injectVWordCSS, injectAllCSS } from 'src/shared/dynamic-css';
+import { injectKeywordCSS, injectVWordCSS, injectAllCSS, injectColorHighlightCSS } from 'src/shared/dynamic-css';
 import { get, writable } from 'svelte/store';
 import type { ParserSettings } from 'src/interfaces/ParserSettings';
 import { DEFAULT_PARSER_SETTINGS } from 'src/interfaces/ParserSettings';
+import type { ColourPair } from 'src/settings/ColorSettings';
+import { DEFAULT_COLOR_SETTINGS } from 'src/settings/ColorSettings';
 // Subject, Topic, SubjectsData imports removed - now managed by Subject Matrix plugin
 
 export interface PluginSettings {
   categories: Category[];
   parserSettings: ParserSettings;
+
+  // Color highlighting settings
+  colorHighlightingEnabled: boolean;
+  colourPairs: ColourPair[];
 }
 
 export type { Settings };
@@ -107,7 +113,11 @@ const DEFAULT_SETTINGS: PluginSettings = {
       ],
     },
   ],
-  parserSettings: DEFAULT_PARSER_SETTINGS
+  parserSettings: DEFAULT_PARSER_SETTINGS,
+
+  // Color highlighting settings
+  colorHighlightingEnabled: false,
+  colourPairs: DEFAULT_COLOR_SETTINGS
 };
 
 const DEFAULT_SETTINGS_DATA: Settings = {
@@ -161,6 +171,61 @@ export async function loadStore(): Promise<void> {
     needsMigration = true;
   }
 
+  // Ensure color highlighting settings exist (migration for existing settings files)
+  if (settings.colorHighlightingEnabled === undefined) {
+    settings.colorHighlightingEnabled = false;
+    needsMigration = true;
+  }
+  if (!settings.colourPairs) {
+    settings.colourPairs = DEFAULT_COLOR_SETTINGS;
+    needsMigration = true;
+  }
+
+  // Migrate empty class names to proper defaults (for colors that were migrated with empty strings)
+  settings.colourPairs.forEach((colour, index) => {
+    const defaultColour = DEFAULT_COLOR_SETTINGS.find(d => d.localName === colour.localName);
+    if (defaultColour) {
+      // Fill in empty class names with defaults
+      if (!colour.globalReferenceClass || colour.globalReferenceClass.trim() === '') {
+        colour.globalReferenceClass = defaultColour.globalReferenceClass;
+        needsMigration = true;
+      }
+      if (!colour.globalValueClass || colour.globalValueClass.trim() === '') {
+        colour.globalValueClass = defaultColour.globalValueClass;
+        needsMigration = true;
+      }
+      if (!colour.localReferenceClass || colour.localReferenceClass.trim() === '') {
+        colour.localReferenceClass = defaultColour.localReferenceClass;
+        needsMigration = true;
+      }
+      if (!colour.localValueClass || colour.localValueClass.trim() === '') {
+        colour.localValueClass = defaultColour.localValueClass;
+        needsMigration = true;
+      }
+      // Also update emojis and colors if they differ from defaults
+      if (colour.globalReference !== defaultColour.globalReference) {
+        colour.globalReference = defaultColour.globalReference;
+        needsMigration = true;
+      }
+      if (colour.globalValue !== defaultColour.globalValue) {
+        colour.globalValue = defaultColour.globalValue;
+        needsMigration = true;
+      }
+      if (colour.localReference !== defaultColour.localReference) {
+        colour.localReference = defaultColour.localReference;
+        needsMigration = true;
+      }
+      if (colour.localValue !== defaultColour.localValue) {
+        colour.localValue = defaultColour.localValue;
+        needsMigration = true;
+      }
+      if (colour.localColour !== defaultColour.localColour) {
+        colour.localColour = defaultColour.localColour;
+        needsMigration = true;
+      }
+    }
+  });
+
   // Set default collectingStatus and priorities for keywords that don't have them set
   settings.categories.forEach(category => {
     category.keywords.forEach(keyword => {
@@ -188,7 +253,9 @@ export async function loadStore(): Promise<void> {
 
   // Inject keyword CSS after loading settings
   // Note: VWord CSS will be injected separately by loadVWordSettings()
+  // Note: Color CSS injected here for initial load
   injectKeywordCSS(settings.categories);
+  injectColorHighlightCSS(settings.colourPairs);
 
   // Save migrated settings back to file if migration occurred
   if (needsMigration) {
@@ -211,9 +278,9 @@ export async function saveStore(): Promise<void> {
   // CRITICAL: Also update the static property used by the public API
   (plugin.constructor as typeof HighlightSpaceRepeatPlugin).settings = currentSettings;
 
-  // Update CSS after saving (inject both keyword and VWord CSS)
+  // Update CSS after saving (inject keyword, VWord, and color CSS)
   const vwordSettings = get(vwordSettingsStore);
-  injectAllCSS(currentSettings.categories, vwordSettings);
+  injectAllCSS(currentSettings.categories, vwordSettings, currentSettings.colourPairs);
 
   refreshViews();
 }
@@ -368,9 +435,9 @@ export async function saveVWordSettings(): Promise<void> {
   const currentSettings = get(vwordSettingsStore);
   await plugin.saveVWordSettings(currentSettings);
 
-  // Re-inject all CSS after VWord settings change (keywords + VWord)
+  // Re-inject all CSS after VWord settings change (keywords + VWord + colors)
   const keywordSettings = get(settingsStore);
-  injectAllCSS(keywordSettings.categories, currentSettings);
+  injectAllCSS(keywordSettings.categories, currentSettings, keywordSettings.colourPairs);
 
   refreshViews();
 }
