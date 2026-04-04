@@ -2,13 +2,13 @@ import { Plugin, Modal, WorkspaceLeaf, Notice, TFile, MarkdownView } from 'obsid
 import { editorHighlighter, recordBadgeGutter } from 'src/editor-extension';
 import { SettingTab } from 'src/settings/setting-tab';
 import { readerHighlighter, addRecordBadgesToReadingView, addGoalStatusBadges } from './reader-extension';
-import { createInsertKeywordCommand } from './commands';
-import { initStore, saveStore, type PluginSettings, type Settings } from './stores/settings-store';
-import { DATA_PATHS, type CodeBlockLanguage, type VWordSettings } from './shared';
+import { createInsertKeywordCommand, insertColorCommand } from './commands';
+import { initStore, saveStore, settingsStore, type PluginSettings, type Settings } from './stores/settings-store';
+import { get } from 'svelte/store';
+import { DATA_PATHS, type VWordSettings } from './shared';
 import { HighlightSpaceRepeatAPI } from './public-api';
 import { SRSReviewView, SRS_REVIEW_VIEW_TYPE } from './widgets/SRSReviewView';
 import { RecordsViewWidget, RECORDS_VIEW_TYPE } from './widgets/RecordsViewWidget';
-// Matrix and Pinned views removed - now in Subject Matrix plugin
 import { SRSManager } from './services/SRSManager';
 
 export class HighlightSpaceRepeatPlugin extends Plugin {
@@ -31,28 +31,27 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     return this._api;
   }
 
-  // Subject commands removed - now handled by Subject Matrix plugin
 
   async onload(): Promise<void> {
-    console.log('[Keyword Highlighter] Starting plugin load...');
-
     // Initialize data paths FIRST
     const { initDataPaths } = require('./shared/data-paths');
     initDataPaths(this.manifest.dir || '.obsidian/plugins/obsidian-highlight-space-repeat');
 
     // CRITICAL: Wait for settings to load before continuing
     await initStore(this);
-    console.log('[Keyword Highlighter] Settings loaded, categories:', HighlightSpaceRepeatPlugin.settings?.categories?.length || 0);
+
+    // Apply color highlighting enabled state
+    const settings = get(settingsStore);
+    if (settings.colorHighlightingEnabled) {
+      document.body.addClass('cc-enabled');
+    }
 
     // Initialize public API
     this._api = new HighlightSpaceRepeatAPI(this);
-    console.log('[Keyword Highlighter] Public API initialized');
 
     // Initialize SRS (Spaced Repetition System)
-    console.log('[Keyword Highlighter] Initializing SRS...');
     this.srsManager = new SRSManager(this.app);
     await this.srsManager.load();
-    console.log('[Keyword Highlighter] SRS initialized');
 
     this.registerEditorExtension(editorHighlighter);
     this.registerEditorExtension(recordBadgeGutter(this));
@@ -60,7 +59,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     this.registerMarkdownPostProcessor((el, ctx) => addRecordBadgesToReadingView(el, ctx, this));
     this.registerMarkdownPostProcessor((el, ctx) => addGoalStatusBadges(el, ctx, this, this.app));
 
-    // Matrix and Pinned views removed - now in Subject Matrix plugin
 
     // Register SRS Review View
     this.registerView(
@@ -77,7 +75,36 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     // Add command to insert keyword
     this.addCommand(createInsertKeywordCommand(this.app));
 
-    // Matrix and Pinned view commands removed - now in Subject Matrix plugin
+    // Color highlighting commands
+    this.addCommand({
+      id: 'insert-color',
+      name: 'Insert colour',
+      editorCallback: insertColorCommand(this)
+    });
+
+    this.addCommand({
+      id: 'toggle-color-highlights',
+      name: 'Toggle colour highlights',
+      callback: () => {
+        const settings = get(settingsStore);
+        settings.colorHighlightingEnabled = !settings.colorHighlightingEnabled;
+        settingsStore.set(settings);
+
+        // Toggle body class
+        if (settings.colorHighlightingEnabled) {
+          document.body.addClass('cc-enabled');
+        } else {
+          document.body.removeClass('cc-enabled');
+        }
+
+        // Refresh view to apply changes immediately
+        const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
+        markdownView?.previewMode.rerender(true);
+
+        new Notice(settings.colorHighlightingEnabled ? '✅ Colour highlights enabled' : '❌ Colour highlights disabled');
+      }
+    });
+
 
     // Add command to start SRS review
     this.addCommand({
@@ -225,6 +252,25 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       await this.activateSRSReviewView(dueFileEntries);
     });
 
+    // Color highlighting toggle ribbon
+    this.addRibbonIcon('palette', 'Toggle colour highlights', () => {
+      const settings = get(settingsStore);
+      settings.colorHighlightingEnabled = !settings.colorHighlightingEnabled;
+      settingsStore.set(settings);
+
+      // Toggle body class
+      if (settings.colorHighlightingEnabled) {
+        document.body.addClass('cc-enabled');
+      } else {
+        document.body.removeClass('cc-enabled');
+      }
+
+      // Refresh view to apply changes immediately
+      const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
+      markdownView?.previewMode.rerender(true);
+
+      new Notice(settings.colorHighlightingEnabled ? '✅ Colour highlights enabled' : '❌ Colour highlights disabled');
+    });
 
     // SRS: Review Filtered Records - Will be added back when RecordsViewWidget is created
 
@@ -242,7 +288,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     );
   }
 
-  // Matrix and Pinned view activation methods removed - now in Subject Matrix plugin
 
   async activateSRSReviewView(entries: Array<{ entry: any; file: any }>) {
     const { workspace } = this.app;
@@ -306,8 +351,10 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     // Save SRS data
     if (this.srsManager) {
       await this.srsManager.save();
-      console.log('[Keyword Highlighter] SRS data saved');
     }
+
+    // Remove color highlighting class
+    document.body.removeClass('cc-enabled');
   }
 
   private showErrorModal(message: string) {
@@ -397,7 +444,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     }
   }
 
-  // Matrix and Pinned view refresh methods removed - now in Subject Matrix plugin
 
   // Override loadData to use keyword.json
   async loadData(): Promise<PluginSettings | null> {
@@ -431,22 +477,6 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     await this.app.vault.adapter.write(DATA_PATHS.SETTINGS, JSON.stringify(data, null, 2));
   }
 
-  // Load code blocks from codeblocks.json
-  async loadCodeBlocks(): Promise<CodeBlockLanguage[] | null> {
-    try {
-      const data = await this.app.vault.adapter.read(DATA_PATHS.CODEBLOCKS);
-      return JSON.parse(data);
-    } catch (error) {
-      console.log('[Plugin] No codeblocks file found, using defaults');
-      return null;
-    }
-  }
-
-  // Save code blocks to codeblocks.json
-  async saveCodeBlocks(data: CodeBlockLanguage[]): Promise<void> {
-    await this.app.vault.adapter.write(DATA_PATHS.CODEBLOCKS, JSON.stringify(data, null, 2));
-  }
-
   // Load VWord settings from vword-settings.json
   async loadVWordSettings(): Promise<VWordSettings | null> {
     try {
@@ -463,12 +493,9 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     await this.app.vault.adapter.write(DATA_PATHS.VWORD_SETTINGS, JSON.stringify(data, null, 2));
   }
 
-  // Subject data management removed - now handled by Subject Matrix plugin
 
-  // Handle opening reference files - auto-show records for that keyword
+  // Public API method (no-op, grid view removed)
   async handleReferenceFileOpen(_file: any): Promise<void> {
-    // Note: Grid view has been removed from the plugin
-    // This method is kept for backward compatibility but no longer does anything
     return;
   }
 

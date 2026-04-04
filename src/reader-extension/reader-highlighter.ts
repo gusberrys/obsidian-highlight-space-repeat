@@ -30,8 +30,6 @@ export const readerHighlighter: MarkdownPostProcessor = (el: HTMLElement) => {
       .map((k: KeywordStyle) => [k.keyword.toLowerCase(), k])
   );
 
-  // DEBUG: Check if helper keywords are loaded (removed excessive logging)
-
   replaceWithHighlight(el);
 
   // Delay image layout processing to allow Obsidian to process internal embeds first
@@ -168,13 +166,18 @@ function replaceWithHighlight(node: Node) {
       );
 
       // Insert ALL icons from keywords with highest icon priority (separated by /)
+      // Note: Color keywords don't have generateIcon, they use CSS ::before/::after instead
+      // Wrap in a span so CSS can hide it when color mode is ON
       const iconsToDisplay = iconWinners
         .filter(kw => kw.generateIcon)
         .map(kw => kw.generateIcon);
 
       if (iconsToDisplay.length > 0) {
         const iconText = iconsToDisplay.join('/') + ' ';
-        parent.insertBefore(document.createTextNode(iconText), node);
+        const iconSpan = document.createElement('span');
+        iconSpan.className = 'kh-normal-keyword-icon';
+        iconSpan.textContent = iconText;
+        parent.insertBefore(iconSpan, node);
       }
       parent.insertBefore(highlight, node);
       node.nodeValue = ""; // original node fully replaced
@@ -184,7 +187,6 @@ function replaceWithHighlight(node: Node) {
       );
     }
 
-    // end
     return;
   }
   // call recursively
@@ -230,12 +232,9 @@ function getHighlightNode(
     const maxIconPriority = Math.max(...matchedKeywords.map(kw => kw.iconPriority || 1));
     iconWinners = matchedKeywords.filter(kw => (kw.iconPriority || 1) === maxIconPriority);
 
-    // Apply ONLY the color winner's class for styling
-    parent.classList.add(colorWinner.keyword);
-
-    // Apply append keywords as classes (they won't provide colors)
-    const appendKeywords = matchedKeywords.filter(kw => kw.stylePriority === 'append');
-    appendKeywords.forEach(kw => parent.classList.add(kw.keyword));
+    // Apply ALL matched keywords as classes
+    // CSS will control which ones show based on color mode (body.cc-enabled)
+    matchedKeywords.forEach(kw => parent.classList.add(kw.keyword));
 
     // Add data-keywords attribute with all matched keywords (for record badges)
     const allKeywords = matchedKeywords.map(k => k.keyword);
@@ -421,16 +420,11 @@ function restructureListsLayout(el: HTMLElement) {
       return; // No l-keyword, skip restructuring
     }
 
-    console.log('[l-keyword] Found paragraph with', lKeywordClass, paragraph);
-
     // Find the parent paragraph element (.el-p)
     const elP = paragraph.closest('.el-p');
     if (!elP) {
-      console.log('[l-keyword] No .el-p parent found');
       return;
     }
-
-    console.log('[l-keyword] Found .el-p parent', elP);
 
     // Find the next sibling that is a list wrapper (.el-ul or .el-ol)
     let listWrapper = elP.nextElementSibling;
@@ -439,35 +433,25 @@ function restructureListsLayout(el: HTMLElement) {
     }
 
     if (!listWrapper) {
-      console.log('[l-keyword] No .el-ul or .el-ol sibling found');
       return; // No list found
     }
-
-    console.log('[l-keyword] Found list wrapper', listWrapper);
 
     // Get the inner ul or ol element
     const list = listWrapper.querySelector('ul, ol') as HTMLUListElement | HTMLOListElement;
     if (!list) {
-      console.log('[l-keyword] No inner ul/ol found inside list wrapper');
       return;
     }
 
-    console.log('[l-keyword] Found inner list', list);
-
     // Check if already restructured to avoid double-processing
     if (listWrapper.classList.contains('kh-l-layout')) {
-      console.log('[l-keyword] Already restructured, skipping');
       return;
     }
 
     // Get all list items
     const listItems = Array.from(list.children) as HTMLLIElement[];
     if (listItems.length < 2) {
-      console.log('[l-keyword] Not enough items, need at least 2, found', listItems.length);
       return; // Need at least 2 items
     }
-
-    console.log('[l-keyword] Restructuring', listItems.length, 'items');
 
     // Create wrapper with l-keyword class for CSS targeting
     const wrapper = document.createElement('div');
@@ -508,7 +492,5 @@ function restructureListsLayout(el: HTMLElement) {
 
     // Mark as restructured
     listWrapper.classList.add('kh-l-layout');
-
-    console.log('[l-keyword] ✓ Restructuring complete');
   });
 }

@@ -28,19 +28,21 @@
  * Parsed filter token types
  */
 export enum FilterTokenType {
-	KEYWORD = 'keyword',      // .foo
-	TAG = 'tag',              // #foo
-	PATH = 'path',            // /foo/bar
-	FILENAME = 'filename',    // f"foo" - file name match
-	TEXT = 'text',            // "plaintext"
-	LANGUAGE = 'language',    // `java
-	CATEGORY = 'category',    // :fun-category - expands to all keywords with categoryClass
+	KEYWORD = 'keyword',           // .foo (entry keyword)
+	TAG = 'tag',                   // #foo (file OR header tag)
+	HEADER_KEYWORD = 'header_keyword',  // ..foo (header keyword only)
+	HEADER_TAG = 'header_tag',     // ##foo (header tag only)
+	PATH = 'path',                 // /foo/bar
+	FILENAME = 'filename',         // f"foo" - file name match
+	TEXT = 'text',                 // "plaintext"
+	LANGUAGE = 'language',         // `java
+	CATEGORY = 'category',         // :fun-category - expands to all keywords with categoryClass
 	AND = 'and',
 	OR = 'or',
-	NOT = 'not',              // !
-	LPAREN = 'lparen',        // (
-	RPAREN = 'rparen',        // )
-	MODIFIER = 'modifier'     // \h, \a, \s, \t
+	NOT = 'not',                   // !
+	LPAREN = 'lparen',             // (
+	RPAREN = 'rparen',             // )
+	MODIFIER = 'modifier'          // \h, \a, \s, \t
 }
 
 /**
@@ -57,7 +59,7 @@ export interface FilterToken {
  * Filter expression AST node
  */
 export interface FilterNode {
-	type: 'keyword' | 'tag' | 'path' | 'filename' | 'text' | 'language' | 'category' | 'and' | 'or' | 'not';
+	type: 'keyword' | 'tag' | 'header_keyword' | 'header_tag' | 'path' | 'filename' | 'text' | 'language' | 'category' | 'and' | 'or' | 'not';
 	value?: string;
 	combinedKeyword?: string; // For .def.foo syntax - match combined keyword
 	multiKeywords?: string[]; // For .foo.bar syntax - match ALL keywords in array

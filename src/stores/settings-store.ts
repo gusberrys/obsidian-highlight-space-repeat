@@ -1,18 +1,36 @@
 import { App, MarkdownView } from 'obsidian';
 import type { HighlightSpaceRepeatPlugin } from 'src/highlight-space-repeat-plugin';
-import { generateInitialColors } from 'src/settings/generate-initial-colors';
-import type { KeywordStyle, Category, Settings, CodeBlockLanguage, VWordSettings } from 'src/shared';
+import type { KeywordStyle, Category, Settings, VWordSettings } from 'src/shared';
 import { DEFAULT_VWORD_SETTINGS } from 'src/shared';
 import { CollectingStatus } from 'src/shared/collecting-status';
-import { injectKeywordCSS, injectVWordCSS, injectAllCSS } from 'src/shared/dynamic-css';
+import { injectKeywordCSS, injectVWordCSS, injectAllCSS, injectCodeStylerOverrideCSS } from 'src/shared/dynamic-css';
 import { get, writable } from 'svelte/store';
 import type { ParserSettings } from 'src/interfaces/ParserSettings';
 import { DEFAULT_PARSER_SETTINGS } from 'src/interfaces/ParserSettings';
-// Subject, Topic, SubjectsData imports removed - now managed by Subject Matrix plugin
+import type { ColorEntry } from 'src/settings/ColorSettings';
+import { DEFAULT_COLOR_ENTRIES } from 'src/settings/ColorSettings';
+
+/**
+ * Generate random pastel background and contrasting text color
+ */
+function generateRandomColors(): { backgroundColor: string; textColor: string } {
+  const hue = Math.floor(Math.random() * 360);
+  const saturation = 60 + Math.floor(Math.random() * 10);
+  const lightness = 75 + Math.floor(Math.random() * 10);
+
+  const backgroundColor = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+  const textColor = lightness > 60 ? '#000000' : '#ffffff';
+
+  return { backgroundColor, textColor };
+}
 
 export interface PluginSettings {
   categories: Category[];
   parserSettings: ParserSettings;
+
+  // Color highlighting settings (unified with keywords)
+  colorHighlightingEnabled: boolean;
+  colorEntries: ColorEntry[];
 }
 
 export type { Settings };
@@ -37,13 +55,6 @@ const DEFAULT_SETTINGS: PluginSettings = {
           description: 'True statement or fact',
           generateIcon: '📜',
         },
-        {
-          keyword: 'fal',
-          color: '#ffffff',
-          backgroundColor: '#7f5374',
-          description: 'False statement or incorrect',
-          generateIcon: '🧻',
-        },
       ],
     },
     {
@@ -66,71 +77,99 @@ const DEFAULT_SETTINGS: PluginSettings = {
         },
       ],
     },
-    {
-      icon: 'Status',
-      id: 'status-category',
-      keywords: [
-        {
-          keyword: 'war',
-          color: '#000000',
-          backgroundColor: '#ad4f10',
-          description: 'Warning or caution required',
-          generateIcon: '⚠️',
-        },
-        {
-          keyword: 'ste',
-          color: '#f3f9fb',
-          backgroundColor: '#595959',
-          description: 'Step or procedure',
-          generateIcon: '🦶🏻',
-        },
-      ],
-    },
-    {
-      icon: 'Personal',
-      id: 'personal-category',
-      keywords: [
-        {
-          keyword: 'dev',
-          color: '#ffd700',
-          backgroundColor: '#000000',
-          description: 'Development or devilish note',
-          generateIcon: '',
-        },
-        {
-          keyword: 'sto',
-          color: '#b98d8d',
-          backgroundColor: '#303030',
-          description: 'Personal story or memory',
-          generateIcon: '',
-        },
-      ],
-    },
   ],
-  parserSettings: DEFAULT_PARSER_SETTINGS
+  parserSettings: DEFAULT_PARSER_SETTINGS,
+
+  // Color highlighting settings
+  colorHighlightingEnabled: false,
+  colorEntries: DEFAULT_COLOR_ENTRIES
 };
 
 const DEFAULT_SETTINGS_DATA: Settings = {
   keywordDescriptionsPath: '',
-  pathToSubjects: '',
   layoutRetryDelayMs: 100,
 };
 
-const DEFAULT_CODEBLOCKS: CodeBlockLanguage[] = [
-  { id: 'java', icon: '☕' },
-  { id: 'python', icon: '🐍' },
-  { id: 'javascript', icon: undefined },
-  { id: 'typescript', icon: undefined }
-];
-
 export const settingsStore = writable<PluginSettings>(DEFAULT_SETTINGS);
 export const settingsDataStore = writable<Settings>(DEFAULT_SETTINGS_DATA);
-export const codeBlocksStore = writable<CodeBlockLanguage[]>(DEFAULT_CODEBLOCKS);
 export const vwordSettingsStore = writable<VWordSettings>(DEFAULT_VWORD_SETTINGS);
-// subjectsStore removed - now managed by Subject Matrix plugin
 
 let plugin: HighlightSpaceRepeatPlugin | null = null;
 let appInstance: App | null = null;
+
+
+/**
+ * Generate 4 keywords (gv, gr, lv, lr) for each color entry
+ * These keywords are auto-generated and only show when color mode is ON
+ */
+function generateColorKeywords(colorEntries: ColorEntry[]): KeywordStyle[] {
+  const keywords: KeywordStyle[] = [];
+
+  if (!colorEntries || !Array.isArray(colorEntries)) {
+    return keywords;
+  }
+
+  colorEntries.forEach(color => {
+    // Global Value (e.g., gvr for red)
+    // NOTE: No generateIcon - icons added via CSS ::before instead
+    keywords.push({
+      keyword: `gv${color.cc}`,
+      color: color.textColor,
+      backgroundColor: color.backgroundColor,
+      description: `global ${color.name} value ${color.gvIcon}`,
+      collectingStatus: CollectingStatus.PARSED,
+      isColorKeyword: true,
+      sourceColorCC: color.cc,
+      colorIcon: color.gvIcon,  // Store icon for CSS generation
+      iconPriority: 1,
+      stylePriority: 'normal'
+    });
+
+    // Global Reference (e.g., grr for red)
+    keywords.push({
+      keyword: `gr${color.cc}`,
+      color: color.textColor,
+      backgroundColor: color.backgroundColor,
+      description: `global ${color.name} reference ${color.grIcon}`,
+      collectingStatus: CollectingStatus.PARSED,
+      isColorKeyword: true,
+      sourceColorCC: color.cc,
+      colorIcon: color.grIcon,  // Store icon for CSS generation
+      iconPriority: 1,
+      stylePriority: 'normal'
+    });
+
+    // Local Value (e.g., lvr for red)
+    keywords.push({
+      keyword: `lv${color.cc}`,
+      color: color.textColor,
+      backgroundColor: color.backgroundColor,
+      description: `local ${color.name} value ${color.lvIcon}`,
+      collectingStatus: CollectingStatus.PARSED,
+      isColorKeyword: true,
+      sourceColorCC: color.cc,
+      colorIcon: color.lvIcon,  // Store icon for CSS generation
+      iconPriority: 1,
+      stylePriority: 'normal'
+    });
+
+    // Local Reference (e.g., lrr for red)
+    keywords.push({
+      keyword: `lr${color.cc}`,
+      color: color.textColor,
+      backgroundColor: color.backgroundColor,
+      description: `local ${color.name} reference ${color.lrIcon}`,
+      collectingStatus: CollectingStatus.PARSED,
+      isColorKeyword: true,
+      sourceColorCC: color.cc,
+      colorIcon: color.lrIcon,  // Store icon for CSS generation
+      iconPriority: 1,
+      stylePriority: 'normal'
+    });
+  });
+
+  return keywords;
+}
 
 export async function initStore(pluginInstance: HighlightSpaceRepeatPlugin): Promise<void> {
   plugin = pluginInstance;
@@ -142,10 +181,8 @@ export async function initStore(pluginInstance: HighlightSpaceRepeatPlugin): Pro
   // Load VWord settings and inject CSS (needs to complete before plugin fully loads)
   await loadVWordSettings();
 
-  // These can load in parallel with plugin initialization
+  // Load settings data in parallel with plugin initialization
   loadSettingsData();
-  loadCodeBlocks();
-
 }
 
 export async function loadStore(): Promise<void> {
@@ -154,17 +191,40 @@ export async function loadStore(): Promise<void> {
   const loadedDate = await plugin.loadData();
   const settings = Object.assign({}, DEFAULT_SETTINGS, loadedDate);
 
-  // Ensure parserSettings exists (migration for existing settings files)
-  let needsMigration = false;
+  // Ensure parserSettings exists
+  let needsAutoSave = false;
   if (!settings.parserSettings) {
     settings.parserSettings = DEFAULT_PARSER_SETTINGS;
-    needsMigration = true;
+    needsAutoSave = true;
   }
+
+  // Ensure color highlighting settings exist
+  if (settings.colorHighlightingEnabled === undefined) {
+    settings.colorHighlightingEnabled = false;
+    needsAutoSave = true;
+  }
+
+  // Ensure colorEntries exists
+  if (!settings.colorEntries || !Array.isArray(settings.colorEntries)) {
+    settings.colorEntries = DEFAULT_COLOR_ENTRIES;
+    needsAutoSave = true;
+  }
+
+  // AUTO-GENERATE COLOR KEYWORDS: Find or create "Colors" category and inject generated keywords
+  let colorsCategory = settings.categories.find(cat => cat.id === 'colors-category');
+  if (!colorsCategory) {
+    colorsCategory = { icon: 'Colors', id: 'colors-category', keywords: [] };
+    settings.categories.push(colorsCategory);
+  }
+
+  // Replace color keywords with fresh ones generated from colorEntries
+  const colorKeywords = generateColorKeywords(settings.colorEntries);
+  colorsCategory.keywords = colorKeywords;
 
   // Set default collectingStatus and priorities for keywords that don't have them set
   settings.categories.forEach(category => {
     category.keywords.forEach(keyword => {
-      // Only set if not already defined - default to PARSED for backward compatibility
+      // Set defaults if not defined
       if (keyword.collectingStatus === undefined) {
         keyword.collectingStatus = CollectingStatus.PARSED;
       }
@@ -188,10 +248,12 @@ export async function loadStore(): Promise<void> {
 
   // Inject keyword CSS after loading settings
   // Note: VWord CSS will be injected separately by loadVWordSettings()
+  // Note: Color keywords are now part of the keyword system (auto-generated from colorEntries)
   injectKeywordCSS(settings.categories);
+  injectCodeStylerOverrideCSS();
 
-  // Save migrated settings back to file if migration occurred
-  if (needsMigration) {
+  // Save settings if defaults were applied
+  if (needsAutoSave) {
     await saveStore();
   }
 }
@@ -201,8 +263,21 @@ export async function saveStore(): Promise<void> {
 
   const currentSettings = get(settingsStore);
 
-  // Filter out empty keywords from all categories
+  // REGENERATE COLOR KEYWORDS: Update Colors category with fresh keywords from colorEntries
+  let colorsCategory = currentSettings.categories.find(cat => cat.id === 'colors-category');
+  if (!colorsCategory) {
+    colorsCategory = { icon: 'Colors', id: 'colors-category', keywords: [] };
+    currentSettings.categories.push(colorsCategory);
+  }
+  const colorKeywords = generateColorKeywords(currentSettings.colorEntries || []);
+  colorsCategory.keywords = colorKeywords;
+
+  // Filter out empty keywords from all categories (but keep auto-generated color keywords)
   currentSettings.categories.forEach(category => {
+    if (category.id === 'colors-category') {
+      // Don't filter color keywords - they're auto-generated
+      return;
+    }
     category.keywords = category.keywords.filter((k) => k.keyword && k.keyword.match(/^ *$/) === null);
   });
 
@@ -211,7 +286,7 @@ export async function saveStore(): Promise<void> {
   // CRITICAL: Also update the static property used by the public API
   (plugin.constructor as typeof HighlightSpaceRepeatPlugin).settings = currentSettings;
 
-  // Update CSS after saving (inject both keyword and VWord CSS)
+  // Update CSS after saving (inject keyword, VWord, and Code Styler override)
   const vwordSettings = get(vwordSettingsStore);
   injectAllCSS(currentSettings.categories, vwordSettings);
 
@@ -232,11 +307,7 @@ function refreshViews(): void {
   }
 }
 
-export function addKeyword(value?: string, categoryName?: string, container?: HTMLElement): void {
-  if (!container) {
-    container = document.body;
-  }
-
+export function addKeyword(value?: string, categoryName?: string): void {
   settingsStore.update((settings) => {
     const targetCategoryName = categoryName ?? 'General';
 
@@ -256,9 +327,9 @@ export function addKeyword(value?: string, categoryName?: string, container?: HT
       color = lastKeyword.color;
       backgroundColor = lastKeyword.backgroundColor;
     } else {
-      const [foregroundColor, bgColor] = generateInitialColors(container);
-      color = foregroundColor.toHex();
-      backgroundColor = bgColor.toHex();
+      const colors = generateRandomColors();
+      color = colors.textColor;
+      backgroundColor = colors.backgroundColor;
     }
 
     // Add the keyword to the category
@@ -298,16 +369,6 @@ export function addCategory(name: string, categoryClass?: string): void {
   });
 }
 
-export function updateCategoryClass(categoryName: string, newClass: string): void {
-  settingsStore.update((settings) => {
-    const category = settings.categories.find(cat => cat.icon === categoryName);
-    if (category) {
-      category.id = newClass;
-    }
-    return settings;
-  });
-}
-
 export function removeCategory(categoryName: string): void {
   settingsStore.update((settings) => {
     const index = settings.categories.findIndex(cat => cat.icon === categoryName);
@@ -334,22 +395,6 @@ export async function saveSettingsData(): Promise<void> {
   await plugin.saveSettingsData(currentSettings);
 }
 
-// Code Blocks functions
-export async function loadCodeBlocks(): Promise<void> {
-  if (!plugin) return;
-
-  const loadedData = await plugin.loadCodeBlocks();
-  const codeBlocks = loadedData || DEFAULT_CODEBLOCKS;
-  codeBlocksStore.set(codeBlocks);
-}
-
-export async function saveCodeBlocks(): Promise<void> {
-  if (!plugin) return;
-
-  const currentCodeBlocks = get(codeBlocksStore);
-  await plugin.saveCodeBlocks(currentCodeBlocks);
-}
-
 // VWord Settings functions
 export async function loadVWordSettings(): Promise<void> {
   if (!plugin) return;
@@ -368,11 +413,9 @@ export async function saveVWordSettings(): Promise<void> {
   const currentSettings = get(vwordSettingsStore);
   await plugin.saveVWordSettings(currentSettings);
 
-  // Re-inject all CSS after VWord settings change (keywords + VWord)
+  // Re-inject all CSS after VWord settings change (keywords + VWord + Code Styler override)
   const keywordSettings = get(settingsStore);
   injectAllCSS(keywordSettings.categories, currentSettings);
 
   refreshViews();
 }
-
-// Subject management functions removed - now in Subject Matrix plugin's subject-store.ts

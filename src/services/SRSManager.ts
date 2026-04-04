@@ -186,9 +186,6 @@ export class SRSManager {
 			// Write back to file
 			const updatedContent = lines.join('\n');
 			await this.app.vault.adapter.write(filePath, updatedContent);
-
-			console.log(`[SRS] Reviewed entry at ${filePath}:${lineNumber}`);
-			console.log(`  Quality: ${quality}, Interval: ${srsData.i} days, Ease: ${srsData.ef.toFixed(2)}, Next: ${srsData.next}`);
 		} catch (error) {
 			console.error(`[SRS] Error reviewing entry:`, error);
 			throw error;
@@ -249,20 +246,17 @@ export class SRSManager {
 	}
 
 	/**
-	 * No-op methods for backward compatibility (used by plugin initialization)
+	 * File-based SRS system (no database)
 	 */
 	async load(): Promise<void> {
-		// SRS data now loaded from files during parsing - nothing to do
-		console.log('[SRS] Using file-based SRS system (no database to load)');
+		// SRS data loaded from files during parsing
 	}
 
 	async save(): Promise<void> {
-		// SRS data saved directly to files during review - nothing to do
-		console.log('[SRS] SRS data saved to files during review');
+		// SRS data saved directly to files during review
 	}
 
 	isLoaded(): boolean {
-		// Always "loaded" since we read from files
 		return true;
 	}
 }

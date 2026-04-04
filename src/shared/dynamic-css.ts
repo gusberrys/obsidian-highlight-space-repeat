@@ -20,24 +20,29 @@ export function generateKeywordCSS(categories: Category[]): string {
       // Use keyword name as class (for marks like <mark class="def">)
       if (keyword.keyword && keyword.keyword.trim()) {
         const className = keyword.keyword;
-        // Treat pure black (#000000 or #000) as transparent
-        const color = (keyword.color === '#000000' || keyword.color === '#000') ? 'transparent' : keyword.color;
-        const backgroundColor = (keyword.backgroundColor === '#000000' || keyword.backgroundColor === '#000') ? 'transparent' : keyword.backgroundColor;
+        // Treat pure black (#000000 or #000) as transparent ONLY for normal keywords
+        // Color keywords should keep their black color
+        const color = (!keyword.isColorKeyword && (keyword.color === '#000000' || keyword.color === '#000')) ? 'transparent' : keyword.color;
+        const backgroundColor = (!keyword.isColorKeyword && (keyword.backgroundColor === '#000000' || keyword.backgroundColor === '#000')) ? 'transparent' : keyword.backgroundColor;
 
         // Only generate color CSS if NOT append
         if (keyword.stylePriority !== 'append') {
+          // Color keywords: only generate CSS for color mode ON (body.cc-enabled)
+          // Normal keywords: generate base CSS (always visible)
+          const scope = keyword.isColorKeyword ? 'body.cc-enabled ' : '';
+
           cssRules.push(`
-.${className} {
+${scope}.${className} {
   color: ${color} !important;
   background-color: ${backgroundColor} !important;
 }
 
-mark.${className} {
+${scope}mark.${className} {
   color: ${color} !important;
   background-color: ${backgroundColor} !important;
 }
 
-span.${className} {
+${scope}span.${className} {
   color: ${color} !important;
   background-color: ${backgroundColor} !important;
 }`);
@@ -57,8 +62,39 @@ span.${className} {
 // }`);
         }
 
-        // Add ::before pseudo-element for icon if generateIcon exists (always, regardless of stylePriority)
-        if (keyword.generateIcon && keyword.generateIcon.trim()) {
+        // Add ::before pseudo-element for icon
+        if (keyword.isColorKeyword && keyword.colorIcon && keyword.colorIcon.trim()) {
+          // Color keywords: icon only shown when color mode is ON
+          // Headers (h1, h2) get icon in ::after on the right
+          // Everything else gets icon in ::before on the left
+          cssRules.push(`
+body.cc-enabled h1.${className},
+body.cc-enabled h2.${className} {
+  position: relative;
+}
+
+body.cc-enabled h1.${className}::after,
+body.cc-enabled h2.${className}::after {
+  content: "${keyword.colorIcon}";
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.7em;
+  background-color: var(--background-primary);
+  padding: 2px 4px;
+  border-radius: 3px;
+  text-shadow: 0 0 2px rgba(0,0,0,0.3);
+  pointer-events: none;
+}
+
+body.cc-enabled .kh-highlighted.${className}:not(h1):not(h2)::before,
+body.cc-enabled mark.${className}::before {
+  content: "${keyword.colorIcon} ";
+}`);
+        } else if (keyword.generateIcon && keyword.generateIcon.trim()) {
+          // Normal keywords: icon added via JavaScript in reader-highlighter
+          // CSS version for mark tags only
           cssRules.push(`
 mark.${className}::before {
   content: "${keyword.generateIcon}";
@@ -69,6 +105,9 @@ mark.${className}::before {
   });
 
   // Combinable feature removed - no combination CSS rules needed
+
+  // No visibility rules needed - color keywords only have CSS when body.cc-enabled
+  // Normal keywords always have their CSS, color keywords override via body.cc-enabled scope
 
   return cssRules.join('\n');
 }
@@ -266,6 +305,23 @@ export function generateVWordCSS(vwordSettings: VWordSettings): string {
   return [iCSS, hCSS, lCSS].join('\n\n');
 }
 
+/**
+ * Generate CSS to control Code Styler plugin highlights
+ * Hide them by default, show only when color mode is ON
+ */
+export function generateCodeStylerOverrideCSS(): string {
+  return `
+/* Hide Code Styler highlights by default (when color mode is OFF) */
+body:not(.cc-enabled) [class^="code-styler-line-highlighted"],
+body:not(.cc-enabled) [class*=" code-styler-line-highlighted"] {
+  --gradient-background-colour: transparent !important;
+}
+
+/* When color mode is ON, Code Styler's own CSS applies normally */
+/* No override needed - body.cc-enabled allows Code Styler colors to show */
+`.trim();
+}
+
 export function injectKeywordCSS(categories: Category[]): void {
   // Remove existing keyword CSS
   const existingStyle = document.getElementById('highlight-space-repeat-dynamic-css');
@@ -304,9 +360,30 @@ export function injectVWordCSS(vwordSettings: VWordSettings): void {
 }
 
 /**
- * Inject all CSS (keywords + VWords)
+ * Inject Code Styler override CSS into the document
+ */
+export function injectCodeStylerOverrideCSS(): void {
+  // Remove existing Code Styler override CSS
+  const existingStyle = document.getElementById('code-styler-override-css');
+  if (existingStyle) {
+    existingStyle.remove();
+  }
+
+  // Generate and inject new CSS
+  const css = generateCodeStylerOverrideCSS();
+  if (css.trim()) {
+    const style = document.createElement('style');
+    style.id = 'code-styler-override-css';
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+}
+
+/**
+ * Inject all CSS (keywords + VWords + Code Styler override)
  */
 export function injectAllCSS(categories: Category[], vwordSettings: VWordSettings): void {
   injectKeywordCSS(categories);
   injectVWordCSS(vwordSettings);
+  injectCodeStylerOverrideCSS();
 }

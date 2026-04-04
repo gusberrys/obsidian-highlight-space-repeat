@@ -198,15 +198,24 @@ export class HighlightSpaceRepeatAPI {
   /**
    * Display filtered records in Plugin A's UI
    * @param expression - Filter expression to apply
+   * @param type - Filter type: 'F' (Files), 'H' (Headers), 'R' (Records), 'D' (Dashboard)
    * @param sourceView - Optional identifier for the source view (e.g., "matrix-cell")
    */
-  displayFilteredRecords(expression: string, sourceView?: string): void {
-    // TODO: Implement record display
-    // This will:
-    // 1. Compile the filter expression
-    // 2. Create chips from the expression
-    // 3. Filter records
-    // 4. Display in the records view with chips UI
+  async displayFilteredRecords(expression: string, type?: 'F' | 'H' | 'R' | 'D', sourceView?: string): Promise<void> {
+    // Activate/open the records view
+    await this.plugin.activateRecordsView();
+
+    // Get the records view instance
+    const { workspace } = this.plugin.app;
+    const leaves = workspace.getLeavesOfType('records-view');
+
+    if (leaves.length > 0) {
+      const recordsView = leaves[0].view as any;
+      if (recordsView && recordsView.setFilterExpression) {
+        // Set the filter expression on the view with the specified type
+        recordsView.setFilterExpression(expression, type);
+      }
+    }
   }
 
   // ==================== Event Subscriptions ====================
