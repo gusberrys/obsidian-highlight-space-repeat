@@ -13,9 +13,8 @@ import type { ParsedFile, FlatEntry } from './interfaces/ParsedFile';
 import type { CompiledFilter } from './interfaces/FilterInterfaces';
 import type { ActiveChip } from './interfaces/ActiveChip';
 import { get } from 'svelte/store';
-import { settingsStore } from './stores/settings-store';
+import { keywordsStore } from './stores/settings-store';
 import { FilterParser } from './services/FilterParser';
-import { FilterExpressionService } from './services/FilterExpressionService';
 
 /**
  * Record count result from filter evaluation
@@ -40,8 +39,8 @@ export class HighlightSpaceRepeatAPI {
    * @returns Array of keyword style objects
    */
   getAllKeywordStyles(): KeywordStyle[] {
-    const settings = get(settingsStore);
-    return settings.categories.flatMap(cat => cat.keywords);
+    const keywords = get(keywordsStore);
+    return keywords.categories.flatMap((cat: Category) => cat.keywords);
   }
 
   /**
@@ -50,9 +49,9 @@ export class HighlightSpaceRepeatAPI {
    * @returns KeywordStyle or undefined if not found
    */
   getKeywordStyle(keyword: string): KeywordStyle | undefined {
-    const settings = get(settingsStore);
-    for (const category of settings.categories) {
-      const found = category.keywords.find(k => k.keyword === keyword);
+    const keywords = get(keywordsStore);
+    for (const category of keywords.categories) {
+      const found = category.keywords.find((k: KeywordStyle) => k.keyword === keyword);
       if (found) return found;
     }
     return undefined;
@@ -63,8 +62,8 @@ export class HighlightSpaceRepeatAPI {
    * @returns Array of categories
    */
   getCategories(): Category[] {
-    const settings = get(settingsStore);
-    return settings.categories;
+    const keywords = get(keywordsStore);
+    return keywords.categories;
   }
 
   /**
@@ -128,8 +127,8 @@ export class HighlightSpaceRepeatAPI {
    * @returns true if entry matches the filter
    */
   evaluateFilter(filter: CompiledFilter, entry: FlatEntry): boolean {
-    const settings = get(settingsStore);
-    return FilterParser.evaluateFlatEntry(filter.ast, entry, settings.categories, filter.modifiers);
+    const keywords = get(keywordsStore);
+    return FilterParser.evaluateFlatEntry(filter.ast, entry, keywords.categories, filter.modifiers);
   }
 
   /**
@@ -140,13 +139,13 @@ export class HighlightSpaceRepeatAPI {
    */
   countRecords(filter: CompiledFilter, records?: ParsedFile[]): RecordCount {
     const filesToSearch = records || this.getParsedRecords();
-    const settings = get(settingsStore);
+    const keywords = get(keywordsStore);
 
     let recordCount = 0;
 
     for (const file of filesToSearch) {
       for (const entry of file.entries) {
-        if (FilterParser.evaluateFlatEntry(filter.ast, entry, settings.categories, filter.modifiers)) {
+        if (FilterParser.evaluateFlatEntry(filter.ast, entry, keywords.categories, filter.modifiers)) {
           recordCount++;
         }
       }

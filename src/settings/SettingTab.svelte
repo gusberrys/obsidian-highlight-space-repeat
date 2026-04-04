@@ -6,19 +6,16 @@
   import type { Writable } from 'svelte/store';
   import {
     addKeyword, removeKeyword, addCategory, removeCategory,
-    settingsStore as store, type PluginSettings, saveStore,
-    settingsDataStore, saveSettingsData,
-    vwordSettingsStore, saveVWordSettings,
+    keywordsStore, settingsStore as store, type PluginSettings, saveStore,
   } from 'src/stores/settings-store';
   import { setIcon, Notice, TFile } from 'obsidian';
   import type { HighlightSpaceRepeatPlugin } from 'src/highlight-space-repeat-plugin';
-  import { DATA_PATHS } from 'src/shared/data-paths';
   import { addSRSSettings } from './SRSSettings';
 
   export let settingsStore: Writable<PluginSettings>;
   export let plugin: HighlightSpaceRepeatPlugin;
 
-  $: categories = $settingsStore.categories;
+  $: categories = $keywordsStore?.categories || [];
 
 
   // Get all available keywords from categories
@@ -34,7 +31,7 @@
   // Create a map for keyword styles lookup
   $: keywordStylesMap = (() => {
     const map = new Map();
-    $settingsStore.categories.forEach(cat => {
+    categories.forEach(cat => {
       cat.keywords.forEach(kw => {
         if (kw.keyword) {
           map.set(kw.keyword, kw);
@@ -146,7 +143,7 @@
 
   // Scan for keyword reference files
   async function scanForReferenceFiles() {
-    const referencePath = $settingsDataStore.keywordDescriptionsPath;
+    const referencePath = $settingsStore.keywordDescriptionsPath;
     if (!referencePath || !referencePath.trim()) {
       foundReferenceFilesCount = 0;
       totalKeywordsForReference = 0;
@@ -179,7 +176,7 @@
   }
 
   // Reactive: scan for reference files when path or categories change
-  $: if ($settingsDataStore.keywordDescriptionsPath !== undefined) {
+  $: if ($settingsStore.keywordDescriptionsPath !== undefined) {
     scanForReferenceFiles();
   }
   $: if (categories) {
@@ -276,7 +273,7 @@
   }
 
   async function handleGenerateKeywordsReference() {
-    const fileName = $settingsDataStore.keywordsDashboardFileName;
+    const fileName = $settingsStore.keywordsDashboardFileName;
     if (!fileName || !fileName.trim()) {
       return;
     }
@@ -377,7 +374,7 @@
         }
         return settings;
       });
-      await saveSettingsData();
+      await saveStore();
     }
     editingGroupName = null;
     editedGroupName = '';
@@ -391,21 +388,21 @@
   async function handleAddKeywordGroup() {
     if (newGroupName.trim()) {
       addKeywordGroup(newGroupName.trim());
-      await saveSettingsData();
+      await saveStore();
       newGroupName = '';
     }
   }
 
   async function handleRemoveKeywordGroup(groupName: string) {
     removeKeywordGroup(groupName);
-    await saveSettingsData();
+    await saveStore();
   }
 
   async function handleAddKeywordToGroup(groupName: string) {
     const keyword = selectedKeywordByGroup[groupName];
     if (keyword && keyword !== '') {
       addKeywordToGroup(groupName, keyword);
-      await saveSettingsData();
+      await saveStore();
       selectedKeywordByGroup[groupName] = '';
       keywordSearchByGroup[groupName] = '';
       showDropdownForGroup[groupName] = false;
@@ -433,7 +430,7 @@
   // Get all unique keywords (expand comma-separated ones) + combined keywords (per category)
   function getAllUniqueKeywords(): string[] {
     const keywords = new Set<string>();
-    const currentCategories = $settingsStore.categories;
+    const currentCategories = $keywordsStore?.categories || [];
 
     // For each category, generate individual keywords AND combinations within that category
     currentCategories.forEach(cat => {
@@ -526,7 +523,7 @@
 
   async function handleRemoveKeywordFromGroup(groupName: string, keyword: string) {
     removeKeywordFromGroup(groupName, keyword);
-    await saveSettingsData();
+    await saveStore();
   }
 
   function toggleGroup(groupName: string) {
@@ -750,7 +747,7 @@
       {#each categoriesWithFilteredKeywords as { category, filteredKeywords }, categoryIndex}
         {#if filteredKeywords.length > 0 || !keywordSearchFilter.trim()}
           <div class="category-section">
-            <div class="category-header" on:click={() => toggleCategory(category.icon)}>
+            <button type="button" class="category-header" on:click={() => toggleCategory(category.icon)}>
               <div class="category-title">
                 <span class="category-toggle" class:collapsed={collapsedCategories.has(category.icon)}>
                   ▼
@@ -807,7 +804,7 @@
                   on:click|stopPropagation={() => handleRemoveCategory(category.icon)}
                 ></button>
               </div>
-            </div>
+            </button>
 
             {#if !collapsedCategories.has(category.icon)}
               <div class="category-content">
@@ -847,7 +844,6 @@
                       {#if keywordMatchesFilter(keyword)}
                         <KeywordSetting
                           {keywordIndex}
-                          categoryName={category.icon}
                           {keyword}
                           on:remove={() => handleRemoveKeyword(keyword)}
                           on:reorder={(e) => handleKeywordReorder(category.icon, e.detail.draggedIndex, e.detail.targetIndex)}
@@ -886,15 +882,15 @@
         <div class="keywords-reference-controls">
           <input
             type="text"
-            bind:value={$settingsDataStore.keywordsDashboardFileName}
-            on:change={async () => await saveSettingsData()}
+            bind:value={$settingsStore.keywordsDashboardFileName}
+            on:change={async () => await saveStore()}
             placeholder="Enter file name (e.g., home page)"
             class="keywords-reference-input"
           />
           <button
             class="keywords-reference-generate-btn"
             on:click={handleGenerateKeywordsReference}
-            disabled={!$settingsDataStore.keywordsDashboardFileName || !$settingsDataStore.keywordsDashboardFileName.trim()}
+            disabled={!$settingsStore.keywordsDashboardFileName || !$settingsStore.keywordsDashboardFileName.trim()}
           >
             🔄 Generate/Regenerate
           </button>
@@ -908,15 +904,15 @@
         <div class="reference-path-input-wrapper">
           <input
             type="text"
-            bind:value={$settingsDataStore.keywordDescriptionsPath}
+            bind:value={$settingsStore.keywordDescriptionsPath}
             on:change={async () => {
-              await saveSettingsData();
+              await saveStore();
               await scanForReferenceFiles();
             }}
             placeholder="Enter directory path (e.g., foo/bar)"
             class="reference-path-input"
           />
-          {#if $settingsDataStore.keywordDescriptionsPath && $settingsDataStore.keywordDescriptionsPath.trim()}
+          {#if $settingsStore.keywordDescriptionsPath && $settingsStore.keywordDescriptionsPath.trim()}
             <span class="reference-files-count">
               Found: {foundReferenceFilesCount}/{totalKeywordsForReference} files
             </span>
@@ -930,8 +926,8 @@
         <p class="description">Comma-separated list of file/folder paths where record badges should NOT be shown in reading view.</p>
         <input
           type="text"
-          bind:value={$settingsDataStore.badgeExcludedPaths}
-          on:change={async () => await saveSettingsData()}
+          bind:value={$settingsStore.badgeExcludedPaths}
+          on:change={async () => await saveStore()}
           placeholder="e.g., _journal, templates, archive"
           class="badge-excluded-paths-input"
         />
@@ -1038,10 +1034,10 @@
             <input
               type="color"
               id="vword-color"
-              bind:value={$vwordSettingsStore.color}
-              on:change={async () => await saveVWordSettings()}
+              bind:value={$settingsStore.vword.color}
+              on:change={async () => await saveStore()}
             />
-            <span class="color-value">{$vwordSettingsStore.color}</span>
+            <span class="color-value">{$settingsStore.vword.color}</span>
           </div>
 
           <div class="color-picker-item">
@@ -1049,10 +1045,10 @@
             <input
               type="color"
               id="vword-bg-color"
-              bind:value={$vwordSettingsStore.backgroundColor}
-              on:change={async () => await saveVWordSettings()}
+              bind:value={$settingsStore.vword.backgroundColor}
+              on:change={async () => await saveStore()}
             />
-            <span class="color-value">{$vwordSettingsStore.backgroundColor}</span>
+            <span class="color-value">{$settingsStore.vword.backgroundColor}</span>
           </div>
         </div>
 
@@ -1060,7 +1056,7 @@
           <p><strong>Preview:</strong></p>
           <span
             class="vword-preview-text"
-            style="color: {$vwordSettingsStore.color}; background-color: {$vwordSettingsStore.backgroundColor}; padding: 4px 8px; border-radius: 3px;"
+            style="color: {$settingsStore.vword.color}; background-color: {$settingsStore.vword.backgroundColor}; padding: 4px 8px; border-radius: 3px;"
           >
             VWord keyword
           </span>
@@ -1085,8 +1081,8 @@
               min="0"
               max="1000"
               step="50"
-              bind:value={$settingsDataStore.layoutRetryDelayMs}
-              on:change={async () => await saveSettingsData()}
+              bind:value={$settingsStore.layoutRetryDelayMs}
+              on:change={async () => await saveStore()}
               placeholder="100"
               class="layout-retry-delay-input"
             />
@@ -1097,7 +1093,7 @@
   {:else if activeTab === 'srs'}
     <div bind:this={srsContainer} class="srs-settings-content"></div>
   {:else if activeTab === 'colors'}
-    <ColorHighlightSettings {settingsStore} {plugin} />
+    <ColorHighlightSettings {settingsStore} />
   {/if}
 </div>
 
@@ -1395,6 +1391,14 @@
   }
 
   .category-header {
+    /* Reset button styles */
+    background: none;
+    border: none;
+    font: inherit;
+    text-align: left;
+    width: 100%;
+
+    /* Layout */
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -1404,6 +1408,15 @@
     cursor: pointer;
     user-select: none;
     overflow: hidden;
+  }
+
+  .category-header:hover {
+    background: var(--background-modifier-hover);
+  }
+
+  .category-header:focus-visible {
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: 2px;
   }
 
   .category-title {
@@ -1425,23 +1438,7 @@
     transform: rotate(-90deg);
   }
 
-  .category-header h3 {
-    margin: 0;
-    color: var(--text-accent);
-    cursor: pointer;
-    font-size: 1rem;
-    font-weight: 500;
-    display: flex;
-    align-items: center;
-    white-space: nowrap;
-    overflow: hidden;
-    flex: 1;
-    min-width: 0;
-  }
 
-  .category-header h3:hover {
-    color: var(--text-accent-hover);
-  }
 
   .category-edit-container {
     display: flex;
@@ -1479,33 +1476,9 @@
     border-color: var(--interactive-accent);
   }
 
-  .category-id-badge {
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: var(--text-muted);
-    background: var(--background-modifier-border);
-    padding: 0.1rem 0.4rem;
-    border-radius: 3px;
-    margin-left: 0.4rem;
-    font-family: var(--font-monospace);
-  }
 
-  .category-helper-badge {
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: #ffffff;
-    background: #0088ff;
-    padding: 0.15rem 0.5rem;
-    border-radius: 3px;
-    margin-left: 0.4rem;
-    text-transform: uppercase;
-  }
 
-  .category-helper-checkbox {
-    cursor: pointer;
-    width: 16px;
-    height: 16px;
-  }
+
 
   .category-content {
     animation: slideDown 0.2s ease;
@@ -1645,373 +1618,8 @@
     }
   }
 
-  /* Info Tab */
-  .info-content {
-    max-width: 800px;
-    line-height: 1.6;
-  }
 
-  .info-content h2 {
-    margin-top: 0;
-    margin-bottom: 1rem;
-    color: var(--text-accent);
-    font-size: 1.5rem;
-  }
 
-  .info-content h3 {
-    margin-top: 1.5rem;
-    margin-bottom: 0.75rem;
-    color: var(--text-normal);
-    font-size: 1.2rem;
-  }
-
-  .info-content section {
-    margin-bottom: 1.5rem;
-  }
-
-  .info-content p {
-    margin: 0.5rem 0;
-    color: var(--text-normal);
-  }
-
-  .info-content ul {
-    margin: 0.5rem 0;
-    padding-left: 1.5rem;
-  }
-
-  .info-content li {
-    margin: 0.5rem 0;
-    color: var(--text-normal);
-  }
-
-  .info-content strong {
-    color: var(--text-accent);
-  }
-
-  /* Groups Tab */
-  .groups-content {
-    max-width: 900px;
-  }
-
-  .groups-content h2 {
-    margin-top: 0;
-    margin-bottom: 0.35rem;
-    color: var(--text-accent);
-    font-size: 1.3rem;
-  }
-
-  .groups-content .description {
-    color: var(--text-muted);
-    margin-bottom: 1rem;
-    font-size: 0.9em;
-  }
-
-  .group-section {
-    margin-bottom: 0.75rem;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 6px;
-    padding: 0.75rem;
-    background: var(--background-primary);
-  }
-
-  .group-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0;
-    padding-bottom: 0.5rem;
-    border-bottom: 1px solid var(--background-modifier-border);
-    cursor: pointer;
-    user-select: none;
-  }
-
-  .group-title {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex: 1;
-  }
-
-  .group-toggle {
-    font-size: 0.8rem;
-    transition: transform 0.2s ease;
-    color: var(--text-muted);
-  }
-
-  .group-toggle.collapsed {
-    transform: rotate(-90deg);
-  }
-
-  .group-header h3 {
-    margin: 0;
-    color: var(--text-accent);
-    font-size: 0.95rem;
-    font-weight: 500;
-  }
-
-  .group-controls {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .group-remove {
-    background: var(--color-red);
-    color: white;
-    border: none;
-    padding: 0.5rem;
-    border-radius: 4px;
-    cursor: pointer;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 22px;
-  }
-
-  .group-remove:hover {
-    background: var(--color-red-hover);
-  }
-
-  .group-content {
-    animation: slideDown 0.2s ease;
-  }
-
-  .keywords-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-top: 0.75rem;
-  }
-
-  .keyword-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.35rem 0.6rem;
-    background: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 12px;
-    transition: all 0.2s;
-  }
-
-  .keyword-chip:hover {
-    background: var(--background-modifier-hover);
-  }
-
-  .keyword-chip-icon {
-    font-size: 1em;
-    line-height: 1;
-    display: inline-flex;
-    align-items: center;
-  }
-
-  .keyword-text {
-    color: var(--text-normal);
-    font-family: var(--font-monospace);
-    font-size: 0.9em;
-  }
-
-  .remove-keyword-chip-btn {
-    background: none;
-    border: none;
-    cursor: pointer;
-    color: var(--text-muted);
-    padding: 0;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    line-height: 1;
-    transition: all 0.2s;
-  }
-
-  .remove-keyword-chip-btn:hover {
-    background: var(--background-modifier-error);
-    color: white;
-  }
-
-  .add-keyword-to-group {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
-    padding-top: 0.5rem;
-  }
-
-  .keyword-search-container {
-    flex: 1;
-    position: relative;
-  }
-
-  .keyword-search-input {
-    width: 100%;
-    padding: 0.4rem 0.6rem;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    background: var(--background-primary);
-    color: var(--text-normal);
-    font-size: 0.9em;
-  }
-
-  .keyword-search-input:focus {
-    outline: none;
-    border-color: var(--interactive-accent);
-  }
-
-  .keyword-dropdown {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    margin-top: 2px;
-    max-height: 200px;
-    overflow-y: auto;
-    background: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-    z-index: 1000;
-  }
-
-  .keyword-dropdown-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    cursor: pointer;
-    transition: background 0.15s;
-    font-size: 0.9em;
-  }
-
-  .keyword-dropdown-item:hover {
-    background: var(--background-modifier-hover);
-  }
-
-  .keyword-dropdown-item.no-results {
-    color: var(--text-muted);
-    cursor: default;
-    font-style: italic;
-  }
-
-  .keyword-dropdown-item.no-results:hover {
-    background: transparent;
-  }
-
-  .keyword-dropdown-icon {
-    font-size: 1em;
-    line-height: 1;
-  }
-
-  .add-keyword-to-group button {
-    padding: 0.4rem 0.8rem;
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 0.9em;
-    white-space: nowrap;
-  }
-
-  .add-keyword-to-group button:hover {
-    background: var(--interactive-accent-hover);
-  }
-
-  .add-keyword-to-group button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .add-keyword-to-group button:disabled:hover {
-    background: var(--interactive-accent);
-  }
-
-  .add-group-section {
-    margin-top: 1.5rem;
-    padding-top: 1rem;
-    border-top: 2px solid var(--background-modifier-border);
-  }
-
-  .add-group-section h3 {
-    margin: 0 0 0.5rem 0;
-    color: var(--text-normal);
-    font-size: 0.95rem;
-    font-weight: 500;
-  }
-
-  .add-group-form {
-    display: flex;
-    gap: 0.5rem;
-  }
-
-  .add-group-form input {
-    flex: 1;
-    padding: 0.4rem 0.6rem;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    background: var(--background-primary);
-    color: var(--text-normal);
-    font-size: 0.9em;
-  }
-
-  .add-group-form button {
-    padding: 0.4rem 0.8rem;
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 0.9em;
-  }
-
-  .add-group-form button:hover {
-    background: var(--interactive-accent-hover);
-  }
-
-  .parsing-settings-section {
-    margin-top: 1.5rem;
-    padding-top: 1rem;
-    border-top: 2px solid var(--background-modifier-border);
-  }
-
-  .parsing-settings-section h3 {
-    margin: 0 0 0.5rem 0;
-    color: var(--text-normal);
-    font-size: 0.95rem;
-    font-weight: 500;
-  }
-
-  .sub-item-keywords-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin-bottom: 0.75rem;
-  }
-
-  .sub-item-keyword-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    padding: 0.35rem 0.6rem;
-    background: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 12px;
-    transition: all 0.2s;
-  }
-
-  .sub-item-keyword-chip:hover {
-    background: var(--background-modifier-hover);
-  }
-
-  .add-sub-item-keyword {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
-  }
 
 
   /* Parser Settings Section */
@@ -2021,18 +1629,6 @@
     background: var(--background-secondary);
     border: 1px solid var(--background-modifier-border);
     border-radius: 6px;
-  }
-
-  .parser-settings-section h2 {
-    margin: 0 0 0.5rem 0;
-    font-size: 1.1em;
-    color: var(--text-accent);
-  }
-
-  .parser-settings-section .description {
-    margin: 0 0 1.5rem 0;
-    font-size: 0.9em;
-    color: var(--text-muted);
   }
 
   .parser-input {
@@ -2050,14 +1646,6 @@
     outline: none;
     border-color: var(--interactive-accent);
   }
-
-  .parser-checkbox {
-    width: 20px;
-    height: 20px;
-    cursor: pointer;
-  }
-
-
 
   /* Keywords Table */
   .keywords-table {
@@ -2124,69 +1712,6 @@
     transform: scale(0.95);
   }
 
-  /* Spaced Rep Settings */
-  .spaced-rep-settings-content {
-    padding: 1rem;
-  }
-
-  .delimiter-input {
-    padding: 6px 10px;
-    background: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    color: var(--text-normal);
-    font-family: var(--font-monospace);
-    font-size: 0.95em;
-    width: 120px;
-  }
-
-  .delimiter-input:focus {
-    outline: none;
-    border-color: var(--interactive-accent);
-  }
-
-  .preview-section {
-    margin-top: 2rem;
-    padding: 1rem;
-    background: var(--background-secondary);
-    border-radius: 6px;
-    border: 1px solid var(--background-modifier-border);
-  }
-
-  .preview-section h3 {
-    margin: 0 0 0.5rem 0;
-    color: var(--text-accent);
-    font-size: 1rem;
-  }
-
-  .example-box {
-    margin: 1rem 0;
-    padding: 0.75rem;
-    background: var(--background-primary);
-    border-radius: 4px;
-    border: 1px solid var(--background-modifier-border);
-  }
-
-  .example-title {
-    font-size: 0.85em;
-    color: var(--text-muted);
-    font-weight: 500;
-    margin-bottom: 0.5rem;
-  }
-
-  .example-content {
-    font-family: var(--font-text);
-    color: var(--text-normal);
-    line-height: 1.6;
-  }
-
-  .hidden-placeholder {
-    font-family: var(--font-monospace);
-    color: var(--text-muted);
-    background: var(--background-modifier-border);
-    padding: 2px 8px;
-    border-radius: 3px;
-  }
 
 
   /* VWord Settings */

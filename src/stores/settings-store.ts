@@ -24,18 +24,43 @@ function generateRandomColors(): { backgroundColor: string; textColor: string } 
   return { backgroundColor, textColor };
 }
 
-export interface PluginSettings {
+/**
+ * Keywords data - stored in app-data/keywords.json
+ */
+export interface KeywordsData {
+  categories: Category[];
+}
+
+/**
+ * Color highlights data - stored in app-data/color-highlights.json
+ */
+export interface ColorHighlightsData {
+  colorEntries: ColorEntry[];
+}
+
+/**
+ * Plugin settings - stored in data.json (Obsidian standard)
+ */
+export interface PluginSettings extends Settings {
+  parserSettings: ParserSettings;
+  colorHighlightingEnabled: boolean;
+  vword: VWordSettings;
+}
+
+/**
+ * Merged settings view (for backward compatibility with static API)
+ * Combines keywords, color highlights, and settings
+ */
+export interface MergedSettings {
   categories: Category[];
   parserSettings: ParserSettings;
-
-  // Color highlighting settings (unified with keywords)
   colorHighlightingEnabled: boolean;
   colorEntries: ColorEntry[];
 }
 
 export type { Settings };
 
-const DEFAULT_SETTINGS: PluginSettings = {
+const DEFAULT_KEYWORDS: KeywordsData = {
   categories: [
     {
       icon: 'Logic',
@@ -78,20 +103,26 @@ const DEFAULT_SETTINGS: PluginSettings = {
       ],
     },
   ],
-  parserSettings: DEFAULT_PARSER_SETTINGS,
+};
 
-  // Color highlighting settings
-  colorHighlightingEnabled: false,
+const DEFAULT_COLOR_HIGHLIGHTS: ColorHighlightsData = {
   colorEntries: DEFAULT_COLOR_ENTRIES
 };
 
-const DEFAULT_SETTINGS_DATA: Settings = {
+const DEFAULT_SETTINGS: PluginSettings = {
   keywordDescriptionsPath: '',
   layoutRetryDelayMs: 100,
+  parserSettings: DEFAULT_PARSER_SETTINGS,
+  colorHighlightingEnabled: false,
+  vword: DEFAULT_VWORD_SETTINGS
 };
 
+export const keywordsStore = writable<KeywordsData>(DEFAULT_KEYWORDS);
+export const colorHighlightsStore = writable<ColorHighlightsData>(DEFAULT_COLOR_HIGHLIGHTS);
 export const settingsStore = writable<PluginSettings>(DEFAULT_SETTINGS);
-export const settingsDataStore = writable<Settings>(DEFAULT_SETTINGS_DATA);
+
+// Legacy exports for backward compatibility (will be removed later)
+export const settingsDataStore = settingsStore;
 export const vwordSettingsStore = writable<VWordSettings>(DEFAULT_VWORD_SETTINGS);
 
 let plugin: HighlightSpaceRepeatPlugin | null = null;
@@ -175,55 +206,39 @@ export async function initStore(pluginInstance: HighlightSpaceRepeatPlugin): Pro
   plugin = pluginInstance;
   appInstance = plugin.app;
 
-  // Wait for settings to load before plugin finishes initialization
+  // Load all data files
   await loadStore();
-
-  // Load VWord settings and inject CSS (needs to complete before plugin fully loads)
-  await loadVWordSettings();
-
-  // Load settings data in parallel with plugin initialization
-  loadSettingsData();
 }
 
 export async function loadStore(): Promise<void> {
   if (!plugin) return;
 
-  const loadedDate = await plugin.loadData();
-  const settings = Object.assign({}, DEFAULT_SETTINGS, loadedDate);
+  // Load keywords
+  const keywordsData = await plugin.loadKeywords();
+  const keywords = Object.assign({}, DEFAULT_KEYWORDS, keywordsData);
 
-  // Ensure parserSettings exists
-  let needsAutoSave = false;
-  if (!settings.parserSettings) {
-    settings.parserSettings = DEFAULT_PARSER_SETTINGS;
-    needsAutoSave = true;
-  }
+  // Load color highlights
+  const colorHighlightsData = await plugin.loadColorHighlights();
+  const colorHighlights = Object.assign({}, DEFAULT_COLOR_HIGHLIGHTS, colorHighlightsData);
 
-  // Ensure color highlighting settings exist
-  if (settings.colorHighlightingEnabled === undefined) {
-    settings.colorHighlightingEnabled = false;
-    needsAutoSave = true;
-  }
-
-  // Ensure colorEntries exists
-  if (!settings.colorEntries || !Array.isArray(settings.colorEntries)) {
-    settings.colorEntries = DEFAULT_COLOR_ENTRIES;
-    needsAutoSave = true;
-  }
+  // Load settings (using Obsidian's built-in loadData for data.json)
+  const settingsData = await plugin.loadData();
+  const settings = Object.assign({}, DEFAULT_SETTINGS, settingsData);
 
   // AUTO-GENERATE COLOR KEYWORDS: Find or create "Colors" category and inject generated keywords
-  let colorsCategory = settings.categories.find(cat => cat.id === 'colors-category');
+  let colorsCategory = keywords.categories.find((cat: Category) => cat.id === 'colors-category');
   if (!colorsCategory) {
     colorsCategory = { icon: 'Colors', id: 'colors-category', keywords: [] };
-    settings.categories.push(colorsCategory);
+    keywords.categories.push(colorsCategory);
   }
 
   // Replace color keywords with fresh ones generated from colorEntries
-  const colorKeywords = generateColorKeywords(settings.colorEntries);
+  const colorKeywords = generateColorKeywords(colorHighlights.colorEntries);
   colorsCategory.keywords = colorKeywords;
 
   // Set default collectingStatus and priorities for keywords that don't have them set
-  settings.categories.forEach(category => {
-    category.keywords.forEach(keyword => {
+  keywords.categories.forEach((category: Category) => {
+    category.keywords.forEach((keyword: KeywordStyle) => {
       // Set defaults if not defined
       if (keyword.collectingStatus === undefined) {
         keyword.collectingStatus = CollectingStatus.PARSED;
@@ -239,41 +254,45 @@ export async function loadStore(): Promise<void> {
     });
   });
 
+  // Update stores
+  keywordsStore.set(keywords);
+  colorHighlightsStore.set(colorHighlights);
   settingsStore.set(settings);
+  vwordSettingsStore.set(settings.vword);
 
-  // CRITICAL: Also set the static property used by the public API
+  // CRITICAL: Also set the static property used by the public API (merged view for compatibility)
   if (plugin) {
-    (plugin.constructor as typeof HighlightSpaceRepeatPlugin).settings = settings;
+    const mergedSettings: MergedSettings = {
+      categories: keywords.categories,
+      parserSettings: settings.parserSettings,
+      colorHighlightingEnabled: settings.colorHighlightingEnabled,
+      colorEntries: colorHighlights.colorEntries
+    };
+    (plugin.constructor as typeof HighlightSpaceRepeatPlugin).settings = mergedSettings as any;
   }
 
-  // Inject keyword CSS after loading settings
-  // Note: VWord CSS will be injected separately by loadVWordSettings()
-  // Note: Color keywords are now part of the keyword system (auto-generated from colorEntries)
-  injectKeywordCSS(settings.categories);
-  injectCodeStylerOverrideCSS();
-
-  // Save settings if defaults were applied
-  if (needsAutoSave) {
-    await saveStore();
-  }
+  // Inject CSS
+  injectAllCSS(keywords.categories, settings.vword);
 }
 
 export async function saveStore(): Promise<void> {
   if (!plugin) return;
 
-  const currentSettings = get(settingsStore);
+  const keywords = get(keywordsStore);
+  const colorHighlights = get(colorHighlightsStore);
+  const settings = get(settingsStore);
 
   // REGENERATE COLOR KEYWORDS: Update Colors category with fresh keywords from colorEntries
-  let colorsCategory = currentSettings.categories.find(cat => cat.id === 'colors-category');
+  let colorsCategory = keywords.categories.find(cat => cat.id === 'colors-category');
   if (!colorsCategory) {
     colorsCategory = { icon: 'Colors', id: 'colors-category', keywords: [] };
-    currentSettings.categories.push(colorsCategory);
+    keywords.categories.push(colorsCategory);
   }
-  const colorKeywords = generateColorKeywords(currentSettings.colorEntries || []);
+  const colorKeywords = generateColorKeywords(colorHighlights.colorEntries);
   colorsCategory.keywords = colorKeywords;
 
   // Filter out empty keywords from all categories (but keep auto-generated color keywords)
-  currentSettings.categories.forEach(category => {
+  keywords.categories.forEach(category => {
     if (category.id === 'colors-category') {
       // Don't filter color keywords - they're auto-generated
       return;
@@ -281,14 +300,25 @@ export async function saveStore(): Promise<void> {
     category.keywords = category.keywords.filter((k) => k.keyword && k.keyword.match(/^ *$/) === null);
   });
 
-  await plugin.saveData(currentSettings);
+  // Save keywords WITHOUT colors-category (it's auto-generated from color-highlights.json)
+  const keywordsToSave = {
+    categories: keywords.categories.filter(cat => cat.id !== 'colors-category')
+  };
+  await plugin.saveKeywords(keywordsToSave);
+  await plugin.saveColorHighlights(colorHighlights);
+  await plugin.saveData(settings);  // Use Obsidian's built-in method for data.json
 
-  // CRITICAL: Also update the static property used by the public API
-  (plugin.constructor as typeof HighlightSpaceRepeatPlugin).settings = currentSettings;
+  // CRITICAL: Also update the static property used by the public API (merged view)
+  const mergedSettings: MergedSettings = {
+    categories: keywords.categories,
+    parserSettings: settings.parserSettings,
+    colorHighlightingEnabled: settings.colorHighlightingEnabled,
+    colorEntries: colorHighlights.colorEntries
+  };
+  (plugin.constructor as typeof HighlightSpaceRepeatPlugin).settings = mergedSettings as any;
 
-  // Update CSS after saving (inject keyword, VWord, and Code Styler override)
-  const vwordSettings = get(vwordSettingsStore);
-  injectAllCSS(currentSettings.categories, vwordSettings);
+  // Update CSS after saving
+  injectAllCSS(keywords.categories, settings.vword);
 
   refreshViews();
 }
@@ -308,14 +338,14 @@ function refreshViews(): void {
 }
 
 export function addKeyword(value?: string, categoryName?: string): void {
-  settingsStore.update((settings) => {
+  keywordsStore.update((keywords) => {
     const targetCategoryName = categoryName ?? 'General';
 
     // Find or create the category
-    let targetCategory = settings.categories.find(cat => cat.icon === targetCategoryName);
+    let targetCategory = keywords.categories.find(cat => cat.icon === targetCategoryName);
     if (!targetCategory) {
       targetCategory = { icon: targetCategoryName, keywords: [] };
-      settings.categories.push(targetCategory);
+      keywords.categories.push(targetCategory);
     }
 
     // Get colors from last keyword in category, or generate new ones if empty
@@ -342,80 +372,40 @@ export function addKeyword(value?: string, categoryName?: string): void {
       iconPriority: 1,  // Default icon priority
       stylePriority: 'normal',  // Default style priority
     });
-    return settings;
+    return keywords;
   });
 }
 
 export function removeKeyword(keyword: KeywordStyle): void {
-  settingsStore.update((settings) => {
+  keywordsStore.update((keywords) => {
     // Find and remove the keyword from its category
-    for (const category of settings.categories) {
+    for (const category of keywords.categories) {
       const index = category.keywords.indexOf(keyword);
       if (index > -1) {
         category.keywords.splice(index, 1);
         break;
       }
     }
-    return settings;
+    return keywords;
   });
 }
 
 export function addCategory(name: string, categoryClass?: string): void {
-  settingsStore.update((settings) => {
-    if (!settings.categories.find(cat => cat.icon === name)) {
-      settings.categories.push({ icon: name, id: categoryClass, keywords: [] });
+  keywordsStore.update((keywords) => {
+    if (!keywords.categories.find(cat => cat.icon === name)) {
+      keywords.categories.push({ icon: name, id: categoryClass, keywords: [] });
     }
-    return settings;
+    return keywords;
   });
 }
 
 export function removeCategory(categoryName: string): void {
-  settingsStore.update((settings) => {
-    const index = settings.categories.findIndex(cat => cat.icon === categoryName);
+  keywordsStore.update((keywords) => {
+    const index = keywords.categories.findIndex(cat => cat.icon === categoryName);
     if (index > -1) {
-      settings.categories.splice(index, 1);
+      keywords.categories.splice(index, 1);
     }
-    return settings;
+    return keywords;
   });
 }
 
-// Settings Data functions
-export async function loadSettingsData(): Promise<void> {
-  if (!plugin) return;
-
-  const loadedData = await plugin.loadSettingsData();
-  const settings = Object.assign({}, DEFAULT_SETTINGS_DATA, loadedData);
-  settingsDataStore.set(settings);
-}
-
-export async function saveSettingsData(): Promise<void> {
-  if (!plugin) return;
-
-  const currentSettings = get(settingsDataStore);
-  await plugin.saveSettingsData(currentSettings);
-}
-
-// VWord Settings functions
-export async function loadVWordSettings(): Promise<void> {
-  if (!plugin) return;
-
-  const loadedData = await plugin.loadVWordSettings();
-  const vwordSettings = Object.assign({}, DEFAULT_VWORD_SETTINGS, loadedData);
-  vwordSettingsStore.set(vwordSettings);
-
-  // Inject VWord CSS after loading
-  injectVWordCSS(vwordSettings);
-}
-
-export async function saveVWordSettings(): Promise<void> {
-  if (!plugin) return;
-
-  const currentSettings = get(vwordSettingsStore);
-  await plugin.saveVWordSettings(currentSettings);
-
-  // Re-inject all CSS after VWord settings change (keywords + VWord + Code Styler override)
-  const keywordSettings = get(settingsStore);
-  injectAllCSS(keywordSettings.categories, currentSettings);
-
-  refreshViews();
-}

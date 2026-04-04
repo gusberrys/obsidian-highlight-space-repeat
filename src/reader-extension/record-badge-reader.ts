@@ -2,9 +2,8 @@ import type { MarkdownPostProcessorContext } from 'obsidian';
 import type { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
 import { CollectingStatus, isSpaced } from '../shared/collecting-status';
 import type { ParsedEntry, ParsedFile, ParsedHeader, FlatEntry } from '../interfaces/ParsedFile';
-import { settingsStore, settingsDataStore } from '../stores/settings-store';
+import { keywordsStore, settingsStore } from '../stores/settings-store';
 import { get } from 'svelte/store';
-import { DATA_PATHS } from '../shared/data-paths';
 import { getFileNameFromPath } from '../utils/file-helpers';
 import { getAllKeywords } from '../utils/parse-helpers';
 
@@ -13,11 +12,11 @@ import { getAllKeywords } from '../utils/parse-helpers';
  * Get collecting status for keywords
  */
 function getCollectingStatus(keywords: string[]): CollectingStatus | null {
-	const settings = get(settingsStore);
+	const keywordsData = get(keywordsStore);
 
 	for (const keyword of keywords) {
 		// Find keyword in categories
-		for (const category of settings.categories) {
+		for (const category of keywordsData.categories) {
 			const keywordObj = category.keywords.find((k: any) => k.keyword === keyword);
 			if (keywordObj && keywordObj.collectingStatus) {
 				return keywordObj.collectingStatus;
@@ -309,7 +308,7 @@ function entryToSRSPreview(entry: ParsedEntry, context?: string, _unused?: strin
  */
 export function addRecordBadgesToReadingView(element: HTMLElement, context: MarkdownPostProcessorContext, plugin: HighlightSpaceRepeatPlugin): void {
 	// Check if current file path is excluded from badges
-	const settings = get(settingsDataStore);
+	const settings = get(settingsStore);
 	const currentPath = context.sourcePath;
 	if (settings.badgeExcludedPaths && currentPath) {
 		const excludedPaths = settings.badgeExcludedPaths.split(',').map((p: string) => p.trim()).filter((p: string) => p.length > 0);

@@ -1,6 +1,6 @@
 import type { MarkdownPostProcessor } from 'obsidian';
 import { type KeywordStyle } from 'src/shared';
-import { settingsStore, settingsDataStore, vwordSettingsStore } from 'src/stores/settings-store';
+import { keywordsStore, settingsStore } from 'src/stores/settings-store';
 import { get } from 'svelte/store';
 import { isVWordKeyword, parseVWordKeyword } from 'src/shared/vword';
 import { CollectingStatus } from 'src/shared/collecting-status';
@@ -9,13 +9,13 @@ let keywordMap: Map<string, KeywordStyle>;
 
 export const readerHighlighter: MarkdownPostProcessor = (el: HTMLElement) => {
 
+  const keywords = get(keywordsStore);
   const settings = get(settingsStore);
-  const settingsData = get(settingsDataStore);
-  const layoutRetryDelay = settingsData.layoutRetryDelayMs ?? 100;
+  const layoutRetryDelay = settings.layoutRetryDelayMs ?? 100;
 
   // Build keyword map from all categories
   keywordMap = new Map(
-    settings.categories
+    keywords.categories
       .flatMap(category =>
         category.keywords.flatMap((k: KeywordStyle) =>
           k.keyword
