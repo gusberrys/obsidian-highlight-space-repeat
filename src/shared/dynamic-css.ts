@@ -71,22 +71,64 @@ mark.${className}::before {
 
   // Combinable feature removed - no combination CSS rules needed
 
-  // When color highlighting is enabled, hide all keyword highlights
+  // When color highlighting is enabled, disable ALL keyword styling (including custom CSS snippets)
   // This makes colors stand out without visual noise from keywords
   categories.forEach(category => {
     category.keywords.forEach(keyword => {
       if (keyword.keyword && keyword.keyword.trim()) {
         const className = keyword.keyword;
         cssRules.push(`
+/* Reset all visual properties for keyword classes when color mode is active */
+/* High specificity to override custom CSS snippets */
 body.cc-enabled .${className},
 body.cc-enabled mark.${className},
-body.cc-enabled span.${className} {
+body.cc-enabled span.${className},
+body.cc-enabled div.view-content.record-view-content mark.${className},
+body.cc-enabled div.database-plugin__tbody mark.${className},
+body.cc-enabled .markdown-preview-section mark.${className},
+body.cc-enabled .el-p .${className} {
+  /* Reset colors and backgrounds */
   color: inherit !important;
   background-color: transparent !important;
+  background-image: none !important;
+  background: transparent !important;
+  background-size: auto !important;
+  background-position: 0 0 !important;
+
+  /* Reset decorative borders but keep header underlines */
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+  border-radius: 0 !important;
+  /* border-bottom preserved for header underlines */
+
+  /* Reset animations */
+  animation: none !important;
+
+  /* Preserves: font-size, font-weight, text-decoration, border-bottom, margin, padding */
+
+  /* Reset decoration break */
+  -webkit-box-decoration-break: unset !important;
+  box-decoration-break: unset !important;
+
+  /* Reset visual effects */
+  box-shadow: none !important;
+  text-shadow: none !important;
+  opacity: 1 !important;
+  filter: none !important;
 }
 
-body.cc-enabled mark.${className}::before {
+/* Reset all pseudo-elements */
+body.cc-enabled mark.${className}::before,
+body.cc-enabled mark.${className}::after,
+body.cc-enabled .${className}::before,
+body.cc-enabled .${className}::after {
   content: "" !important;
+  background: none !important;
+  background-image: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  animation: none !important;
 }`);
       }
     });
