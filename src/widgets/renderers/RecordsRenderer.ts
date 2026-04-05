@@ -604,11 +604,9 @@ export class RecordsRenderer {
 				if (e.metaKey || e.ctrlKey) {
 					const obsidianFile = this.app.vault.getAbstractFileByPath(file.filePath);
 					if (obsidianFile instanceof TFile) {
-						// Open the file
 						const leaf = this.app.workspace.getLeaf(false);
 						await leaf.openFile(obsidianFile);
 
-						// Search for the header line in the file
 						const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 						if (view && view.editor) {
 							const content = view.editor.getValue();
@@ -622,7 +620,6 @@ export class RecordsRenderer {
 							let headerLine = -1;
 							for (let i = 0; i < lines.length; i++) {
 								const line = lines[i].trim();
-								// Match "## headerText" or "## headerText #tag" etc
 								if (line.startsWith(headerPattern)) {
 									headerLine = i;
 									break;
@@ -631,12 +628,7 @@ export class RecordsRenderer {
 
 							// Navigate to the header line
 							if (headerLine >= 0) {
-								view.editor.setCursor({ line: headerLine, ch: 0 });
-								const scrollToLine = Math.max(0, headerLine - 3);
-								view.editor.scrollIntoView({
-									from: { line: scrollToLine, ch: 0 },
-									to: { line: scrollToLine, ch: 0 }
-								}, true);
+								view.setEphemeralState({ line: headerLine });
 							}
 						}
 					}
@@ -687,25 +679,15 @@ export class RecordsRenderer {
 						entryItem.addEventListener('click', async () => {
 							const obsidianFile = this.app.vault.getAbstractFileByPath(file.filePath);
 							if (obsidianFile && entry.lineNumber !== undefined) {
-								// Open the file (or focus if already open)
 								const leaf = this.app.workspace.getLeaf(false);
-								await leaf.openFile(obsidianFile as any, {
-									eState: { line: entry.lineNumber }
-								});
+								await leaf.openFile(obsidianFile as any);
 
-								// Get the editor and navigate to the specific line
-								const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-								if (view && view.editor) {
-									// Set cursor to the beginning of the line
-									view.editor.setCursor({ line: entry.lineNumber, ch: 0 });
-									// Scroll to a few lines above the target to ensure visibility with padding
-									const scrollToLine = Math.max(0, entry.lineNumber - 3);
-									// Scroll the line into view
-									view.editor.scrollIntoView({
-										from: { line: scrollToLine, ch: 0 },
-										to: { line: scrollToLine, ch: 0 }
-									}, true);
-								}
+								setTimeout(() => {
+									const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+									if (view) {
+										view.setEphemeralState({ line: entry.lineNumber - 1 });
+									}
+								}, 50);
 							}
 						});
 					} else if (entry.type === 'codeblock') {
@@ -734,25 +716,15 @@ export class RecordsRenderer {
 						entryItem.addEventListener('click', async () => {
 							const obsidianFile = this.app.vault.getAbstractFileByPath(file.filePath);
 							if (obsidianFile && entry.lineNumber !== undefined) {
-								// Open the file (or focus if already open)
 								const leaf = this.app.workspace.getLeaf(false);
-								await leaf.openFile(obsidianFile as any, {
-									eState: { line: entry.lineNumber }
-								});
+								await leaf.openFile(obsidianFile as any);
 
-								// Get the editor and navigate to the specific line
-								const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-								if (view && view.editor) {
-									// Set cursor to the beginning of the line
-									view.editor.setCursor({ line: entry.lineNumber, ch: 0 });
-									// Scroll to a few lines above the target to ensure visibility with padding
-									const scrollToLine = Math.max(0, entry.lineNumber - 3);
-									// Scroll the line into view
-									view.editor.scrollIntoView({
-										from: { line: scrollToLine, ch: 0 },
-										to: { line: scrollToLine, ch: 0 }
-									}, true);
-								}
+								setTimeout(() => {
+									const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+									if (view) {
+										view.setEphemeralState({ line: entry.lineNumber - 1 });
+									}
+								}, 50);
 							}
 						});
 					}
@@ -1044,25 +1016,15 @@ export class RecordsRenderer {
 						entryItem.addEventListener('click', async () => {
 							const obsidianFile = this.app.vault.getAbstractFileByPath(file.filePath);
 							if (obsidianFile && entry.lineNumber !== undefined) {
-								// Open the file (or focus if already open)
 								const leaf = this.app.workspace.getLeaf(false);
-								await leaf.openFile(obsidianFile as any, {
-									eState: { line: entry.lineNumber }
-								});
+								await leaf.openFile(obsidianFile as any);
 
-								// Get the editor and navigate to the specific line
-								const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-								if (view && view.editor) {
-									// Set cursor to the beginning of the line
-									view.editor.setCursor({ line: entry.lineNumber, ch: 0 });
-									// Scroll to a few lines above the target to ensure visibility with padding
-									const scrollToLine = Math.max(0, entry.lineNumber - 3);
-									// Scroll the line into view
-									view.editor.scrollIntoView({
-										from: { line: scrollToLine, ch: 0 },
-										to: { line: scrollToLine, ch: 0 }
-									}, true);
-								}
+								setTimeout(() => {
+									const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+									if (view) {
+										view.setEphemeralState({ line: entry.lineNumber - 1 });
+									}
+								}, 50);
 							}
 						});
 
@@ -1100,25 +1062,15 @@ export class RecordsRenderer {
 						entryItem.addEventListener('click', async () => {
 							const obsidianFile = this.app.vault.getAbstractFileByPath(file.filePath);
 							if (obsidianFile && entry.lineNumber !== undefined) {
-								// Open the file (or focus if already open)
 								const leaf = this.app.workspace.getLeaf(false);
-								await leaf.openFile(obsidianFile as any, {
-									eState: { line: entry.lineNumber }
-								});
+								await leaf.openFile(obsidianFile as any);
 
-								// Get the editor and navigate to the specific line
-								const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-								if (view && view.editor) {
-									// Set cursor to the beginning of the line
-									view.editor.setCursor({ line: entry.lineNumber, ch: 0 });
-									// Scroll to a few lines above the target to ensure visibility with padding
-									const scrollToLine = Math.max(0, entry.lineNumber - 3);
-									// Scroll the line into view
-									view.editor.scrollIntoView({
-										from: { line: scrollToLine, ch: 0 },
-										to: { line: scrollToLine, ch: 0 }
-									}, true);
-								}
+								setTimeout(() => {
+									const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+									if (view) {
+										view.setEphemeralState({ line: entry.lineNumber - 1 });
+									}
+								}, 50);
 							}
 						});
 
