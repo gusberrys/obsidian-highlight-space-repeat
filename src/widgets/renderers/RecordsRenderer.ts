@@ -664,13 +664,6 @@ export class RecordsRenderer {
 						const entrySearchable = [fileName, fileAliases, fileTags, entryKeywords, h1Tags, h2Tags, h3Tags, entry.text].join(' ').toLowerCase();
 						entryItem.setAttribute('data-searchable', entrySearchable);
 
-						// Render icons from all keywords with Icon/StyleAndIcon priority
-						for (const iconKeyword of iconKeywords) {
-							const mark = entryItem.createEl('mark', { cls: `kh-icon ${iconKeyword}` });
-							mark.innerHTML = '&nbsp;';
-						}
-						entryItem.createEl('span', { text: ' ', cls: 'kh-separator' });
-
 						// Render entry text with image/quote support (compact mode)
 						await KHEntry.renderKeywordEntry(
 							entryItem,
@@ -1011,12 +1004,6 @@ export class RecordsRenderer {
 						const entrySearchable = [fileName, fileAliases, fileTags, entryKeywords, h1Tags, h2Tags, h3Tags, entry.text].join(' ').toLowerCase();
 						entryItem.setAttribute('data-searchable', entrySearchable);
 
-						// Render icons from all keywords with Icon/StyleAndIcon priority
-						for (const iconKeyword of iconKeywords) {
-							const mark = entryItem.createEl('mark', { cls: `kh-icon ${iconKeyword}` });
-							mark.innerHTML = '&nbsp;';
-						}
-						entryItem.createEl('span', { text: ' ', cls: 'kh-separator' });
 
 						// Make entry clickable - navigate to line in source file
 						entryItem.style.cursor = 'pointer';

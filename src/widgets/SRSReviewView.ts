@@ -201,13 +201,6 @@ export class SRSReviewView extends ItemView {
 				code.addClass(`language-${entry.language}`);
 			}
 		} else {
-			// Add keyword icon manually (same as RecordsRenderer)
-			if (entry.keywords && entry.keywords.length > 0) {
-				const primaryKeyword = entry.keywords[0];
-				const mark = this.contentContainer.createEl('mark', { cls: `kh-icon ${primaryKeyword}` });
-				mark.innerHTML = '&nbsp;';
-				this.contentContainer.createEl('span', { text: ' ', cls: 'kh-separator' });
-			}
 
 			if (this.isAnswerShown) {
 				// When answer is shown: render entry directly using KHEntry (compact mode)

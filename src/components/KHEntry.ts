@@ -1,6 +1,8 @@
 import { Component, MarkdownRenderer } from 'obsidian';
 import type { HighlightSpaceRepeatPlugin } from '../highlight-space-repeat-plugin';
 import type { ParsedEntry, ParsedFile, ParsedEntrySubItem } from '../interfaces/ParsedFile';
+import { get } from 'svelte/store';
+import { keywordsStore } from '../stores/settings-store';
 
 /**
  * Shared component for rendering keyword records with images and quotes
@@ -8,48 +10,46 @@ import type { ParsedEntry, ParsedFile, ParsedEntrySubItem } from '../interfaces/
  */
 export class KHEntry {
 	/**
-	 * Apply basic markdown formatting to text content
-	 * Kept for potential edge cases
-	 */
-	private static applyBasicFormatting(text: string): string {
-		let result = text;
-
-		// Step 1: Protect inline code by temporarily replacing with placeholders
-		const codeBlocks: string[] = [];
-		result = result.replace(/`(.+?)`/g, (match, code) => {
-			const placeholder = `§§§CODEBLOCK${codeBlocks.length}§§§`;
-			codeBlocks.push(`<code>${code}</code>`);
-			return placeholder;
-		});
-
-		// Step 2: Apply other markdown formatting
-		result = result.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-		result = result.replace(/__(.+?)__/g, '<strong>$1</strong>');
-		result = result.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
-		result = result.replace(/(?<!_)_(?!_)(.+?)(?<!_)_(?!_)/g, '<em>$1</em>');
-		result = result.replace(/~~(.+?)~~/g, '<del>$1</del>');
-		result = result.replace(/==(.+?)==/g, '<mark class="exa">$1</mark>');
-
-		// Step 3: Restore code blocks from placeholders
-		codeBlocks.forEach((code, index) => {
-			result = result.replace(`§§§CODEBLOCK${index}§§§`, code);
-		});
-
-		return result;
-	}
-
-	/**
 	 * Reconstruct markdown from ParsedEntry (entry text + sub-items as list)
+	 * If i-keyword present, extracts images and returns { textMarkdown, images }
 	 */
-	private static reconstructMarkdown(entry: ParsedEntry): string {
+	private static reconstructMarkdown(
+		entry: ParsedEntry,
+		plugin: HighlightSpaceRepeatPlugin,
+		record: ParsedFile
+	): { markdown: string; images: Array<{ file: any; width?: string }> } {
 		let markdown = entry.text;
+		const images: Array<{ file: any; width?: string }> = [];
+
+		// Check for i-keyword - only extract images if i-keyword present
+		const iKeyword = entry.keywords?.find(kw => /^i\d{2}$/.test(kw));
+
+		if (iKeyword) {
+			// Extract image embeds: ![[image.png|155]] or ![[image.png]]
+			// Only extract images (not block references with # or ^)
+			const imageEmbedRegex = /!\[\[([^\]|#^]+?)(?:\|(\d+))?\]\]/g;
+			const imageMatches = [...markdown.matchAll(imageEmbedRegex)];
+
+			for (const match of imageMatches) {
+				const filename = match[1];
+				const width = match[2];
+
+				// Resolve the file
+				const file = plugin.app.metadataCache.getFirstLinkpathDest(filename, record.filePath);
+				if (file) {
+					images.push({ file, width });
+					// Remove image from markdown
+					markdown = markdown.replace(match[0], '');
+				}
+			}
+		}
 
 		// Add sub-items as markdown list if present
 		if (entry.subItems && entry.subItems.length > 0) {
 			markdown += '\n' + this.reconstructSubItemsMarkdown(entry.subItems, 0);
 		}
 
-		return markdown;
+		return { markdown, images };
 	}
 
 	/**
@@ -100,17 +100,21 @@ export class KHEntry {
 	}
 
 	/**
-	 * Post-process rendered content for layout restructuring
-	 * Handles i-keywords (image columns) and l-keywords (list columns)
+	 * Post-process rendered content for keyword highlighting and l-keyword layout
+	 * Note: i-keyword (image columns) is handled upfront in renderKeywordEntry
 	 */
 	private static async postProcessLayout(
 		container: HTMLElement,
 		entry: ParsedEntry
 	): Promise<void> {
-		// Check for i-keyword (image column layout)
-		const iKeyword = entry.keywords?.find(kw => /^i\d{2}$/.test(kw));
-		if (iKeyword) {
-			this.restructureImagesLayout(container, iKeyword);
+		// Add keyword classes and icon to main entry paragraph
+		if (entry.keywords && entry.keywords.length > 0) {
+			this.addKeywordClassesToMainEntry(container, entry.keywords);
+		}
+
+		// Add keyword classes to rendered sub-items (list items)
+		if (entry.subItems && entry.subItems.length > 0) {
+			this.addKeywordClassesToSubItems(container, entry.subItems);
 		}
 
 		// Check for l-keyword (list column layout)
@@ -124,52 +128,116 @@ export class KHEntry {
 	}
 
 	/**
-	 * Restructure images into two-column layout (adapted from reader-highlighter.ts)
+	 * Add keyword classes and icon to main entry paragraph
 	 */
-	private static restructureImagesLayout(container: HTMLElement, iKeyword: string): void {
-		// Find images in the rendered content
-		const images = Array.from(container.querySelectorAll('img'));
+	private static addKeywordClassesToMainEntry(
+		container: HTMLElement,
+		keywords: string[]
+	): void {
+		// Find the first paragraph in the entry content
+		const firstP = container.querySelector('.kh-entry-content > p');
 
-		if (images.length === 0) return;
+		if (firstP) {
+			// Add keyword classes
+			firstP.classList.add('kh-highlighted');
+			keywords.forEach(kw => firstP.classList.add(kw));
+			firstP.setAttribute('data-keywords', keywords.join(' '));
 
-		// Check if already restructured
-		if (container.querySelector('.kh-record-with-images')) return;
+			// Add icon at the start of the paragraph
+			const icon = this.getKeywordIcon(keywords[0]);
+			if (icon) {
+				const iconSpan = document.createElement('span');
+				iconSpan.className = 'kh-normal-keyword-icon';
+				iconSpan.textContent = icon + ' ';
+				firstP.insertBefore(iconSpan, firstP.firstChild);
+			}
+		}
+	}
 
-		// Create two-column wrapper
-		const wrapper = document.createElement('div');
-		wrapper.className = `kh-record-with-images ${iKeyword}`;
+	/**
+	 * Add keyword classes to rendered list items based on parsed sub-items
+	 */
+	private static addKeywordClassesToSubItems(
+		container: HTMLElement,
+		subItems: ParsedEntrySubItem[]
+	): void {
+		// Find all list items in the rendered content
+		const listItems = Array.from(container.querySelectorAll('li'));
 
-		// Create text and image columns
-		const textColumn = document.createElement('div');
-		textColumn.className = 'kh-record-text-column';
-		const imageColumn = document.createElement('div');
-		imageColumn.className = 'kh-record-image-column';
+		// Flatten sub-items to match list items (depth-first order)
+		const flatSubItems = this.flattenSubItems(subItems);
 
-		// Move content: images to right, text to left
-		const childNodes = Array.from(container.childNodes);
-		childNodes.forEach((node) => {
-			if (node.nodeType === Node.ELEMENT_NODE) {
-				const el = node as HTMLElement;
+		// Match list items to sub-items by index and add keyword classes
+		listItems.forEach((li, index) => {
+			if (index < flatSubItems.length) {
+				const subItem = flatSubItems[index];
 
-				if (el.tagName === 'IMG') {
-					imageColumn.appendChild(el);
-				} else if (el.classList.contains('internal-embed') && el.querySelector('img')) {
-					imageColumn.appendChild(el);
-				} else {
-					textColumn.appendChild(el);
+				// Add keyword classes if present
+				if (subItem.keywords && subItem.keywords.length > 0) {
+					li.classList.add('kh-highlighted');
+					subItem.keywords.forEach(kw => li.classList.add(kw));
+					li.setAttribute('data-keywords', subItem.keywords.join(' '));
+
+					// Add icon inline like reading view does
+					const icon = this.getKeywordIcon(subItem.keywords[0]);
+					if (icon) {
+						// Find the list bullet span (if it exists)
+						const bullet = li.querySelector('.list-bullet');
+
+						// Create icon span
+						const iconSpan = document.createElement('span');
+						iconSpan.className = 'kh-normal-keyword-icon';
+						iconSpan.textContent = icon + ' ';
+
+						// Insert after bullet or at start
+						if (bullet && bullet.nextSibling) {
+							bullet.parentNode?.insertBefore(iconSpan, bullet.nextSibling);
+						} else {
+							li.insertBefore(iconSpan, li.firstChild);
+						}
+					}
 				}
-			} else {
-				textColumn.appendChild(node);
 			}
 		});
+	}
 
-		// Only restructure if both columns have content
-		if (textColumn.childNodes.length > 0 && imageColumn.childNodes.length > 0) {
-			container.innerHTML = '';
-			wrapper.appendChild(textColumn);
-			wrapper.appendChild(imageColumn);
-			container.appendChild(wrapper);
+	/**
+	 * Flatten sub-items tree into depth-first list (matches DOM order)
+	 */
+	private static flattenSubItems(subItems: ParsedEntrySubItem[]): ParsedEntrySubItem[] {
+		const flattened: ParsedEntrySubItem[] = [];
+
+		for (const item of subItems) {
+			// Add this item (skip code blocks - they don't render as <li>)
+			if (item.listType !== 'code-block') {
+				flattened.push(item);
+			}
+
+			// Recursively add children
+			if (item.children && item.children.length > 0) {
+				flattened.push(...this.flattenSubItems(item.children));
+			}
 		}
+
+		return flattened;
+	}
+
+	/**
+	 * Get icon for keyword from keywordsStore
+	 */
+	private static getKeywordIcon(keyword: string): string | null {
+		const keywords = get(keywordsStore);
+
+		// Search all categories for this keyword
+		for (const category of keywords.categories) {
+			for (const kw of category.keywords) {
+				if (kw.keyword === keyword && kw.generateIcon) {
+					return kw.generateIcon;
+				}
+			}
+		}
+
+		return null;
 	}
 
 	/**
@@ -237,26 +305,61 @@ export class KHEntry {
 			entry.keywords.forEach(kw => container.addClass(kw));
 		}
 
-		// NOTE: Icon rendering is handled by the CALLER (RecordsRenderer, SRSReviewView)
-		// Don't add icons here to avoid duplicates
+		// Reconstruct markdown (extracts images if i-keyword present)
+		const { markdown, images } = this.reconstructMarkdown(entry, plugin, record);
 
-		// Reconstruct full markdown (entry text + sub-items as list)
-		const markdown = this.reconstructMarkdown(entry);
+		// Check for i-keyword
+		const iKeyword = entry.keywords?.find(kw => /^i\d{2}$/.test(kw));
 
-		// Create content container
-		const contentEl = container.createDiv({ cls: 'kh-entry-content' });
+		if (iKeyword && images.length > 0) {
+			// Two-column layout: text on left, images on right
+			const wrapper = container.createDiv({ cls: `kh-record-with-images ${iKeyword}` });
+			const textColumn = wrapper.createDiv({ cls: 'kh-record-text-column' });
+			const imageColumn = wrapper.createDiv({ cls: 'kh-record-image-column' });
 
-		// Let Obsidian render everything
-		await MarkdownRenderer.render(
-			plugin.app,
-			markdown,
-			contentEl,
-			record.filePath,
-			new Component() as any
-		);
+			// Render text in left column
+			await MarkdownRenderer.render(
+				plugin.app,
+				markdown,
+				textColumn,
+				record.filePath,
+				new Component() as any
+			);
 
-		// Post-process for layout restructuring
-		await this.postProcessLayout(contentEl, entry);
+			// Render images in right column
+			for (const img of images) {
+				const resourcePath = plugin.app.vault.getResourcePath(img.file);
+				const imgEl = imageColumn.createEl('img', {
+					cls: 'kh-embedded-image',
+					attr: {
+						src: resourcePath,
+						alt: img.file.name
+					}
+				});
+
+				if (img.width) {
+					imgEl.style.width = `${img.width}px`;
+				}
+			}
+
+			// Post-process for keyword classes and l-keyword layout
+			await this.postProcessLayout(textColumn, entry);
+		} else {
+			// No images or no i-keyword - normal rendering
+			const contentEl = container.createDiv({ cls: 'kh-entry-content' });
+
+			// Let Obsidian render everything
+			await MarkdownRenderer.render(
+				plugin.app,
+				markdown,
+				contentEl,
+				record.filePath,
+				new Component() as any
+			);
+
+			// Post-process for keyword classes and layout restructuring
+			await this.postProcessLayout(contentEl, entry);
+		}
 	}
 
 

@@ -1097,20 +1097,8 @@
   background-color: var(--background-modifier-hover);
 }
 
-/* Entry content inline with icons */
-.kh-entry-content {
-  display: inline;
-}
-
-/* Make paragraphs inside entry content inline */
-.kh-entry-content > p {
-  display: inline;
-  margin: 0;
-}
-
-/* But lists should still be block */
-.kh-entry-content > ul,
-.kh-entry-content > ol {
-  display: block;
-  margin-top: 4px;
+/* Entry content - icons are now inside paragraphs, not siblings */
+/* Remove extra margin from first paragraph */
+.kh-entry-content > p:first-child {
+  margin-top: 0;
 }
