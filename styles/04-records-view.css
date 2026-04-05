@@ -271,18 +271,11 @@
   background-color: var(--background-secondary);
   font-style: italic;
   color: var(--text-muted);
-  display: none;
+  display: block;
 }
 
 .kh-block-reference-quote p {
   margin: 0;
-}
-
-/* Show block reference quotes on hover of parent entry */
-.kh-widget-filter-entry:hover .kh-block-reference-quote,
-.kh-entry-full:hover .kh-block-reference-quote,
-.kh-entry-compact:hover .kh-block-reference-quote {
-  display: block;
 }
 
 /* ========================================
@@ -1102,4 +1095,22 @@
 
 .kh-file-entry:hover {
   background-color: var(--background-modifier-hover);
+}
+
+/* Entry content inline with icons */
+.kh-entry-content {
+  display: inline;
+}
+
+/* Make paragraphs inside entry content inline */
+.kh-entry-content > p {
+  display: inline;
+  margin: 0;
+}
+
+/* But lists should still be block */
+.kh-entry-content > ul,
+.kh-entry-content > ol {
+  display: block;
+  margin-top: 4px;
 }

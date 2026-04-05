@@ -341,13 +341,20 @@ export class RecordsRenderer {
 		const fileAliases = file.aliases?.join(' ') || '';
 		const fileTags = file.tags?.join(' ') || '';
 		const entryKeywords = entry.keywords?.join(' ') || '';
+		const entryInlineKeywords = entry.inlineKeywords?.join(' ') || '';
+		const entryInlineCodeLangs = entry.inlineCodeLanguages?.join(' ') || '';
 		const h1Tags = entry.h1?.tags?.join(' ') || '';
 		const h2Tags = entry.h2?.tags?.join(' ') || '';
 		const h3Tags = entry.h3?.tags?.join(' ') || '';
 		const entryText = entry.text || '';
 
 		// Join all parts with space and lowercase (same as DOM)
-		const searchable = [fileName, fileAliases, fileTags, entryKeywords, h1Tags, h2Tags, h3Tags, entryText].join(' ').toLowerCase();
+		const searchable = [
+			fileName, fileAliases, fileTags,
+			entryKeywords, entryInlineKeywords, entryInlineCodeLangs,
+			h1Tags, h2Tags, h3Tags,
+			entryText
+		].join(' ').toLowerCase();
 
 		// Check if searchable string contains query (same as DOM)
 		return searchable.includes(query);

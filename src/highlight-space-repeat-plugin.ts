@@ -211,6 +211,70 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       }
     });
 
+    // Add debug command to parse current file and show entries
+    this.addCommand({
+      id: 'debug-parse-current-file',
+      name: 'Debug: Parse Current File',
+      callback: async () => {
+        const activeFile = this.app.workspace.getActiveFile();
+        if (!activeFile) {
+          new Notice('No active file');
+          return;
+        }
+
+        const { RecordParser } = await import('./services/RecordParser');
+        const { get } = await import('svelte/store');
+        const { keywordsStore, settingsStore } = await import('./stores/settings-store');
+
+        const keywords = get(keywordsStore);
+        const settings = get(settingsStore);
+        const recordParser = new RecordParser(this.app, settings.parserSettings);
+
+        // Get keywords that should be parsed
+        const keywordsToParse: string[] = [];
+        for (const category of keywords.categories) {
+          for (const keyword of category.keywords) {
+            if (keyword.collectingStatus === 'PARSED' || keyword.collectingStatus === 'SPACED') {
+              keywordsToParse.push(keyword.keyword);
+            }
+          }
+        }
+
+        // Parse the file
+        const parsed = await recordParser.parseFile(activeFile, keywordsToParse);
+
+        // Get flat entries
+        const flatEntries = parsed.entries;
+
+        // Log to console with nice formatting
+        console.log('=== PARSED FILE DEBUG ===');
+        console.log('File:', activeFile.path);
+        console.log('Total entries:', flatEntries.length);
+        console.log('\n--- FLAT ENTRIES ---');
+        flatEntries.forEach((entry, index) => {
+          console.log(`\n[${index}] Line ${entry.lineNumber}:`);
+          console.log('  Type:', entry.type);
+          console.log('  Keywords:', entry.keywords);
+          console.log('  Inline Keywords:', entry.inlineKeywords);
+          console.log('  Inline Code Langs:', entry.inlineCodeLanguages);
+          console.log('  Text:', entry.text.substring(0, 100) + (entry.text.length > 100 ? '...' : ''));
+          if (entry.subItems && entry.subItems.length > 0) {
+            console.log('  Sub-items:', entry.subItems.length);
+            entry.subItems.forEach((subItem, subIndex) => {
+              console.log(`    [${subIndex}]`, {
+                keywords: subItem.keywords,
+                inlineKeywords: subItem.inlineKeywords,
+                inlineCodeLanguages: subItem.inlineCodeLanguages,
+                content: subItem.content.substring(0, 50) + (subItem.content.length > 50 ? '...' : '')
+              });
+            });
+          }
+        });
+
+        new Notice(`Parsed ${flatEntries.length} entries. Check console (Ctrl+Shift+I)`);
+      }
+    });
+
 
     // Add ribbon icon for knowledge base rescan
     this.addRibbonIcon('refresh-cw', 'Knowledge Base Rescan', async () => {
