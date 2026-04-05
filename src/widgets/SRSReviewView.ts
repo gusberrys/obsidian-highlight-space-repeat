@@ -170,24 +170,12 @@ export class SRSReviewView extends ItemView {
 			return;
 		}
 
-		// Open the file (or focus if already open) with line state
 		const leaf = this.app.workspace.getLeaf(false);
-		await leaf.openFile(file as any, {
-			eState: { line: lineNumber }
-		});
+		await leaf.openFile(file as any);
 
-		// Get the editor and navigate to the specific line
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-		if (view && view.editor) {
-			// Set cursor to the beginning of the line
-			view.editor.setCursor({ line: lineNumber, ch: 0 });
-			// Scroll to a few lines above the target to ensure visibility with padding
-			const scrollToLine = Math.max(0, lineNumber - 3);
-			// Scroll the line into view
-			view.editor.scrollIntoView({
-				from: { line: scrollToLine, ch: 0 },
-				to: { line: scrollToLine, ch: 0 }
-			}, true);
+		if (view) {
+			view.setEphemeralState({ line: lineNumber });
 		}
 	}
 
@@ -213,13 +201,6 @@ export class SRSReviewView extends ItemView {
 				code.addClass(`language-${entry.language}`);
 			}
 		} else {
-			// Add keyword icon manually (same as RecordsRenderer)
-			if (entry.keywords && entry.keywords.length > 0) {
-				const primaryKeyword = entry.keywords[0];
-				const mark = this.contentContainer.createEl('mark', { cls: `kh-icon ${primaryKeyword}` });
-				mark.innerHTML = '&nbsp;';
-				this.contentContainer.createEl('span', { text: ' ', cls: 'kh-separator' });
-			}
 
 			if (this.isAnswerShown) {
 				// When answer is shown: render entry directly using KHEntry (compact mode)
