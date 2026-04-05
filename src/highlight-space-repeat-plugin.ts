@@ -96,16 +96,12 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
         settings.colorHighlightingEnabled = !settings.colorHighlightingEnabled;
         settingsStore.set(settings);
 
-        // Toggle body class
+        // Toggle body class - CSS handles the rest
         if (settings.colorHighlightingEnabled) {
           document.body.addClass('cc-enabled');
         } else {
           document.body.removeClass('cc-enabled');
         }
-
-        // Refresh view to apply changes immediately
-        const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-        markdownView?.previewMode.rerender(true);
 
         new Notice(settings.colorHighlightingEnabled ? '✅ Colour highlights enabled' : '❌ Colour highlights disabled');
       }
