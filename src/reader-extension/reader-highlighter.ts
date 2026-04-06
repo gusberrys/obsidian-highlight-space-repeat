@@ -273,11 +273,12 @@ function restructureImagesLayout(el: HTMLElement) {
       return; // No i-keyword, skip restructuring
     }
 
-    // Check if this paragraph contains any images
+    // Check if this paragraph contains any images or excalidraw embeds
     const images = Array.from(paragraph.querySelectorAll('img'));
+    const excalidrawEmbeds = Array.from(paragraph.querySelectorAll('.excalidraw-svg, .excalidraw-embedded-img'));
 
-    if (images.length === 0) {
-      return; // No images, skip restructuring
+    if (images.length === 0 && excalidrawEmbeds.length === 0) {
+      return; // No images or excalidraw, skip restructuring
     }
 
     // Check if already restructured to avoid double-processing
@@ -339,10 +340,10 @@ function restructureImagesLayout(el: HTMLElement) {
 
     childNodes.forEach((child, index) => {
       if (child.nodeType === Node.ELEMENT_NODE && (child as HTMLElement).tagName === 'IMG') {
-        // Check if this is an Excalidraw image (keep in text column)
+        // Check if this is an Excalidraw image (move to image column like regular images)
         const img = child as HTMLElement;
         if (img.classList.contains('excalidraw-svg') || img.classList.contains('excalidraw-embedded-img')) {
-          textColumn.appendChild(child);
+          imageColumn.appendChild(child);
         } else {
           // Check if standalone - keep in text column, otherwise move to image column
           if (isStandaloneImage(child, index, childNodes)) {
@@ -355,9 +356,9 @@ function restructureImagesLayout(el: HTMLElement) {
         // This is an image embed wrapper, check if it contains an image
         const embeddedImg = (child as HTMLElement).querySelector('img');
         if (embeddedImg) {
-          // Check if it's Excalidraw (keep in text column)
+          // Check if it's Excalidraw (move to image column)
           if (embeddedImg.classList.contains('excalidraw-svg') || embeddedImg.classList.contains('excalidraw-embedded-img')) {
-            textColumn.appendChild(child);
+            imageColumn.appendChild(child);
           } else {
             // Check if standalone - keep in text column, otherwise move to image column
             if (isStandaloneImage(child, index, childNodes)) {
@@ -371,8 +372,8 @@ function restructureImagesLayout(el: HTMLElement) {
           textColumn.appendChild(child);
         }
       } else if (child.nodeType === Node.ELEMENT_NODE && (child as HTMLElement).classList.contains('excalidraw-svg')) {
-        // Excalidraw wrapper div, keep in text column
-        textColumn.appendChild(child);
+        // Excalidraw wrapper div - move to image column
+        imageColumn.appendChild(child);
       } else {
         // Regular text node or other element, move to text column
         textColumn.appendChild(child);

@@ -49,6 +49,7 @@ export class RecordsRenderer {
 	private onLegendToggle: () => void;
 	private onChipClick: (chipId: string) => void;
 	private onSRSReview: () => Promise<void>;
+	private onFileSearchChangeCallback: (text: string) => void;
 
 	constructor(
 		app: App,
@@ -80,6 +81,7 @@ export class RecordsRenderer {
 			onLegendToggle: () => void;
 			onChipClick: (chipId: string) => void;
 			onSRSReview: () => Promise<void>;
+			onFileSearchChange: (text: string) => void;
 		}
 	) {
 		this.app = app;
@@ -108,6 +110,7 @@ export class RecordsRenderer {
 		this.onLegendToggle = callbacks.onLegendToggle;
 		this.onChipClick = callbacks.onChipClick;
 		this.onSRSReview = callbacks.onSRSReview;
+		this.onFileSearchChangeCallback = callbacks.onFileSearchChange;
 	}
 
 	/**
@@ -124,7 +127,7 @@ export class RecordsRenderer {
 		const controlRenderer = new RecordsControlRenderer(
 			{
 				filterExpression: this.filterExpression,
-				filterText: this.filterText,
+				filterText: this.fileSearchText,
 				filterType: this.filterType
 			},
 			{
@@ -286,6 +289,7 @@ export class RecordsRenderer {
 	 */
 	public applyFileSearchFilter(searchText: string): void {
 		this.fileSearchText = searchText;
+		this.onFileSearchChangeCallback(searchText);
 	}
 
 	/**

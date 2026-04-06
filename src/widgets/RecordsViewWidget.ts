@@ -237,6 +237,9 @@ export class RecordsViewWidget extends ItemView {
 				},
 				onSRSReview: async () => {
 					await this.startSRSReview();
+				},
+				onFileSearchChange: (text: string) => {
+					this.widgetFileSearchText = text;
 				}
 			}
 		);
@@ -253,6 +256,14 @@ export class RecordsViewWidget extends ItemView {
 		// Clear and re-render records section
 		container.empty();
 		await this.renderRecordsSection(container);
+	}
+
+	/**
+	 * Public method to refresh the view after a rescan
+	 * Preserves all filter state and re-renders with fresh data
+	 */
+	public async refreshAfterRescan(): Promise<void> {
+		await this.renderRecordsOnly();
 	}
 
 	/**
