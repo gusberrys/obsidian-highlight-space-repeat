@@ -17,9 +17,9 @@ export class KHEntry {
 		entry: ParsedEntry,
 		plugin: HighlightSpaceRepeatPlugin,
 		record: ParsedFile
-	): { markdown: string; images: Array<{ file: any; width?: string }> } {
+	): { markdown: string; subItemsMarkdown: string; images: Array<{ file: any; width?: string; embed: string; isExcalidraw: boolean }> } {
 		let markdown = entry.text;
-		const images: Array<{ file: any; width?: string }> = [];
+		const images: Array<{ file: any; width?: string; embed: string; isExcalidraw: boolean }> = [];
 
 		// Check for i-keyword - only extract images if i-keyword present
 		const iKeyword = entry.keywords?.find(kw => /^i\d{2}$/.test(kw));
@@ -37,19 +37,28 @@ export class KHEntry {
 				// Resolve the file
 				const file = plugin.app.metadataCache.getFirstLinkpathDest(filename, record.filePath);
 				if (file) {
-					images.push({ file, width });
-					// Remove image from markdown
-					markdown = markdown.replace(match[0], '');
+					// Extract images AND excalidraw files
+					const ext = file.extension?.toLowerCase();
+					// Excalidraw files are stored as .excalidraw.md, so check filename too
+					const isExcalidraw = filename.toLowerCase().endsWith('.excalidraw') || file.path.toLowerCase().includes('.excalidraw.');
+					const isImage = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp'].includes(ext);
+
+					if (isImage || isExcalidraw) {
+						images.push({ file, width, embed: match[0], isExcalidraw });
+						// Remove from markdown
+						markdown = markdown.replace(match[0], '');
+					}
 				}
 			}
 		}
 
-		// Add sub-items as markdown list if present
+		// Return sub-items separately (so they can be rendered outside i-keyword wrapper)
+		let subItemsMarkdown = '';
 		if (entry.subItems && entry.subItems.length > 0) {
-			markdown += '\n' + this.reconstructSubItemsMarkdown(entry.subItems, 0);
+			subItemsMarkdown = this.reconstructSubItemsMarkdown(entry.subItems, 0);
 		}
 
-		return { markdown, images };
+		return { markdown, subItemsMarkdown, images };
 	}
 
 	/**
@@ -306,7 +315,7 @@ export class KHEntry {
 		}
 
 		// Reconstruct markdown (extracts images if i-keyword present)
-		const { markdown, images } = this.reconstructMarkdown(entry, plugin, record);
+		const { markdown, subItemsMarkdown, images } = this.reconstructMarkdown(entry, plugin, record);
 
 		// Check for i-keyword
 		const iKeyword = entry.keywords?.find(kw => /^i\d{2}$/.test(kw));
@@ -317,7 +326,7 @@ export class KHEntry {
 			const textColumn = wrapper.createDiv({ cls: 'kh-record-text-column' });
 			const imageColumn = wrapper.createDiv({ cls: 'kh-record-image-column' });
 
-			// Render text in left column
+			// Render main text (without sub-items) in left column
 			await MarkdownRenderer.render(
 				plugin.app,
 				markdown,
@@ -328,30 +337,61 @@ export class KHEntry {
 
 			// Render images in right column
 			for (const img of images) {
-				const resourcePath = plugin.app.vault.getResourcePath(img.file);
-				const imgEl = imageColumn.createEl('img', {
-					cls: 'kh-embedded-image',
-					attr: {
-						src: resourcePath,
-						alt: img.file.name
-					}
-				});
+				if (img.isExcalidraw) {
+					// Excalidraw needs MarkdownRenderer to render properly
+					await MarkdownRenderer.render(
+						plugin.app,
+						img.embed, // Use original embed syntax
+						imageColumn,
+						record.filePath,
+						new Component() as any
+					);
+				} else {
+					// Regular images - use img tag
+					const resourcePath = plugin.app.vault.getResourcePath(img.file);
+					const imgEl = imageColumn.createEl('img', {
+						cls: 'kh-embedded-image',
+						attr: {
+							src: resourcePath,
+							alt: img.file.name
+						}
+					});
 
-				if (img.width) {
-					imgEl.style.width = `${img.width}px`;
+					if (img.width) {
+						imgEl.style.width = `${img.width}px`;
+					}
 				}
 			}
 
-			// Post-process for keyword classes and l-keyword layout
+			// Post-process for keyword classes (main paragraph only)
 			await this.postProcessLayout(textColumn, entry);
+
+			// Render sub-items OUTSIDE the two-column wrapper
+			if (subItemsMarkdown) {
+				const subItemsEl = container.createDiv({ cls: 'kh-entry-subitems' });
+				await MarkdownRenderer.render(
+					plugin.app,
+					subItemsMarkdown,
+					subItemsEl,
+					record.filePath,
+					new Component() as any
+				);
+
+				// Add keyword classes to sub-items
+				if (entry.subItems && entry.subItems.length > 0) {
+					this.addKeywordClassesToSubItems(subItemsEl, entry.subItems);
+				}
+			}
 		} else {
-			// No images or no i-keyword - normal rendering
+			// No images or no i-keyword - normal rendering (everything together)
 			const contentEl = container.createDiv({ cls: 'kh-entry-content' });
+
+			const fullMarkdown = subItemsMarkdown ? markdown + '\n' + subItemsMarkdown : markdown;
 
 			// Let Obsidian render everything
 			await MarkdownRenderer.render(
 				plugin.app,
-				markdown,
+				fullMarkdown,
 				contentEl,
 				record.filePath,
 				new Component() as any

@@ -505,6 +505,16 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     if (this._api) {
       this._api.notifyRecordsChanged();
     }
+
+    // Refresh any open Records View with the new data (preserving filters)
+    const { RECORDS_VIEW_TYPE } = await import('./widgets/RecordsViewWidget');
+    const leaves = this.app.workspace.getLeavesOfType(RECORDS_VIEW_TYPE);
+    for (const leaf of leaves) {
+      const view = leaf.view as any;
+      if (view && typeof view.refreshAfterRescan === 'function') {
+        await view.refreshAfterRescan();
+      }
+    }
   }
 
 

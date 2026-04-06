@@ -191,7 +191,7 @@
     removeKeyword(keyword);
   }
 
-  function handleKeywordReorder(categoryName: string, draggedIndex: number, targetIndex: number) {
+  async function handleKeywordReorder(categoryName: string, draggedIndex: number, targetIndex: number) {
     if (draggedIndex === targetIndex) return;
 
     settingsStore.update(settings => {
@@ -211,6 +211,8 @@
 
       return settings;
     });
+
+    await saveStore();
   }
 
   // Get all keywords with their category info (exclude Colors category)
