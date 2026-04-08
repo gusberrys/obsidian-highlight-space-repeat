@@ -1,4 +1,4 @@
-name: Build
+name: Build & Test
 on:
   pull_request:
     branches: [ main ]
@@ -6,15 +6,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '24'
-        cache: 'npm'
-    - name: Install dependencies
-      run: npm ci
+    - name: Setup
+      uses: ./.github/actions/setup
     - name: Build CSS
       run: npm run build:css
     - name: Bundle plugin
@@ -26,3 +19,12 @@ jobs:
           exit 1
         fi
         echo "Build successful - main.js created"
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Setup
+      uses: ./.github/actions/setup
+
+    - name: Run chip tests
+      run: npx jest src/__tests__/chip/01-Chip-Creation.test.ts src/__tests__/chip/02-Chip-Activation.test.ts
