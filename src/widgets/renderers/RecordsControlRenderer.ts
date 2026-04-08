@@ -112,23 +112,18 @@ export class RecordsControlRenderer {
 			this.onFilterTypeChange(newType);
 		});
 
-		// Expression input and search button enabled for F/H/R (not D)
-		const expressionEnabled = this.filterType === 'F' || this.filterType === 'H' || this.filterType === 'R';
-
+		// Expression input always enabled
 		const expressionInput = expressionContainer.createEl('input', {
 			type: 'text',
 			cls: 'kh-widget-filter-expression',
 			value: this.filterExpression || '',
 			placeholder: 'Filter expression...',
 			attr: {
-				style: 'flex: 1;' + (expressionEnabled ? '' : ' opacity: 0.3; cursor: not-allowed;')
+				style: 'flex: 1;'
 			}
 		});
-		expressionInput.disabled = !expressionEnabled;
 
 		const getSearchBtnTooltip = () => {
-			if (!expressionEnabled) return '[Only available for Files/Headers/Records]';
-
 			return `Filter Syntax Guide:
 
 MATCHING:
@@ -166,25 +161,20 @@ Examples:
 			cls: 'kh-widget-filter-search-btn',
 			title: getSearchBtnTooltip(),
 			attr: {
-				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: pointer;' + (expressionEnabled ? '' : ' opacity: 0.3; cursor: not-allowed;')
+				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: pointer;'
 			}
 		});
-		expressionSearchBtn.disabled = !expressionEnabled;
 
 		const performExpressionSearch = () => {
-			if (expressionEnabled) {
-				this.onExpressionSearch(expressionInput.value);
-			}
+			this.onExpressionSearch(expressionInput.value);
 		};
 
 		expressionInput.addEventListener('input', () => {
-			if (expressionEnabled) {
-				this.onExpressionInput(expressionInput.value);
-			}
+			this.onExpressionInput(expressionInput.value);
 		});
 
 		expressionInput.addEventListener('keydown', (e) => {
-			if (e.key === 'Enter' && expressionEnabled) {
+			if (e.key === 'Enter') {
 				performExpressionSearch();
 			}
 		});
@@ -257,41 +247,10 @@ Examples:
 			}
 		});
 
-		// Filter DOM directly on input (no re-render)
+		// Trigger re-render on input (data-level filtering + pagination)
 		searchInput.addEventListener('input', () => {
 			const searchText = searchInput.value.trim().toLowerCase();
-
-			// Notify callback so RecordsRenderer can update currentlyDisplayedRecords
 			this.onFileSearchChange(searchText);
-
-			const resultsContainer = document.querySelector('.kh-widget-filter-results');
-
-			if (!resultsContainer) return;
-
-			// Filter file items (check data-searchable attribute)
-			const fileItems = resultsContainer.querySelectorAll('.kh-widget-filter-item');
-			fileItems.forEach((item: HTMLElement) => {
-				const searchable = item.getAttribute('data-searchable') || '';
-				item.style.display = searchable.includes(searchText) ? '' : 'none';
-			});
-
-			// Filter header groups (show if header or any entry matches)
-			const headerGroups = resultsContainer.querySelectorAll('.kh-widget-filter-file-group');
-			headerGroups.forEach((group: HTMLElement) => {
-				const groupSearchable = group.getAttribute('data-searchable') || '';
-				const entries = group.querySelectorAll('.kh-widget-filter-entry');
-
-				let hasMatch = groupSearchable.includes(searchText);
-
-				entries.forEach((entry: HTMLElement) => {
-					const entrySearchable = entry.getAttribute('data-searchable') || '';
-					const entryMatches = entrySearchable.includes(searchText);
-					entry.style.display = entryMatches ? '' : 'none';
-					if (entryMatches) hasMatch = true;
-				});
-
-				group.style.display = hasMatch ? '' : 'none';
-			});
 		});
 	}
 

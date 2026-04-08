@@ -166,10 +166,15 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     this.addCommand({
       id: 'rescan-knowledge-base',
       name: 'Knowledge Base Rescan',
-      callback: async () => {
+      callback: () => {
         new Notice('Rescanning knowledge base...');
-        await this.triggerScan();
-        new Notice('Knowledge base rescan complete!');
+        // Fire and forget - don't block UI
+        this.triggerScan().then(() => {
+          new Notice('Knowledge base rescan complete!');
+        }).catch((err) => {
+          console.error('Rescan error:', err);
+          new Notice('Knowledge base rescan failed!');
+        });
       }
     });
 
@@ -277,10 +282,15 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
 
 
     // Add ribbon icon for knowledge base rescan
-    this.addRibbonIcon('refresh-cw', 'Knowledge Base Rescan', async () => {
+    this.addRibbonIcon('refresh-cw', 'Knowledge Base Rescan', () => {
       new Notice('Rescanning knowledge base...');
-      await this.triggerScan();
-      new Notice('Knowledge base rescan complete!');
+      // Fire and forget - don't block UI
+      this.triggerScan().then(() => {
+        new Notice('Knowledge base rescan complete!');
+      }).catch((err) => {
+        console.error('Rescan error:', err);
+        new Notice('Knowledge base rescan failed!');
+      });
     });
 
     // Add ribbon icon for Records View
@@ -494,12 +504,11 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       }
     }
 
-    // Parse files and store in RAM
-    this.parsedRecords = [];
-    for (const file of includedFiles) {
-      const parsed = await recordParser.parseFile(file, keywordsToParse);
-      this.parsedRecords.push(parsed);
-    }
+    // Parse files in PARALLEL and store in RAM
+    const parsePromises = includedFiles.map(file =>
+      recordParser.parseFile(file, keywordsToParse)
+    );
+    this.parsedRecords = await Promise.all(parsePromises);
 
     // Notify API subscribers that records have changed (matrix/pinned refresh removed)
     if (this._api) {
@@ -507,12 +516,16 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     }
 
     // Refresh any open Records View with the new data (preserving filters)
+    // Run in background - don't block the UI
     const { RECORDS_VIEW_TYPE } = await import('./widgets/RecordsViewWidget');
     const leaves = this.app.workspace.getLeavesOfType(RECORDS_VIEW_TYPE);
     for (const leaf of leaves) {
       const view = leaf.view as any;
       if (view && typeof view.refreshAfterRescan === 'function') {
-        await view.refreshAfterRescan();
+        // Fire and forget - don't await
+        view.refreshAfterRescan().catch((err: any) => {
+          console.error('Error refreshing Records View after rescan:', err);
+        });
       }
     }
   }
