@@ -34,6 +34,9 @@ export class RecordsViewWidget extends ItemView {
 	private topRecordOnly: boolean = false;
 	private showLegend: boolean = false;
 
+	// Debounce timer for file search
+	private fileSearchDebounceTimer: NodeJS.Timeout | null = null;
+
 	constructor(leaf: WorkspaceLeaf, plugin: HighlightSpaceRepeatPlugin) {
 		super(leaf);
 		this.plugin = plugin;
@@ -111,7 +114,7 @@ export class RecordsViewWidget extends ItemView {
 			{
 				filterType: this.widgetFilterType,
 				filterExpression: this.widgetFilterExpression,
-				filterText: this.widgetFilterText,
+				filterText: '',  // Don't filter records before render - use DOM filtering instead
 				fileSearchText: this.widgetFileSearchText
 			},
 			{
@@ -240,6 +243,19 @@ export class RecordsViewWidget extends ItemView {
 				},
 				onFileSearchChange: (text: string) => {
 					this.widgetFileSearchText = text;
+
+					// Debounce re-render to avoid losing focus on every keystroke
+					if (this.fileSearchDebounceTimer) {
+						clearTimeout(this.fileSearchDebounceTimer);
+					}
+
+					this.fileSearchDebounceTimer = setTimeout(async () => {
+						// Only refresh results, keep controls intact
+						if (this.recordsRenderer) {
+							this.recordsRenderer.setFileSearchText(text);
+							await this.recordsRenderer.refreshResults();
+						}
+					}, 300); // 300ms debounce
 				}
 			}
 		);

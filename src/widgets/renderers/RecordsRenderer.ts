@@ -156,6 +156,23 @@ export class RecordsRenderer {
 	}
 
 	/**
+	 * Update file search text (for live filtering without full re-render)
+	 */
+	setFileSearchText(text: string): void {
+		this.fileSearchText = text;
+	}
+
+	/**
+	 * Re-render only the results section (keep controls and chips intact)
+	 */
+	async refreshResults(): Promise<void> {
+		const filterSection = document.querySelector('.kh-widget-filter') as HTMLElement;
+		if (!filterSection) return;
+
+		await this.renderFilterResults(filterSection);
+	}
+
+	/**
 	 * Render chips section (dashboard filter chips)
 	 */
 	private renderChips(container: HTMLElement): void {
@@ -922,17 +939,33 @@ export class RecordsRenderer {
 	 */
 	private async renderRecordsByFile(
 		container: HTMLElement,
-		records: Array<{ entry: FlatEntry; file: ParsedFile }>
+		records: Array<{ entry: FlatEntry; file: ParsedFile }>,
+		limit: number = 50
 	): Promise<void> {
+		// Apply file search filter FIRST (before pagination)
+		let filteredRecords = records;
+		if (this.fileSearchText && this.fileSearchText.trim()) {
+			filteredRecords = records.filter(({ entry, file }) =>
+				this.entryMatchesTextFilter(entry, file, this.fileSearchText.trim().toLowerCase())
+			);
+		}
+
+		// NOW paginate the filtered results
+		const limitedRecords = filteredRecords.slice(0, limit);
+		const hasMore = filteredRecords.length > limit;
+
 		// Group records by file
 		const recordsByFile = new Map<string, Array<{ entry: FlatEntry; file: ParsedFile }>>();
-		records.forEach(({ entry, file }) => {
+		limitedRecords.forEach(({ entry, file }) => {
 			const filePath = file.filePath;
 			if (!recordsByFile.has(filePath)) {
 				recordsByFile.set(filePath, []);
 			}
 			recordsByFile.get(filePath)!.push({ entry, file });
 		});
+
+		// Collect all render promises to batch them
+		const allRenderPromises: Promise<any>[] = [];
 
 		// Render grouped by file
 		for (const [filePath, entries] of recordsByFile) {
@@ -984,8 +1017,8 @@ export class RecordsRenderer {
 			if (!isCollapsed) {
 				const entriesContainer = fileGroup.createDiv({ cls: 'kh-widget-filter-entries' });
 
-				// Render all entries in PARALLEL - NO async in map, return promises directly
-				await Promise.all(entries.map(({ entry, file }) => {
+				// Collect all entry render promises (don't await yet)
+				const entryPromises = entries.map(({ entry, file }) => {
 					// Define searchable data for this file
 					const fileName = getFileNameFromPath(file.filePath).replace(/\.md$/, '');
 					const fileAliases = file.aliases?.join(' ') || '';
@@ -1075,8 +1108,40 @@ export class RecordsRenderer {
 						return Promise.resolve();
 					}
 					return Promise.resolve();
-				}));
+				});
+
+				// Add this file's entry promises to the batch
+				allRenderPromises.push(...entryPromises);
 			}
+		}
+
+		// Batch render to avoid blocking UI
+		// Process in chunks of 50 entries, yielding to browser between batches
+		const BATCH_SIZE = 50;
+		for (let i = 0; i < allRenderPromises.length; i += BATCH_SIZE) {
+			const batch = allRenderPromises.slice(i, i + BATCH_SIZE);
+			await Promise.all(batch);
+
+			// Yield to browser to keep UI responsive
+			if (i + BATCH_SIZE < allRenderPromises.length) {
+				await new Promise(resolve => setTimeout(resolve, 0));
+			}
+		}
+
+		// Add "Load More" button if there are more results
+		if (hasMore) {
+			const loadMoreBtn = container.createEl('button', {
+				cls: 'kh-load-more-btn',
+				text: `Load More (${filteredRecords.length - limit} remaining)`,
+				attr: {
+					style: 'margin: 1rem auto; display: block; padding: 0.5rem 1rem; cursor: pointer; background: var(--interactive-accent); color: var(--text-on-accent); border: none; border-radius: 4px;'
+				}
+			});
+			loadMoreBtn.addEventListener('click', async () => {
+				container.empty();
+				// Pass the ORIGINAL records (before filtering), renderRecordsByFile will re-filter
+				await this.renderRecordsByFile(container, records, limit + 50);
+			});
 		}
 	}
 
