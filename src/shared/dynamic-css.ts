@@ -319,8 +319,12 @@ body:not(.cc-enabled) [class*=" code-styler-line-highlighted"] {
   --gradient-background-colour: transparent !important;
 }
 
-/* When color mode is ON, Code Styler's own CSS applies normally */
-/* No override needed - body.cc-enabled allows Code Styler colors to show */
+/* When color mode is ON, ensure Code Styler colors show (including in restructured lists) */
+body.cc-enabled .kh-l-layout [class^="code-styler-line-highlighted"],
+body.cc-enabled .kh-l-layout [class*=" code-styler-line-highlighted"] {
+  /* Force Code Styler's gradient to show even inside restructured layouts */
+  background: var(--gradient-background-colour) !important;
+}
 `.trim();
 }
 
