@@ -434,4 +434,13 @@ export class KHMatrixWidget extends ItemView {
 	private getParsedRecords(): ParsedFile[] {
 		return this.plugin.parsedRecords || [];
 	}
+
+	/**
+	 * Public method to refresh the matrix after a rescan
+	 * Preserves current subject, selectedRowId, and all UI state
+	 * Only recalculates counts with fresh data
+	 */
+	public async refreshAfterRescan(): Promise<void> {
+		await this.recalculateMatrixCounts();
+	}
 }
