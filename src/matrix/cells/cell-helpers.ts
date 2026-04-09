@@ -23,15 +23,9 @@ export function collectHeadersForTopic(
 
 	for (const file of allRecords) {
 		for (const entry of file.entries) {
-			// Check each header level (h1, h2, h3) in this entry
-			const headerLevels = [
-				entry.h1 ? { level: 1, info: entry.h1 } : null,
-				entry.h2 ? { level: 2, info: entry.h2 } : null,
-				entry.h3 ? { level: 3, info: entry.h3 } : null
-			].filter(h => h !== null);
-
-			for (const headerLevel of headerLevels) {
-				const header = headerLevel!.info;
+			// Check header
+			if (entry.header) {
+				const header = entry.header;
 				if (header.text || header.keywords || header.inlineKeywords) {
 					// Check if header matches topic criteria
 					let keywordMatch = false;
@@ -53,7 +47,7 @@ export function collectHeadersForTopic(
 							headers.set(headerKey, {
 								file,
 								headerText: header.text,
-								headerLevel: headerLevel!.level,
+								headerLevel: 1,
 								entries: []
 							});
 						}
@@ -102,15 +96,9 @@ export function collectIntersectionHeaders(
 
 		// Count matching headers
 		for (const entry of record.entries) {
-			// Check each header level (h1, h2, h3) in this entry
-			const headerLevels = [
-				entry.h1 ? { level: 1, info: entry.h1 } : null,
-				entry.h2 ? { level: 2, info: entry.h2 } : null,
-				entry.h3 ? { level: 3, info: entry.h3 } : null
-			].filter(h => h !== null);
-
-			for (const headerLevel of headerLevels) {
-				const header = headerLevel!.info;
+			// Check header
+			if (entry.header) {
+				const header = entry.header;
 				if (header.text || header.keywords || header.inlineKeywords) {
 					// Check if topic1 (primary) is in this header
 					let topic1KeywordMatch = false;
@@ -150,7 +138,7 @@ export function collectIntersectionHeaders(
 							headers.set(headerKey, {
 								file: record,
 								headerText: header.text,
-								headerLevel: headerLevel!.level,
+								headerLevel: 1,
 								entries: []
 							});
 						}

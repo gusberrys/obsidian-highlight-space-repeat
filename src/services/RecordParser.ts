@@ -102,38 +102,32 @@ export class RecordParser {
 		let insideCodeBlock = false;
 
 		// Current header context as HeaderInfo (for flat entries)
-		let currentH1Info: HeaderInfo | undefined;
-		let currentH2Info: HeaderInfo | undefined;
-		let currentH3Info: HeaderInfo | undefined;
+		let currentHeaderInfo: HeaderInfo | undefined;
 
 		// Header context for first-list entries (parent headers only)
 		let i = 0;
 		while (i < lines.length) {
 			const line = lines[i];
 
-			// Parse headers (H1, H2, H3)
-			const headerMatch = line.match(/^(#+)\s+(.+)$/);
+			// Parse headers (H1 only)
+			const headerMatch = line.match(/^#\s+(.+)$/);
 			if (headerMatch) {
-				const level = headerMatch[1].length;
-				const headerContent = headerMatch[2];
+				const headerContent = headerMatch[1];
 
-				if (level === 1) {
-				// Parse new H1 header
-				const h1Header = this.parseHeader(headerContent, 1);
+				// Parse new header
+				const header = this.parseHeader(headerContent, 1);
 
 				// Update header context for flat entries
 				// Header is valid if it has text OR keywords OR inlineKeywords
-				currentH1Info = (h1Header.text || h1Header.keywords || h1Header.inlineKeywords) ? {
-					text: h1Header.text || '',
-					tags: h1Header.tags,
-					keywords: h1Header.keywords || [],
-					inlineKeywords: h1Header.inlineKeywords
+				currentHeaderInfo = (header.text || header.keywords || header.inlineKeywords) ? {
+					text: header.text || '',
+					tags: header.tags,
+					keywords: header.keywords || [],
+					inlineKeywords: header.inlineKeywords
 				} : undefined;
-				currentH2Info = undefined;
-				currentH3Info = undefined;
 
 				// Track if header has keywords - create record unless followed by another keyword entry/header
-				const hasValidHeaderKeyword = h1Header.keywords?.some(k => parsedKeywords.includes(k));
+				const hasValidHeaderKeyword = header.keywords?.some(k => parsedKeywords.includes(k));
 				if (hasValidHeaderKeyword) {
 					// Look ahead to check if next non-empty line blocks record creation
 					let shouldSkip = false;
@@ -169,9 +163,9 @@ export class RecordParser {
 					// Create record unless blocked by another keyword entry or header
 					if (!shouldSkip) {
 						// Filter to only valid keywords
-						const validKeywords = (h1Header.keywords || []).filter(k => parsedKeywords.includes(k));
+						const validKeywords = (header.keywords || []).filter(k => parsedKeywords.includes(k));
 						const keywordsStr = validKeywords.join(' ');
-						const headerText = h1Header.text || '';
+						const headerText = header.text || '';
 
 						if (textLineIndex !== -1) {
 							// Plain text found: combine with header text
@@ -189,7 +183,7 @@ export class RecordParser {
 							);
 
 							parsedEntry.lineNumber = textLineIndex + 1;
-							const flatEntry = this.createFlatEntry(parsedEntry, currentH1Info, undefined, undefined);
+							const flatEntry = this.createFlatEntry(parsedEntry, currentHeaderInfo);
 							flatEntries.push(flatEntry);
 							i = nextIndex - 1;
 						} else {
@@ -211,212 +205,11 @@ export class RecordParser {
 								parsedEntry.text = headerText;
 							}
 							parsedEntry.lineNumber = i + 1;
-							const flatEntry = this.createFlatEntry(parsedEntry, currentH1Info, undefined, undefined);
+							const flatEntry = this.createFlatEntry(parsedEntry, currentHeaderInfo);
 							flatEntries.push(flatEntry);
 							i = nextIndex - 1;
 						}
 					}
-				}
-
-				} else if (level === 2) {
-					// Parse new H2 header
-					const h2Header = this.parseHeader(headerContent, 2);
-
-				// Update header context for flat entries
-				// Header is valid if it has text OR keywords OR inlineKeywords
-				currentH2Info = (h2Header.text || h2Header.keywords || h2Header.inlineKeywords) ? {
-					text: h2Header.text || '',
-					tags: h2Header.tags,
-					keywords: h2Header.keywords || [],
-					inlineKeywords: h2Header.inlineKeywords
-				} : undefined;
-				currentH3Info = undefined;
-
-				// Track if header has keywords - create record unless followed by another keyword entry/header
-				const hasValidHeaderKeyword = h2Header.keywords?.some(k => parsedKeywords.includes(k));
-				if (hasValidHeaderKeyword) {
-					// Look ahead to check if next non-empty line blocks record creation
-					let shouldSkip = false;
-					let textLineIndex = -1;
-					for (let j = i + 1; j < lines.length; j++) {
-						const nextLine = lines[j].trim();
-						if (!nextLine) continue; // skip blank
-
-						// Check if next line is a header - blocks record creation
-						if (nextLine.match(/^#+\s/)) {
-							shouldSkip = true;
-							break;
-						}
-
-						// Check if line has keyword syntax with VALID parsed keywords - blocks record creation
-						const kwMatch = nextLine.match(/^([\w\s]+)::/);
-						if (kwMatch) {
-							const kws = kwMatch[1].trim().split(/\s+/).map(k => k.toLowerCase());
-							const hasValidKeyword = kws.some(k => parsedKeywords.includes(k));
-							if (hasValidKeyword) {
-								shouldSkip = true;
-								break;
-							}
-						}
-
-						// Check if it's plain text (not list or code block)
-						if (!nextLine.match(/^[-*]\s/) && !nextLine.match(/^```/)) {
-							textLineIndex = j;
-						}
-						break;
-					}
-
-					// Create record unless blocked by another keyword entry or header
-					if (!shouldSkip) {
-						// Filter to only valid keywords
-						const validKeywords = (h2Header.keywords || []).filter(k => parsedKeywords.includes(k));
-						const keywordsStr = validKeywords.join(' ');
-						const headerText = h2Header.text || '';
-
-						if (textLineIndex !== -1) {
-							// Plain text found: combine with header text
-							const textLine = lines[textLineIndex].trim();
-							const combinedText = headerText ? `${headerText} ::: ${textLine}` : textLine;
-							const reconstructedLine = `${keywordsStr} :: ${combinedText}`;
-							const tempLines = [...lines];
-							tempLines[textLineIndex] = reconstructedLine;
-
-							const { entry: parsedEntry, nextIndex } = await this.parseKeywordEntry(
-								tempLines,
-								textLineIndex,
-								validKeywords,
-								parsedKeywords
-							);
-
-							parsedEntry.lineNumber = textLineIndex + 1;
-							const flatEntry = this.createFlatEntry(parsedEntry, currentH1Info, currentH2Info, undefined);
-							flatEntries.push(flatEntry);
-							i = nextIndex - 1;
-						} else {
-							// No plain text, but create record from header (will consume code blocks, lists, etc.)
-							// Reconstruct as keyword-only line so parseKeywordEntry consumes subitems
-							const reconstructedLine = `${keywordsStr} :: `;
-							const tempLines = [...lines];
-							tempLines[i] = reconstructedLine;
-
-							const { entry: parsedEntry, nextIndex } = await this.parseKeywordEntry(
-								tempLines,
-								i,
-								validKeywords,
-								parsedKeywords
-							);
-
-							// Set text from header
-							if (headerText) {
-								parsedEntry.text = headerText;
-							}
-							parsedEntry.lineNumber = i + 1;
-							const flatEntry = this.createFlatEntry(parsedEntry, currentH1Info, currentH2Info, undefined);
-							flatEntries.push(flatEntry);
-							i = nextIndex - 1;
-						}
-					}
-				}
-
-				} else if (level === 3) {
-					// Parse new H3 header
-					const h3Header = this.parseHeader(headerContent, 3);
-
-				// Update header context for flat entries
-				// Header is valid if it has text OR keywords OR inlineKeywords
-				currentH3Info = (h3Header.text || h3Header.keywords || h3Header.inlineKeywords) ? {
-					text: h3Header.text || '',
-					tags: h3Header.tags,
-					keywords: h3Header.keywords || [],
-					inlineKeywords: h3Header.inlineKeywords
-				} : undefined;
-
-				// Track if header has keywords - create record unless followed by another keyword entry/header
-				const hasValidHeaderKeyword = h3Header.keywords?.some(k => parsedKeywords.includes(k));
-				if (hasValidHeaderKeyword) {
-					// Look ahead to check if next non-empty line blocks record creation
-					let shouldSkip = false;
-					let textLineIndex = -1;
-					for (let j = i + 1; j < lines.length; j++) {
-						const nextLine = lines[j].trim();
-						if (!nextLine) continue; // skip blank
-
-						// Check if next line is a header - blocks record creation
-						if (nextLine.match(/^#+\s/)) {
-							shouldSkip = true;
-							break;
-						}
-
-						// Check if line has keyword syntax with VALID parsed keywords - blocks record creation
-						const kwMatch = nextLine.match(/^([\w\s]+)::/);
-						if (kwMatch) {
-							const kws = kwMatch[1].trim().split(/\s+/).map(k => k.toLowerCase());
-							const hasValidKeyword = kws.some(k => parsedKeywords.includes(k));
-							if (hasValidKeyword) {
-								shouldSkip = true;
-								break;
-							}
-						}
-
-						// Check if it's plain text (not list or code block)
-						if (!nextLine.match(/^[-*]\s/) && !nextLine.match(/^```/)) {
-							textLineIndex = j;
-						}
-						break;
-					}
-
-					// Create record unless blocked by another keyword entry or header
-					if (!shouldSkip) {
-						// Filter to only valid keywords
-						const validKeywords = (h3Header.keywords || []).filter(k => parsedKeywords.includes(k));
-						const keywordsStr = validKeywords.join(' ');
-						const headerText = h3Header.text || '';
-
-						if (textLineIndex !== -1) {
-							// Plain text found: combine with header text
-							const textLine = lines[textLineIndex].trim();
-							const combinedText = headerText ? `${headerText} ::: ${textLine}` : textLine;
-							const reconstructedLine = `${keywordsStr} :: ${combinedText}`;
-							const tempLines = [...lines];
-							tempLines[textLineIndex] = reconstructedLine;
-
-							const { entry: parsedEntry, nextIndex } = await this.parseKeywordEntry(
-								tempLines,
-								textLineIndex,
-								validKeywords,
-								parsedKeywords
-							);
-
-							parsedEntry.lineNumber = textLineIndex + 1;
-							const flatEntry = this.createFlatEntry(parsedEntry, currentH1Info, currentH2Info, currentH3Info);
-							flatEntries.push(flatEntry);
-							i = nextIndex - 1;
-						} else {
-							// No plain text, but create record from header (will consume code blocks, lists, etc.)
-							// Reconstruct as keyword-only line so parseKeywordEntry consumes subitems
-							const reconstructedLine = `${keywordsStr} :: `;
-							const tempLines = [...lines];
-							tempLines[i] = reconstructedLine;
-
-							const { entry: parsedEntry, nextIndex } = await this.parseKeywordEntry(
-								tempLines,
-								i,
-								validKeywords,
-								parsedKeywords
-							);
-
-							// Set text from header
-							if (headerText) {
-								parsedEntry.text = headerText;
-							}
-							parsedEntry.lineNumber = i + 1;
-							const flatEntry = this.createFlatEntry(parsedEntry, currentH1Info, currentH2Info, currentH3Info);
-							flatEntries.push(flatEntry);
-							i = nextIndex - 1;
-						}
-					}
-				}
-
 				}
 
 			i++;
@@ -453,9 +246,7 @@ export class RecordParser {
 				// Create flat entry with header context
 				const flatEntry = this.createFlatEntry(
 					entry.entry,
-					currentH1Info,
-					currentH2Info,
-					currentH3Info
+					currentHeaderInfo
 				);
 				flatEntries.push(flatEntry);
 
@@ -472,9 +263,7 @@ export class RecordParser {
 				// Create flat entry with header context
 				const flatEntry = this.createFlatEntry(
 					entry.entry,
-					currentH1Info,
-					currentH2Info,
-					currentH3Info
+					currentHeaderInfo
 				);
 				flatEntries.push(flatEntry);
 
@@ -516,9 +305,7 @@ export class RecordParser {
 	 */
 	private createFlatEntry(
 		entry: ParsedEntry,
-		h1?: HeaderInfo,
-		h2?: HeaderInfo,
-		h3?: HeaderInfo
+		header?: HeaderInfo
 	): FlatEntry {
 		const flatEntry: FlatEntry = {
 			type: entry.type,
@@ -532,9 +319,7 @@ export class RecordParser {
 			srs: entry.srs
 		};
 
-		if (h1) flatEntry.h1 = h1;
-		if (h2) flatEntry.h2 = h2;
-		if (h3) flatEntry.h3 = h3;
+		if (header) flatEntry.header = header;
 
 		return flatEntry;
 	}

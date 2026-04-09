@@ -160,10 +160,8 @@ export interface FlatEntry {
 		next: string;
 	};
 
-	// Header context (optional - only if entry is under headers)
-	h1?: HeaderInfo;
-	h2?: HeaderInfo;
-	h3?: HeaderInfo;
+	// Header context (optional - only if entry is under a header)
+	header?: HeaderInfo;
 
 	// File context (added at runtime, not stored on disk)
 	filePath?: string;

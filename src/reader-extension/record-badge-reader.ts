@@ -119,15 +119,9 @@ function entryHasTestableContent(entry: ParsedEntry): boolean {
  * Find header containing this entry and check if it has the same keyword
  */
 function findHeaderWithKeyword(entry: FlatEntry, keyword: string): string | null {
-	// Check each header level (h1, h2, h3) for the keyword
-	const headerLevels = [
-		entry.h3 ? { info: entry.h3 } : null,  // Check h3 first (most specific)
-		entry.h2 ? { info: entry.h2 } : null,
-		entry.h1 ? { info: entry.h1 } : null
-	].filter(h => h !== null);
-
-	for (const headerLevel of headerLevels) {
-		const header = headerLevel!.info;
+	// Check header for the keyword
+	if (entry.header) {
+		const header = entry.header;
 		const headerKeywords = getAllKeywords(header);
 		const headerHasKeyword = headerKeywords.includes(keyword);
 		if (headerHasKeyword && header.text) {
@@ -142,12 +136,8 @@ function findHeaderWithKeyword(entry: FlatEntry, keyword: string): string | null
  * Check if entry is at top level (no meaningful header)
  */
 function isEntryAtTopLevel(entry: FlatEntry): boolean {
-	// Entry is at top level if all headers are null or have empty text
-	const h1Empty = !entry.h1 || !entry.h1.text || entry.h1.text.trim() === '';
-	const h2Empty = !entry.h2 || !entry.h2.text || entry.h2.text.trim() === '';
-	const h3Empty = !entry.h3 || !entry.h3.text || entry.h3.text.trim() === '';
-
-	return h1Empty && h2Empty && h3Empty;
+	// Entry is at top level if header is null or has empty text
+	return !entry.header || !entry.header.text || entry.header.text.trim() === '';
 }
 
 /**
