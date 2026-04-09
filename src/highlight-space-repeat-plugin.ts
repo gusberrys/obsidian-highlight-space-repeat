@@ -571,13 +571,26 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     // Refresh any open Records View with the new data (preserving filters)
     // Run in background - don't block the UI
     const { RECORDS_VIEW_TYPE } = await import('./widgets/RecordsViewWidget');
-    const leaves = this.app.workspace.getLeavesOfType(RECORDS_VIEW_TYPE);
-    for (const leaf of leaves) {
+    const recordsLeaves = this.app.workspace.getLeavesOfType(RECORDS_VIEW_TYPE);
+    for (const leaf of recordsLeaves) {
       const view = leaf.view as any;
       if (view && typeof view.refreshAfterRescan === 'function') {
         // Fire and forget - don't await
         view.refreshAfterRescan().catch((err: any) => {
           console.error('Error refreshing Records View after rescan:', err);
+        });
+      }
+    }
+
+    // Refresh any open Matrix View with the new data (preserving subject, selected row, columns)
+    const { KH_MATRIX_VIEW_TYPE } = await import('./widgets/KHMatrixWidget');
+    const matrixLeaves = this.app.workspace.getLeavesOfType(KH_MATRIX_VIEW_TYPE);
+    for (const leaf of matrixLeaves) {
+      const view = leaf.view as any;
+      if (view && typeof view.refreshAfterRescan === 'function') {
+        // Fire and forget - don't await
+        view.refreshAfterRescan().catch((err: any) => {
+          console.error('Error refreshing Matrix View after rescan:', err);
         });
       }
     }
