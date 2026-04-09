@@ -3,6 +3,7 @@
   import { isCollected, isSpaced } from 'src/shared/collecting-status';
   import KeywordSetting from './KeywordSetting.svelte';
   import ColorHighlightSettings from './ColorHighlightSettings.svelte';
+  import SubjectsSettings from './SubjectsSettings.svelte';
   import type { Writable } from 'svelte/store';
   import {
     addKeyword, removeKeyword, addCategory, removeCategory,
@@ -52,7 +53,7 @@
   let collapsedGroups: Set<string> = new Set();
 
   // Tab state
-  let activeTab: 'keywords' | 'vword' | 'generic' | 'srs' | 'colors' = 'keywords';
+  let activeTab: 'keywords' | 'vword' | 'generic' | 'srs' | 'colors' | 'subjects' = 'keywords';
 
   // SRS container reference
   let srsContainer: HTMLElement;
@@ -673,6 +674,14 @@
   >
     🎨 Colors
   </button>
+
+  <button
+    class="tab-button"
+    class:active={activeTab === 'subjects'}
+    on:click={() => activeTab = 'subjects'}
+  >
+    📊 Subjects
+  </button>
 </div>
 
 <div class="tab-content">
@@ -1096,6 +1105,8 @@
     <div bind:this={srsContainer} class="srs-settings-content"></div>
   {:else if activeTab === 'colors'}
     <ColorHighlightSettings {settingsStore} />
+  {:else if activeTab === 'subjects'}
+    <SubjectsSettings {settingsStore} {plugin} />
   {/if}
 </div>
 
