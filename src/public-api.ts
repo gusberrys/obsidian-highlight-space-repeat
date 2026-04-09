@@ -12,8 +12,10 @@ import type { KeywordStyle, Category } from './shared';
 import type { ParsedFile, FlatEntry } from './interfaces/ParsedFile';
 import type { CompiledFilter } from './interfaces/FilterInterfaces';
 import type { ActiveChip } from './interfaces/ActiveChip';
+import type { Subject } from './interfaces/Subject';
 import { get } from 'svelte/store';
 import { keywordsStore } from './stores/settings-store';
+import { subjectsStore } from './stores/subject-store';
 import { FilterParser } from './services/FilterParser';
 
 /**
@@ -195,7 +197,7 @@ export class HighlightSpaceRepeatAPI {
   }
 
   /**
-   * Display filtered records in Plugin A's UI
+   * Display filtered records in the Records View
    * @param expression - Filter expression to apply
    * @param type - Filter type: 'F' (Files), 'H' (Headers), 'R' (Records), 'D' (Dashboard)
    * @param sourceView - Optional identifier for the source view (e.g., "matrix-cell")
@@ -215,6 +217,27 @@ export class HighlightSpaceRepeatAPI {
         recordsView.setFilterExpression(expression, type);
       }
     }
+  }
+
+  // ==================== Subjects API ====================
+
+  /**
+   * Get all subjects
+   * @returns Array of all subjects
+   */
+  getSubjects(): Subject[] {
+    const subjects = get(subjectsStore);
+    return subjects.subjects || [];
+  }
+
+  /**
+   * Get a specific subject by ID
+   * @param id - Subject ID to look up
+   * @returns Subject or undefined if not found
+   */
+  getSubject(id: string): Subject | undefined {
+    const subjects = get(subjectsStore);
+    return subjects.subjects.find(s => s.id === id);
   }
 
   // ==================== Event Subscriptions ====================

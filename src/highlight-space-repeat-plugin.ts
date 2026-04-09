@@ -46,6 +46,11 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     // CRITICAL: Wait for settings to load before continuing
     await initStore(this);
 
+    // Initialize subject store
+    const { initSubjectStore, loadSubjects } = await import('./stores/subject-store');
+    initSubjectStore(this);
+    await loadSubjects();
+
     // Apply color highlighting enabled state
     const settings = get(settingsStore);
     if (settings.colorHighlightingEnabled) {
@@ -76,6 +81,13 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     this.registerView(
       RECORDS_VIEW_TYPE,
       (leaf) => new RecordsViewWidget(leaf, this)
+    );
+
+    // Register Matrix View
+    const { KHMatrixWidget, KH_MATRIX_VIEW_TYPE } = await import('./widgets/KHMatrixWidget');
+    this.registerView(
+      KH_MATRIX_VIEW_TYPE,
+      (leaf) => new KHMatrixWidget(leaf, this)
     );
 
     // Add command to insert keyword
@@ -184,6 +196,15 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       name: 'Open Records View',
       callback: async () => {
         await this.activateRecordsView();
+      }
+    });
+
+    // Add command to open Matrix View
+    this.addCommand({
+      id: 'open-subject-matrix',
+      name: 'Open Subject Matrix',
+      callback: async () => {
+        await this.activateMatrixView();
       }
     });
 
@@ -296,6 +317,11 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     // Add ribbon icon for Records View
     this.addRibbonIcon('list-filter', 'Open Records View', async () => {
       await this.activateRecordsView();
+    });
+
+    // Add ribbon icon for Matrix View
+    this.addRibbonIcon('table', 'Open Subject Matrix', async () => {
+      await this.activateMatrixView();
     });
 
     // Add ribbon icon for SRS review of current file
@@ -412,6 +438,33 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       if (leaf) {
         await leaf.setViewState({
           type: RECORDS_VIEW_TYPE,
+          active: true,
+        });
+      }
+    }
+
+    // Reveal the leaf
+    if (leaf) {
+      workspace.revealLeaf(leaf);
+    }
+  }
+
+  async activateMatrixView() {
+    const { workspace } = this.app;
+    const { KH_MATRIX_VIEW_TYPE } = await import('./widgets/KHMatrixWidget');
+
+    let leaf: WorkspaceLeaf | null = null;
+    const leaves = workspace.getLeavesOfType(KH_MATRIX_VIEW_TYPE);
+
+    if (leaves.length > 0) {
+      // View already exists, reveal it
+      leaf = leaves[0];
+    } else {
+      // Create new view in right sidebar
+      leaf = workspace.getRightLeaf(false);
+      if (leaf) {
+        await leaf.setViewState({
+          type: KH_MATRIX_VIEW_TYPE,
           active: true,
         });
       }
