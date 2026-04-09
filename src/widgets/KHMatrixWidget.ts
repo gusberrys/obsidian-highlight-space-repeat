@@ -443,4 +443,16 @@ export class KHMatrixWidget extends ItemView {
 	public async refreshAfterRescan(): Promise<void> {
 		await this.recalculateMatrixCounts();
 	}
+
+	/**
+	 * Public method to set the current subject by ID
+	 * Used when opening matrix view via subject-specific commands
+	 */
+	public async setSubjectById(subjectId: string): Promise<void> {
+		const subject = this.subjects.find(s => s.id === subjectId);
+		if (subject) {
+			this.currentSubject = subject;
+			await this.recalculateMatrixCounts();
+		}
+	}
 }

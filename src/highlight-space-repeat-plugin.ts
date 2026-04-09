@@ -23,6 +23,9 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
   // Public API instance
   private _api!: HighlightSpaceRepeatAPI;
 
+  // Track registered subject commands for cleanup
+  private subjectCommandIds: string[] = [];
+
   // Simple data adapter wrapper
   private adapter = {
     read: async (path: string): Promise<string> => {
@@ -47,9 +50,18 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     await initStore(this);
 
     // Initialize subject store
-    const { initSubjectStore, loadSubjects } = await import('./stores/subject-store');
+    const { initSubjectStore, loadSubjects, subjectsStore } = await import('./stores/subject-store');
     initSubjectStore(this);
     await loadSubjects();
+
+    // Register commands for each subject and subscribe to updates
+    const initialSubjects = get(subjectsStore);
+    this.registerSubjectCommands(initialSubjects.subjects);
+
+    // Subscribe to subject changes to update commands dynamically
+    subjectsStore.subscribe((data: any) => {
+      this.registerSubjectCommands(data.subjects);
+    });
 
     // Apply color highlighting enabled state
     const settings = get(settingsStore);
@@ -449,7 +461,7 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     }
   }
 
-  async activateMatrixView() {
+  async activateMatrixView(subjectId?: string) {
     const { workspace } = this.app;
     const { KH_MATRIX_VIEW_TYPE } = await import('./widgets/KHMatrixWidget');
 
@@ -473,7 +485,49 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
     // Reveal the leaf
     if (leaf) {
       workspace.revealLeaf(leaf);
+
+      // If subjectId provided, set it on the view
+      if (subjectId) {
+        const view = leaf.view as any;
+        if (view && typeof view.setSubjectById === 'function') {
+          await view.setSubjectById(subjectId);
+        }
+      }
     }
+  }
+
+  /**
+   * Register commands for each subject to quickly open matrix view with that subject
+   */
+  private registerSubjectCommands(subjects: any[]): void {
+    // Unregister previous subject commands
+    this.unregisterSubjectCommands();
+
+    // Register new commands for each subject
+    for (const subject of subjects) {
+      const commandId = `open-matrix-subject-${subject.id}`;
+
+      // Add command
+      this.addCommand({
+        id: commandId,
+        name: `Open Matrix: ${subject.name}`,
+        callback: async () => {
+          await this.activateMatrixView(subject.id);
+        }
+      });
+
+      // Track command ID for cleanup
+      this.subjectCommandIds.push(commandId);
+    }
+  }
+
+  /**
+   * Unregister all subject-specific commands
+   */
+  private unregisterSubjectCommands(): void {
+    // Note: Obsidian doesn't provide a removeCommand API, so we just clear tracking
+    // The commands will be cleaned up on plugin reload
+    this.subjectCommandIds = [];
   }
 
   async onunload(): Promise<void> {
