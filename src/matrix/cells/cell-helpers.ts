@@ -1,7 +1,7 @@
 import type { ParsedFile, FlatEntry } from '../../interfaces/ParsedFile';
 import type { Topic } from '../../interfaces/Topic';
 import type { Subject } from '../../interfaces/Subject';
-import { getAllKeywords } from '../../utils/helpers';
+import { getAllKeywords } from '../../utils/parse-helpers';
 import type { HeaderGroup } from './MatrixCell';
 import { FilterParser } from '../../services/FilterParser';
 import { PlaceholderExpansion } from '../../services/PlaceholderExpansion';

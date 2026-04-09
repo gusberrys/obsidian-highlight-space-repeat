@@ -1,12 +1,9 @@
 <script lang="ts">
-  import type { Writable } from 'svelte/store';
-  import type { PluginSettings } from 'src/stores/settings-store';
   import { subjectsStore, addSubject, removeSubject, saveSubjects } from 'src/stores/subject-store';
   import { SubjectModal } from './SubjectModal';
   import type { HighlightSpaceRepeatPlugin } from 'src/highlight-space-repeat-plugin';
   import type { Subject } from 'src/interfaces/Subject';
 
-  export let settingsStore: Writable<PluginSettings>;
   export let plugin: HighlightSpaceRepeatPlugin;
 
   let subjects: Subject[] = [];

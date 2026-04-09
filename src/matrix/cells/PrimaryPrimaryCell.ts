@@ -1,7 +1,7 @@
 import type { ParsedFile, FlatEntry } from '../../interfaces/ParsedFile';
 import type { Subject } from '../../interfaces/Subject';
 import type { Topic } from '../../interfaces/Topic';
-import { getAllKeywords } from '../../utils/helpers';
+import { getAllKeywords } from '../../utils/parse-helpers';
 import { MatrixCell, type HeaderGroup } from './MatrixCell';
 import { collectIntersectionHeaders } from './cell-helpers';
 

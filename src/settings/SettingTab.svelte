@@ -1106,7 +1106,7 @@
   {:else if activeTab === 'colors'}
     <ColorHighlightSettings {settingsStore} />
   {:else if activeTab === 'subjects'}
-    <SubjectsSettings {settingsStore} {plugin} />
+    <SubjectsSettings {plugin} />
   {/if}
 </div>
 

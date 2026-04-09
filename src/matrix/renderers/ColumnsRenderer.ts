@@ -3,7 +3,7 @@ import type { Topic } from '../../interfaces/Topic';
 import type { ParsedFile } from '../../interfaces/ParsedFile';
 import type { MatrixCell } from '../cells';
 import { renderFHRCountLinkBadges } from './render-helpers';
-import { getFileNameFromPath } from '../../utils/helpers';
+import { getFileNameFromPath } from '../../utils/file-helpers';
 
 /**
  * ColumnsRenderer - Handles rendering of matrix columns (all of them)
