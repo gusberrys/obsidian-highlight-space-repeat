@@ -550,7 +550,7 @@ export class RecordsViewWidget extends ItemView {
 	}
 
 	/**
-	 * Set filter expression from external source (e.g., Plugin B)
+	 * Set filter expression from external source (e.g., Matrix View)
 	 */
 	public setFilterExpression(expression: string, type?: 'F' | 'H' | 'R' | 'D') {
 		this.widgetFilterExpression = expression;

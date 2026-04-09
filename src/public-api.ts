@@ -197,7 +197,7 @@ export class HighlightSpaceRepeatAPI {
   }
 
   /**
-   * Display filtered records in Plugin A's UI
+   * Display filtered records in the Records View
    * @param expression - Filter expression to apply
    * @param type - Filter type: 'F' (Files), 'H' (Headers), 'R' (Records), 'D' (Dashboard)
    * @param sourceView - Optional identifier for the source view (e.g., "matrix-cell")

@@ -253,7 +253,7 @@ export class KHMatrixWidget extends ItemView {
 
 		const matrixContainer = container.createDiv('kh-matrix-section');
 
-		// Get parsed records from Plugin A
+		// Get parsed records from plugin
 		const parsedRecords = this.getParsedRecords();
 
 		// Render matrix using MatrixRenderer
@@ -308,7 +308,7 @@ export class KHMatrixWidget extends ItemView {
 						return;
 					}
 
-					// Click on other cells - send filter to Plugin A
+					// Click on other cells - send filter to Records View
 					const cell = this.cellInstances.get(cellKey);
 					if (cell) {
 						const filterExpr = this.getFilterExpressionForCell(cell, cellType);
@@ -348,7 +348,7 @@ export class KHMatrixWidget extends ItemView {
 
 		const columnsContainer = container.createDiv('kh-columns-section');
 
-		// Get parsed records from Plugin A
+		// Get parsed records from plugin
 		const parsedRecords = this.getParsedRecords();
 
 		// Render columns using ColumnsRenderer
