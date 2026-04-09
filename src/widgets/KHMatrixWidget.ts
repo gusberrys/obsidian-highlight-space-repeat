@@ -95,10 +95,10 @@ export class KHMatrixWidget extends ItemView {
 			tags.add(normalized);
 		});
 
-		// Add inline tags from entries
+		// Add inline tags from entries (from headers)
 		for (const entry of record.entries) {
-			if (entry.tags) {
-				entry.tags.forEach((tag: string) => {
+			if (entry.header?.tags) {
+				entry.header.tags.forEach((tag: string) => {
 					const normalized = tag.startsWith('#') ? tag : '#' + tag;
 					tags.add(normalized);
 				});

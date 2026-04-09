@@ -364,16 +364,14 @@ export class RecordsRenderer {
 		const entryKeywords = entry.keywords?.join(' ') || '';
 		const entryInlineKeywords = entry.inlineKeywords?.join(' ') || '';
 		const entryInlineCodeLangs = entry.inlineCodeLanguages?.join(' ') || '';
-		const h1Tags = entry.h1?.tags?.join(' ') || '';
-		const h2Tags = entry.h2?.tags?.join(' ') || '';
-		const h3Tags = entry.h3?.tags?.join(' ') || '';
+		const headerTags = entry.header?.tags?.join(' ') || '';
 		const entryText = entry.text || '';
 
 		// Join all parts with space and lowercase (same as DOM)
 		const searchable = [
 			fileName, fileAliases, fileTags,
 			entryKeywords, entryInlineKeywords, entryInlineCodeLangs,
-			h1Tags, h2Tags, h3Tags,
+			headerTags,
 			entryText
 		].join(' ').toLowerCase();
 
@@ -443,14 +441,8 @@ export class RecordsRenderer {
 		for (const file of this.parsedRecords) {
 			for (const entry of file.entries) {
 				// Check each header level (h1, h2, h3)
-				const headerLevels = [
-					entry.h1 ? { level: 1, info: entry.h1 } : null,
-					entry.h2 ? { level: 2, info: entry.h2 } : null,
-					entry.h3 ? { level: 3, info: entry.h3 } : null
-				].filter(h => h !== null);
-
-				for (const headerLevel of headerLevels) {
-					const header = headerLevel!.info;
+				if (entry.header) {
+					const header = entry.header;
 					if (header.text || header.keywords || header.inlineKeywords) {
 						// Evaluate filter on the HEADER object (not the entry)
 						// Create pseudo-entry from header for filter evaluation
@@ -463,24 +455,19 @@ export class RecordsRenderer {
 							lineNumber: entry.lineNumber,
 							filePath: file.filePath,
 							fileTags: file.tags,
-							h1: entry.h1,
-							h2: entry.h2,
-							h3: entry.h3
+							header: entry.header
 						};
 
 						// Check if this HEADER matches the filter expression
 						if (FilterParser.evaluateFlatEntry(compiled.ast, headerAsEntry, HighlightSpaceRepeatPlugin.settings.categories, compiled.modifiers)) {
-							// Build full header path key
-							const h1Text = entry.h1?.text || '';
-							const h2Text = entry.h2?.text || '';
-							const h3Text = entry.h3?.text || '';
-							const headerKey = `${file.filePath}::${h1Text}::${h2Text}::${h3Text}`;
+							// Build header key
+							const headerKey = `${file.filePath}::${header.text}`;
 
 							if (!headerGroups.has(headerKey)) {
 								headerGroups.set(headerKey, {
 									file,
 									headerText: header.text,
-									headerLevel: headerLevel!.level,
+									headerLevel: 1,
 									entries: []
 								});
 							}
@@ -527,7 +514,7 @@ export class RecordsRenderer {
 		for (const { file, headerText, headerLevel, entries } of headerGroups.values()) {
 			// Get header info from first entry
 			const firstEntry = entries[0];
-			const headerInfo = headerLevel === 1 ? firstEntry.h1 : headerLevel === 2 ? firstEntry.h2 : firstEntry.h3;
+			const headerInfo = firstEntry.header;
 			if (!headerInfo) continue;
 
 			// Create unique ID for this header
@@ -679,10 +666,8 @@ export class RecordsRenderer {
 
 						// Add searchable metadata as data attributes (reuse fileName, fileAliases, fileTags from outer scope)
 						const entryKeywords = entry.keywords?.join(' ') || '';
-						const h1Tags = entry.h1?.tags?.join(' ') || '';
-						const h2Tags = entry.h2?.tags?.join(' ') || '';
-						const h3Tags = entry.h3?.tags?.join(' ') || '';
-						const entrySearchable = [fileName, fileAliases, fileTags, entryKeywords, h1Tags, h2Tags, h3Tags, entry.text].join(' ').toLowerCase();
+						const headerTags = entry.header?.tags?.join(' ') || '';
+						const entrySearchable = [fileName, fileAliases, fileTags, entryKeywords, headerTags, entry.text].join(' ').toLowerCase();
 						entryItem.setAttribute('data-searchable', entrySearchable);
 
 						// Render entry text with image/quote support (compact mode)
@@ -716,10 +701,8 @@ export class RecordsRenderer {
 
 						// Add searchable metadata as data attributes (reuse fileName, fileAliases, fileTags from outer scope)
 						const codeLanguage = entry.language || '';
-						const codeH1Tags = entry.h1?.tags?.join(' ') || '';
-						const codeH2Tags = entry.h2?.tags?.join(' ') || '';
-						const codeH3Tags = entry.h3?.tags?.join(' ') || '';
-						const codeSearchable = [fileName, fileAliases, fileTags, codeLanguage, codeH1Tags, codeH2Tags, codeH3Tags, entry.text].join(' ').toLowerCase();
+						const headerTags = entry.header?.tags?.join(' ') || '';
+						const codeSearchable = [fileName, fileAliases, fileTags, codeLanguage, headerTags, entry.text].join(' ').toLowerCase();
 						entryItem.setAttribute('data-searchable', codeSearchable);
 
 						// Render code block with syntax highlighting (non-blocking)
@@ -1035,10 +1018,8 @@ export class RecordsRenderer {
 
 						// Add searchable metadata as data attributes (reuse fileName, fileAliases, fileTags from outer scope)
 						const entryKeywords = entry.keywords?.join(' ') || '';
-						const h1Tags = entry.h1?.tags?.join(' ') || '';
-						const h2Tags = entry.h2?.tags?.join(' ') || '';
-						const h3Tags = entry.h3?.tags?.join(' ') || '';
-						const entrySearchable = [fileName, fileAliases, fileTags, entryKeywords, h1Tags, h2Tags, h3Tags, entry.text].join(' ').toLowerCase();
+						const headerTags = entry.header?.tags?.join(' ') || '';
+						const entrySearchable = [fileName, fileAliases, fileTags, entryKeywords, headerTags, entry.text].join(' ').toLowerCase();
 						entryItem.setAttribute('data-searchable', entrySearchable);
 
 
@@ -1073,10 +1054,8 @@ export class RecordsRenderer {
 
 						// Add searchable metadata as data attributes (reuse fileName, fileAliases, fileTags from outer scope)
 						const codeLanguage = entry.language || '';
-						const codeH1Tags = entry.h1?.tags?.join(' ') || '';
-						const codeH2Tags = entry.h2?.tags?.join(' ') || '';
-						const codeH3Tags = entry.h3?.tags?.join(' ') || '';
-						const codeSearchable = [fileName, fileAliases, fileTags, codeLanguage, codeH1Tags, codeH2Tags, codeH3Tags, entry.text].join(' ').toLowerCase();
+						const headerTags = entry.header?.tags?.join(' ') || '';
+						const codeSearchable = [fileName, fileAliases, fileTags, codeLanguage, headerTags, entry.text].join(' ').toLowerCase();
 						entryItem.setAttribute('data-searchable', codeSearchable);
 
 						// Render code block with syntax highlighting (non-blocking)

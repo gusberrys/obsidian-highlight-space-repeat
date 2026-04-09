@@ -744,25 +744,12 @@ export class FilterParser {
 	): boolean {
 		if (!node) return true;
 
-		// Collect header keywords and tags from all header levels
-		const headerKeywords: string[] = [];
-		const headerTags: string[] = [];
-
-		if (entry.h1) {
-			headerKeywords.push(...(entry.h1.keywords || []));
-			if (entry.h1.inlineKeywords) headerKeywords.push(...entry.h1.inlineKeywords);
-			headerTags.push(...(entry.h1.tags || []));
+		// Collect header keywords and tags
+		const headerKeywords: string[] = entry.header?.keywords || [];
+		if (entry.header?.inlineKeywords) {
+			headerKeywords.push(...entry.header.inlineKeywords);
 		}
-		if (entry.h2) {
-			headerKeywords.push(...(entry.h2.keywords || []));
-			if (entry.h2.inlineKeywords) headerKeywords.push(...entry.h2.inlineKeywords);
-			headerTags.push(...(entry.h2.tags || []));
-		}
-		if (entry.h3) {
-			headerKeywords.push(...(entry.h3.keywords || []));
-			if (entry.h3.inlineKeywords) headerKeywords.push(...entry.h3.inlineKeywords);
-			headerTags.push(...(entry.h3.tags || []));
-		}
+		const headerTags: string[] = entry.header?.tags || [];
 
 		// Collect keywords from entry and subItems (recursively)
 		const entryKeywords = [...(entry.keywords || [])];

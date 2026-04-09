@@ -302,12 +302,8 @@ export class SRSReviewView extends ItemView {
 	 * Check if entry is at top level (no meaningful header)
 	 */
 	private isEntryAtTopLevel(entry: FlatEntry): boolean {
-		// Entry is at top level if all headers are null or have empty text
-		const h1Empty = !entry.h1 || !entry.h1.text || entry.h1.text.trim() === '';
-		const h2Empty = !entry.h2 || !entry.h2.text || entry.h2.text.trim() === '';
-		const h3Empty = !entry.h3 || !entry.h3.text || entry.h3.text.trim() === '';
-
-		return h1Empty && h2Empty && h3Empty;
+		// Entry is at top level if header is null or has empty text
+		return !entry.header || !entry.header.text || entry.header.text.trim() === '';
 	}
 
 	/**
@@ -325,15 +321,9 @@ export class SRSReviewView extends ItemView {
 	}
 
 	private findHeaderWithKeyword(entry: FlatEntry, keyword: string): string | null {
-		// Check each header level (h1, h2, h3) for the keyword
-		const headerLevels = [
-			entry.h3 ? { info: entry.h3 } : null,  // Check h3 first (most specific)
-			entry.h2 ? { info: entry.h2 } : null,
-			entry.h1 ? { info: entry.h1 } : null
-		].filter(h => h !== null);
-
-		for (const headerLevel of headerLevels) {
-			const header = headerLevel!.info;
+		// Check header for the keyword
+		if (entry.header) {
+			const header = entry.header;
 			const headerKeywords = this.getAllKeywords(header);
 			const headerHasKeyword = headerKeywords.includes(keyword);
 			if (headerHasKeyword) {
@@ -541,16 +531,9 @@ export class SRSReviewView extends ItemView {
 	 * Find header context
 	 */
 	private findHeaderContext(entry: FlatEntry, record: ParsedFile): string | null {
-		// Check header levels from most specific to least specific (h3 -> h2 -> h1)
 		// Use text if available, otherwise use keywords
-		if (entry.h3?.text || entry.h3?.keywords) {
-			return entry.h3.text || (entry.h3.keywords ? entry.h3.keywords.join(' ') : null);
-		}
-		if (entry.h2?.text || entry.h2?.keywords) {
-			return entry.h2.text || (entry.h2.keywords ? entry.h2.keywords.join(' ') : null);
-		}
-		if (entry.h1?.text || entry.h1?.keywords) {
-			return entry.h1.text || (entry.h1.keywords ? entry.h1.keywords.join(' ') : null);
+		if (entry.header?.text || entry.header?.keywords) {
+			return entry.header.text || (entry.header.keywords ? entry.header.keywords.join(' ') : null);
 		}
 		return null;
 	}
