@@ -495,3 +495,4 @@ function restructureListsLayout(el: HTMLElement) {
     listWrapper.classList.add('kh-l-layout');
   });
 }
+

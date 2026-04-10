@@ -85,6 +85,29 @@ export class HighlightSpaceRepeatAPI {
     return this.plugin.manifest.version;
   }
 
+  /**
+   * Get available code block languages (for code block filtering)
+   * Returns list of languages extracted from all parsed records
+   * @returns Array of language objects with id property
+   */
+  getCodeBlocks(): Array<{ id: string }> {
+    const languages = new Set<string>();
+
+    // Extract languages from all parsed records (FlatEntry uses 'language' field)
+    for (const file of this.getParsedRecords()) {
+      for (const entry of file.entries) {
+        if (entry.language) {
+          languages.add(entry.language);
+        }
+        if (entry.inlineCodeLanguages) {
+          entry.inlineCodeLanguages.forEach(lang => languages.add(lang));
+        }
+      }
+    }
+
+    return Array.from(languages).sort().map(id => ({ id }));
+  }
+
   // ==================== Data Access ====================
 
   /**

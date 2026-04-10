@@ -32,6 +32,7 @@ export class SubjectModal extends Modal {
 	private subject: Subject;
 	private onSubmit: ((subject: Subject) => void) | null = null;
 	private topics: Topic[] = [];
+	private coreAPI: any; // Reference to plugin's public API
 
 	// Filter selections
 	private selectedKeywords: Set<string> = new Set();
@@ -142,6 +143,7 @@ export class SubjectModal extends Modal {
 	) {
 		super(app);
 		this.onSubmit = onSubmit || (() => {});
+		this.coreAPI = plugin.api; // Initialize coreAPI reference
 
 		// Get current settings and subjects data
 		const subjectsData = get(subjectsStore);
