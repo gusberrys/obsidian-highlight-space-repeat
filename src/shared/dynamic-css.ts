@@ -247,6 +247,7 @@ export function generateHKeywordCSS(vwordSettings: VWordSettings): string {
 .el-p:has(.kh-highlighted.${keyword}) + .el-ol > ol {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 0px;
   list-style: none;
@@ -259,6 +260,16 @@ export function generateHKeywordCSS(vwordSettings: VWordSettings): string {
 .el-p:has(.kh-highlighted.${keyword}) + .el-ul > ul > li:nth-child(${index + 1}) { flex: ${flexValue}; }
 .el-p:has(.kh-highlighted.${keyword}) + .el-ol > ol > li:nth-child(${index + 1}) { flex: ${flexValue}; }`);
     });
+
+    // Force list items beyond the first N items to wrap to new line (full width)
+    const numDigits = digits.length;
+    const wrapFromIndex = numDigits + 1;
+
+    listRules.push(`
+.el-p:has(.kh-highlighted.${keyword}) + .el-ul > ul > li:nth-child(n+${wrapFromIndex}),
+.el-p:has(.kh-highlighted.${keyword}) + .el-ol > ol > li:nth-child(n+${wrapFromIndex}) {
+  flex-basis: 100%;
+}`);
 
     cssRules.push(listRules.join('\n'));
 

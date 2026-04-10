@@ -39,3 +39,235 @@ h6.kh-highlighted {
   background-color: var(--color-base-40);
 }
 
+/* N-Layout (n10-n90): CSS-only two-column layout (no DOM manipulation) */
+/* Number indicates second element's width: n10 = 10%, n90 = 90% */
+/* Step of 5: n10, n15, n20, n25, n30, n35, n40, n45, n50, n55, n60, n65, n70, n75, n80, n85, n90 */
+
+/* n10: 90% left / 10% right */
+.markdown-preview-view .el-p:has(.kh-highlighted.n10) { width: calc(90% - 0.5rem); float: left; margin-right: 1rem; clear: left; }
+.markdown-preview-view .el-p:has(.kh-highlighted.n10) + .el-p,
+.markdown-preview-view .el-p:has(.kh-highlighted.n10) + .el-pre,
+.markdown-preview-view .el-p:has(.kh-highlighted.n10) + div,
+.markdown-preview-view .el-p:has(.kh-highlighted.n10) + .el-ul,
+.markdown-preview-view .el-p:has(.kh-highlighted.n10) + .el-ol { width: calc(10% - 0.5rem); float: left; margin-top: 0; }
+
+/* n15: 85% left / 15% right */
+.markdown-preview-view .el-p:has(.kh-highlighted.n15) { width: calc(85% - 0.5rem); float: left; margin-right: 1rem; clear: left; }
+.markdown-preview-view .el-p:has(.kh-highlighted.n15) + .el-p,
+.markdown-preview-view .el-p:has(.kh-highlighted.n15) + .el-pre,
+.markdown-preview-view .el-p:has(.kh-highlighted.n15) + div,
+.markdown-preview-view .el-p:has(.kh-highlighted.n15) + .el-ul,
+.markdown-preview-view .el-p:has(.kh-highlighted.n15) + .el-ol { width: calc(15% - 0.5rem); float: left; margin-top: 0; }
+
+/* n20: 80% left / 20% right */
+.markdown-preview-view .el-p:has(.kh-highlighted.n20) { width: calc(80% - 0.5rem); float: left; margin-right: 1rem; clear: left; }
+.markdown-preview-view .el-p:has(.kh-highlighted.n20) + .el-p,
+.markdown-preview-view .el-p:has(.kh-highlighted.n20) + .el-pre,
+.markdown-preview-view .el-p:has(.kh-highlighted.n20) + div,
+.markdown-preview-view .el-p:has(.kh-highlighted.n20) + .el-ul,
+.markdown-preview-view .el-p:has(.kh-highlighted.n20) + .el-ol { width: calc(20% - 0.5rem); float: left; margin-top: 0; }
+
+/* n25: 75% left / 25% right */
+.markdown-preview-view .el-p:has(.kh-highlighted.n25) { width: calc(75% - 0.5rem); float: left; margin-right: 1rem; clear: left; }
+.markdown-preview-view .el-p:has(.kh-highlighted.n25) + .el-p,
+.markdown-preview-view .el-p:has(.kh-highlighted.n25) + .el-pre,
+.markdown-preview-view .el-p:has(.kh-highlighted.n25) + div,
+.markdown-preview-view .el-p:has(.kh-highlighted.n25) + .el-ul,
+.markdown-preview-view .el-p:has(.kh-highlighted.n25) + .el-ol { width: calc(25% - 0.5rem); float: left; margin-top: 0; }
+
+/* n30: 70% left / 30% right */
+.markdown-preview-view .el-p:has(.kh-highlighted.n30) { width: calc(70% - 0.5rem); float: left; margin-right: 1rem; clear: left; }
+.markdown-preview-view .el-p:has(.kh-highlighted.n30) + .el-p,
+.markdown-preview-view .el-p:has(.kh-highlighted.n30) + .el-pre,
+.markdown-preview-view .el-p:has(.kh-highlighted.n30) + div,
+.markdown-preview-view .el-p:has(.kh-highlighted.n30) + .el-ul,
+.markdown-preview-view .el-p:has(.kh-highlighted.n30) + .el-ol { width: calc(30% - 0.5rem); float: left; margin-top: 0; }
+
+/* n35: 65% left / 35% right */
+.markdown-preview-view .el-p:has(.kh-highlighted.n35) { width: calc(65% - 0.5rem); float: left; margin-right: 1rem; clear: left; }
+.markdown-preview-view .el-p:has(.kh-highlighted.n35) + .el-p,
+.markdown-preview-view .el-p:has(.kh-highlighted.n35) + .el-pre,
+.markdown-preview-view .el-p:has(.kh-highlighted.n35) + div,
+.markdown-preview-view .el-p:has(.kh-highlighted.n35) + .el-ul,
+.markdown-preview-view .el-p:has(.kh-highlighted.n35) + .el-ol { width: calc(35% - 0.5rem); float: left; margin-top: 0; }
+
+/* n40: 60% left / 40% right */
+.markdown-preview-view .el-p:has(.kh-highlighted.n40) { width: calc(60% - 0.5rem); float: left; margin-right: 1rem; clear: left; }
+.markdown-preview-view .el-p:has(.kh-highlighted.n40) + .el-p,
+.markdown-preview-view .el-p:has(.kh-highlighted.n40) + .el-pre,
+.markdown-preview-view .el-p:has(.kh-highlighted.n40) + div,
+.markdown-preview-view .el-p:has(.kh-highlighted.n40) + .el-ul,
+.markdown-preview-view .el-p:has(.kh-highlighted.n40) + .el-ol { width: calc(40% - 0.5rem); float: left; margin-top: 0; }
+
+/* n45: 55% left / 45% right */
+.markdown-preview-view .el-p:has(.kh-highlighted.n45) { width: calc(55% - 0.5rem); float: left; margin-right: 1rem; clear: left; }
+.markdown-preview-view .el-p:has(.kh-highlighted.n45) + .el-p,
+.markdown-preview-view .el-p:has(.kh-highlighted.n45) + .el-pre,
+.markdown-preview-view .el-p:has(.kh-highlighted.n45) + div,
+.markdown-preview-view .el-p:has(.kh-highlighted.n45) + .el-ul,
+.markdown-preview-view .el-p:has(.kh-highlighted.n45) + .el-ol { width: calc(45% - 0.5rem); float: left; margin-top: 0; }
+
+/* n50: 50% left / 50% right */
+.markdown-preview-view .el-p:has(.kh-highlighted.n50) { width: calc(50% - 0.5rem); float: left; margin-right: 1rem; clear: left; }
+.markdown-preview-view .el-p:has(.kh-highlighted.n50) + .el-p,
+.markdown-preview-view .el-p:has(.kh-highlighted.n50) + .el-pre,
+.markdown-preview-view .el-p:has(.kh-highlighted.n50) + div,
+.markdown-preview-view .el-p:has(.kh-highlighted.n50) + .el-ul,
+.markdown-preview-view .el-p:has(.kh-highlighted.n50) + .el-ol { width: calc(50% - 0.5rem); float: left; margin-top: 0; }
+
+/* n55: 45% left / 55% right */
+.markdown-preview-view .el-p:has(.kh-highlighted.n55) { width: calc(45% - 0.5rem); float: left; margin-right: 1rem; clear: left; }
+.markdown-preview-view .el-p:has(.kh-highlighted.n55) + .el-p,
+.markdown-preview-view .el-p:has(.kh-highlighted.n55) + .el-pre,
+.markdown-preview-view .el-p:has(.kh-highlighted.n55) + div,
+.markdown-preview-view .el-p:has(.kh-highlighted.n55) + .el-ul,
+.markdown-preview-view .el-p:has(.kh-highlighted.n55) + .el-ol { width: calc(55% - 0.5rem); float: left; margin-top: 0; }
+
+/* n60: 40% left / 60% right */
+.markdown-preview-view .el-p:has(.kh-highlighted.n60) { width: calc(40% - 0.5rem); float: left; margin-right: 1rem; clear: left; }
+.markdown-preview-view .el-p:has(.kh-highlighted.n60) + .el-p,
+.markdown-preview-view .el-p:has(.kh-highlighted.n60) + .el-pre,
+.markdown-preview-view .el-p:has(.kh-highlighted.n60) + div,
+.markdown-preview-view .el-p:has(.kh-highlighted.n60) + .el-ul,
+.markdown-preview-view .el-p:has(.kh-highlighted.n60) + .el-ol { width: calc(60% - 0.5rem); float: left; margin-top: 0; }
+
+/* n65: 35% left / 65% right */
+.markdown-preview-view .el-p:has(.kh-highlighted.n65) { width: calc(35% - 0.5rem); float: left; margin-right: 1rem; clear: left; }
+.markdown-preview-view .el-p:has(.kh-highlighted.n65) + .el-p,
+.markdown-preview-view .el-p:has(.kh-highlighted.n65) + .el-pre,
+.markdown-preview-view .el-p:has(.kh-highlighted.n65) + div,
+.markdown-preview-view .el-p:has(.kh-highlighted.n65) + .el-ul,
+.markdown-preview-view .el-p:has(.kh-highlighted.n65) + .el-ol { width: calc(65% - 0.5rem); float: left; margin-top: 0; }
+
+/* n70: 30% left / 70% right */
+.markdown-preview-view .el-p:has(.kh-highlighted.n70) { width: calc(30% - 0.5rem); float: left; margin-right: 1rem; clear: left; }
+.markdown-preview-view .el-p:has(.kh-highlighted.n70) + .el-p,
+.markdown-preview-view .el-p:has(.kh-highlighted.n70) + .el-pre,
+.markdown-preview-view .el-p:has(.kh-highlighted.n70) + div,
+.markdown-preview-view .el-p:has(.kh-highlighted.n70) + .el-ul,
+.markdown-preview-view .el-p:has(.kh-highlighted.n70) + .el-ol { width: calc(70% - 0.5rem); float: left; margin-top: 0; }
+
+/* n75: 25% left / 75% right */
+.markdown-preview-view .el-p:has(.kh-highlighted.n75) { width: calc(25% - 0.5rem); float: left; margin-right: 1rem; clear: left; }
+.markdown-preview-view .el-p:has(.kh-highlighted.n75) + .el-p,
+.markdown-preview-view .el-p:has(.kh-highlighted.n75) + .el-pre,
+.markdown-preview-view .el-p:has(.kh-highlighted.n75) + div,
+.markdown-preview-view .el-p:has(.kh-highlighted.n75) + .el-ul,
+.markdown-preview-view .el-p:has(.kh-highlighted.n75) + .el-ol { width: calc(75% - 0.5rem); float: left; margin-top: 0; }
+
+/* n80: 20% left / 80% right */
+.markdown-preview-view .el-p:has(.kh-highlighted.n80) { width: calc(20% - 0.5rem); float: left; margin-right: 1rem; clear: left; }
+.markdown-preview-view .el-p:has(.kh-highlighted.n80) + .el-p,
+.markdown-preview-view .el-p:has(.kh-highlighted.n80) + .el-pre,
+.markdown-preview-view .el-p:has(.kh-highlighted.n80) + div,
+.markdown-preview-view .el-p:has(.kh-highlighted.n80) + .el-ul,
+.markdown-preview-view .el-p:has(.kh-highlighted.n80) + .el-ol { width: calc(80% - 0.5rem); float: left; margin-top: 0; }
+
+/* n85: 15% left / 85% right */
+.markdown-preview-view .el-p:has(.kh-highlighted.n85) { width: calc(15% - 0.5rem); float: left; margin-right: 1rem; clear: left; }
+.markdown-preview-view .el-p:has(.kh-highlighted.n85) + .el-p,
+.markdown-preview-view .el-p:has(.kh-highlighted.n85) + .el-pre,
+.markdown-preview-view .el-p:has(.kh-highlighted.n85) + div,
+.markdown-preview-view .el-p:has(.kh-highlighted.n85) + .el-ul,
+.markdown-preview-view .el-p:has(.kh-highlighted.n85) + .el-ol { width: calc(85% - 0.5rem); float: left; margin-top: 0; }
+
+/* n90: 10% left / 90% right */
+.markdown-preview-view .el-p:has(.kh-highlighted.n90) { width: calc(10% - 0.5rem); float: left; margin-right: 1rem; clear: left; }
+.markdown-preview-view .el-p:has(.kh-highlighted.n90) + .el-p,
+.markdown-preview-view .el-p:has(.kh-highlighted.n90) + .el-pre,
+.markdown-preview-view .el-p:has(.kh-highlighted.n90) + div,
+.markdown-preview-view .el-p:has(.kh-highlighted.n90) + .el-ul,
+.markdown-preview-view .el-p:has(.kh-highlighted.n90) + .el-ol { width: calc(90% - 0.5rem); float: left; margin-top: 0; }
+
+/* Clear float after the second element */
+.markdown-preview-view .el-p:has(.kh-highlighted[class*="n1"]) + * + *,
+.markdown-preview-view .el-p:has(.kh-highlighted[class*="n2"]) + * + *,
+.markdown-preview-view .el-p:has(.kh-highlighted[class*="n3"]) + * + *,
+.markdown-preview-view .el-p:has(.kh-highlighted[class*="n4"]) + * + *,
+.markdown-preview-view .el-p:has(.kh-highlighted[class*="n5"]) + * + *,
+.markdown-preview-view .el-p:has(.kh-highlighted[class*="n6"]) + * + *,
+.markdown-preview-view .el-p:has(.kh-highlighted[class*="n7"]) + * + *,
+.markdown-preview-view .el-p:has(.kh-highlighted[class*="n8"]) + * + *,
+.markdown-preview-view .el-p:has(.kh-highlighted[class*="n9"]) + * + * {
+  clear: both;
+}
+
+/* Mobile responsive: remove float on small screens */
+@media (max-width: 400px) {
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n1"]),
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n2"]),
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n3"]),
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n4"]),
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n5"]),
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n6"]),
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n7"]),
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n8"]),
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n9"]) {
+    width: auto;
+    float: none;
+    margin-right: 0;
+  }
+
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n1"]) + .el-p,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n2"]) + .el-p,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n3"]) + .el-p,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n4"]) + .el-p,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n5"]) + .el-p,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n6"]) + .el-p,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n7"]) + .el-p,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n8"]) + .el-p,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n9"]) + .el-p,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n1"]) + .el-pre,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n2"]) + .el-pre,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n3"]) + .el-pre,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n4"]) + .el-pre,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n5"]) + .el-pre,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n6"]) + .el-pre,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n7"]) + .el-pre,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n8"]) + .el-pre,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n9"]) + .el-pre,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n1"]) + div,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n2"]) + div,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n3"]) + div,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n4"]) + div,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n5"]) + div,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n6"]) + div,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n7"]) + div,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n8"]) + div,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n9"]) + div,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n1"]) + .el-ul,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n2"]) + .el-ul,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n3"]) + .el-ul,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n4"]) + .el-ul,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n5"]) + .el-ul,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n6"]) + .el-ul,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n7"]) + .el-ul,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n8"]) + .el-ul,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n9"]) + .el-ul,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n1"]) + .el-ol,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n2"]) + .el-ol,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n3"]) + .el-ol,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n4"]) + .el-ol,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n5"]) + .el-ol,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n6"]) + .el-ol,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n7"]) + .el-ol,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n8"]) + .el-ol,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n9"]) + .el-ol {
+    width: auto;
+    float: none;
+    margin-top: inherit;
+  }
+
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n1"]) + * + *,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n2"]) + * + *,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n3"]) + * + *,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n4"]) + * + *,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n5"]) + * + *,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n6"]) + * + *,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n7"]) + * + *,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n8"]) + * + *,
+  .markdown-preview-view .el-p:has(.kh-highlighted[class*="n9"]) + * + * {
+    clear: none;
+  }
+}
+

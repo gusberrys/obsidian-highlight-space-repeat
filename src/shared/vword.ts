@@ -1,10 +1,11 @@
 /**
  * VWord (Visual Word) - special pattern-based keywords for visual layout control
  *
- * Three types:
+ * Four types:
  * - i-keywords: Control image column width (i10 to i90, step 5)
  * - h-keywords: Control horizontal list item ratios (2-5 elements, sum 2-7)
  * - l-keywords: Control last-item grid layout (l10 to l90, step 5)
+ * - n-keywords: Control next-element column width (n10 to n90, step 10)
  */
 
 export interface VWordSettings {
@@ -17,7 +18,7 @@ export const DEFAULT_VWORD_SETTINGS: VWordSettings = {
   backgroundColor: '#666666'
 };
 
-export type VWordType = 'i' | 'h' | 'l';
+export type VWordType = 'i' | 'h' | 'l' | 'n';
 
 export interface VWordKeyword {
   keyword: string;  // e.g., "i67", "r123"
@@ -32,7 +33,7 @@ export interface VWordKeyword {
  * l-keywords: l10, l15, l20, ..., l90 (17 total)
  */
 export function isVWordKeyword(keyword: string): boolean {
-  return isIKeyword(keyword) || isHKeyword(keyword) || isLKeyword(keyword);
+  return isIKeyword(keyword) || isHKeyword(keyword) || isLKeyword(keyword) || isNKeyword(keyword);
 }
 
 /**
@@ -52,6 +53,18 @@ export function isIKeyword(keyword: string): boolean {
  */
 export function isLKeyword(keyword: string): boolean {
   const match = keyword.match(/^l(\d+)$/);
+  if (!match) return false;
+
+  const value = parseInt(match[1], 10);
+  // Must be 10-90 and divisible by 5
+  return value >= 10 && value <= 90 && value % 5 === 0;
+}
+
+/**
+ * Check if keyword is n-keyword (n10 to n90, step 5)
+ */
+export function isNKeyword(keyword: string): boolean {
+  const match = keyword.match(/^n(\d+)$/);
   if (!match) return false;
 
   const value = parseInt(match[1], 10);
@@ -101,6 +114,11 @@ export function parseVWordKeyword(keyword: string): VWordKeyword | null {
   if (isLKeyword(keyword)) {
     const value = keyword.substring(1); // Remove 'l' prefix
     return { keyword, type: 'l', value };
+  }
+
+  if (isNKeyword(keyword)) {
+    const value = keyword.substring(1); // Remove 'n' prefix
+    return { keyword, type: 'n', value };
   }
 
   return null;
