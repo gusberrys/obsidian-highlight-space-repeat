@@ -10,6 +10,7 @@ export class RecordsControlRenderer {
 	private filterType: 'F' | 'H' | 'R' | 'D' | null;
 	private trimSubItems: boolean;
 	private topRecordOnly: boolean;
+	private colorFilterMode: boolean;
 
 	// Callbacks
 	private onExpressionSearch: (expression: string) => void;
@@ -18,6 +19,7 @@ export class RecordsControlRenderer {
 	private onFilterTypeChange: (type: 'F' | 'H' | 'R' | 'D') => void;
 	private onTrimToggle: () => void;
 	private onTopToggle: () => void;
+	private onColorFilterToggle: () => void;
 	private onToggleAllFiles: () => void;
 	private onSRSReview: () => Promise<void>;
 	private onFileSearchChange: (searchText: string) => void;
@@ -31,6 +33,7 @@ export class RecordsControlRenderer {
 		flags: {
 			trimSubItems: boolean;
 			topRecordOnly: boolean;
+			colorFilterMode: boolean;
 		},
 		callbacks: {
 			onExpressionSearch: (expression: string) => void;
@@ -39,6 +42,7 @@ export class RecordsControlRenderer {
 			onFilterTypeChange: (type: 'F' | 'H' | 'R' | 'D') => void;
 			onTrimToggle: () => void;
 			onTopToggle: () => void;
+			onColorFilterToggle: () => void;
 			onToggleAllFiles: () => void;
 			onSRSReview: () => Promise<void>;
 			onFileSearchChange: (searchText: string) => void;
@@ -49,6 +53,7 @@ export class RecordsControlRenderer {
 		this.filterType = filterState.filterType;
 		this.trimSubItems = flags.trimSubItems;
 		this.topRecordOnly = flags.topRecordOnly;
+		this.colorFilterMode = flags.colorFilterMode;
 
 		this.onExpressionSearch = callbacks.onExpressionSearch;
 		this.onExpressionInput = callbacks.onExpressionInput;
@@ -56,6 +61,7 @@ export class RecordsControlRenderer {
 		this.onFilterTypeChange = callbacks.onFilterTypeChange;
 		this.onTrimToggle = callbacks.onTrimToggle;
 		this.onTopToggle = callbacks.onTopToggle;
+		this.onColorFilterToggle = callbacks.onColorFilterToggle;
 		this.onToggleAllFiles = callbacks.onToggleAllFiles;
 		this.onSRSReview = callbacks.onSRSReview;
 		this.onFileSearchChange = callbacks.onFileSearchChange;
@@ -146,6 +152,7 @@ BOOLEAN OPERATORS:
 FLAGS (R mode only):
   \\s - Slim: show only matching sub-items
   \\t - Top: show only top-level matches
+  \\c - Color Filter: show colors only for active chips
 
 CLAUSES (R mode only):
   W: #tag - WHERE to search (filter files)
@@ -208,6 +215,19 @@ Examples:
 		topToggle.disabled = !flagsEnabled;
 		topToggle.addEventListener('click', () => {
 			if (flagsEnabled) this.onTopToggle();
+		});
+
+		const colorFilterToggle = expressionContainer.createEl('button', {
+			cls: 'kh-filter-toggle' + (this.colorFilterMode ? ' kh-filter-toggle-active' : ''),
+			text: 'C',
+			title: 'Color Filter: Show colors only for active chips (\\c flag)' + (flagsEnabled ? '' : ' [Only available for Records]'),
+			attr: {
+				style: 'padding: 4px 8px; border-radius: 4px; border: 1px solid var(--background-modifier-border); cursor: pointer;' + (flagsEnabled ? '' : ' opacity: 0.3; cursor: not-allowed;')
+			}
+		});
+		colorFilterToggle.disabled = !flagsEnabled;
+		colorFilterToggle.addEventListener('click', () => {
+			if (flagsEnabled) this.onColorFilterToggle();
 		});
 
 		// Toggle all files button

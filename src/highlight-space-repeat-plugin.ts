@@ -211,6 +211,26 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       }
     });
 
+    // Add command to trigger re-search in Records View
+    this.addCommand({
+      id: 'records-view-trigger-search',
+      name: 'Records View: Trigger Search',
+      callback: () => {
+        const { workspace } = this.app;
+        const leaves = workspace.getLeavesOfType(RECORDS_VIEW_TYPE);
+
+        if (leaves.length > 0) {
+          const recordsView = leaves[0].view as RecordsViewWidget;
+          if (recordsView && recordsView.triggerSearch) {
+            recordsView.triggerSearch();
+            new Notice('Records view search triggered');
+          }
+        } else {
+          new Notice('Records view is not open');
+        }
+      }
+    });
+
     // Add command to open Matrix View
     this.addCommand({
       id: 'open-subject-matrix',

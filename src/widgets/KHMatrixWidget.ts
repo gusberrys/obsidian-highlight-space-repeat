@@ -41,6 +41,9 @@ export class KHMatrixWidget extends ItemView {
 	private showExpressions: boolean = true;
 	private showLegend: boolean = false;
 
+	// Event reference for cleanup
+	private activeLeafChangeRef: any = null;
+
 	constructor(leaf: WorkspaceLeaf, plugin: HighlightSpaceRepeatPlugin) {
 		super(leaf);
 		this.plugin = plugin;
@@ -61,6 +64,22 @@ export class KHMatrixWidget extends ItemView {
 	async onOpen() {
 		await this.loadData();
 		await this.render();
+
+		// Listen for file opens to update column highlighting
+		// Using 'file-open' instead of 'active-leaf-change' to avoid re-rendering during click
+		this.activeLeafChangeRef = this.app.workspace.on('file-open', async () => {
+			// Only re-render columns section if a row is selected
+			if (this.selectedRowId) {
+				await this.renderColumnsOnly();
+			}
+		});
+	}
+
+	async onClose() {
+		// Cleanup event listener
+		if (this.activeLeafChangeRef) {
+			this.app.workspace.offref(this.activeLeafChangeRef);
+		}
 	}
 
 	async loadData() {
@@ -353,6 +372,7 @@ export class KHMatrixWidget extends ItemView {
 
 		// Render columns using ColumnsRenderer
 		const renderer = new ColumnsRenderer(
+			this.app,
 			this.currentSubject,
 			this.cellInstances,
 			parsedRecords,
@@ -379,6 +399,24 @@ export class KHMatrixWidget extends ItemView {
 		);
 
 		renderer.render(columnsContainer);
+	}
+
+	/**
+	 * Re-render only the columns section (for active file highlighting updates)
+	 */
+	private async renderColumnsOnly() {
+		if (!this.currentSubject || !this.selectedRowId) return;
+
+		const container = this.containerEl.children[1] as HTMLElement;
+		const existingColumnsSection = container.querySelector('.kh-columns-section');
+
+		if (existingColumnsSection) {
+			// Remove existing columns section
+			existingColumnsSection.remove();
+		}
+
+		// Re-render columns
+		await this.renderColumns(container);
 	}
 
 	/**

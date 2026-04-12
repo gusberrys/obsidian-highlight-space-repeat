@@ -29,6 +29,7 @@ export class RecordsRenderer {
 	private activeChips: Map<string, ActiveChip>;
 	private trimSubItems: boolean;
 	private topRecordOnly: boolean;
+	private colorFilterMode: boolean;
 
 	// UI state
 	private collapsedFiles: Set<string>;
@@ -45,6 +46,7 @@ export class RecordsRenderer {
 	private onFilterTypeChange: (type: 'F' | 'H' | 'R' | 'D') => void;
 	private onTrimToggle: () => void;
 	private onTopToggle: () => void;
+	private onColorFilterToggle: () => void;
 	private onToggleAllFiles: () => void;
 	private onLegendToggle: () => void;
 	private onChipClick: (chipId: string) => void;
@@ -65,6 +67,7 @@ export class RecordsRenderer {
 			activeChips: Map<string, ActiveChip>;
 			trimSubItems: boolean;
 			topRecordOnly: boolean;
+			colorFilterMode: boolean;
 		},
 		uiState: {
 			collapsedFiles: Set<string>;
@@ -77,6 +80,7 @@ export class RecordsRenderer {
 			onFilterTypeChange: (type: 'F' | 'H' | 'R' | 'D') => void;
 			onTrimToggle: () => void;
 			onTopToggle: () => void;
+			onColorFilterToggle: () => void;
 			onToggleAllFiles: () => void;
 			onLegendToggle: () => void;
 			onChipClick: (chipId: string) => void;
@@ -96,6 +100,7 @@ export class RecordsRenderer {
 		this.activeChips = uiFlags.activeChips;
 		this.trimSubItems = uiFlags.trimSubItems;
 		this.topRecordOnly = uiFlags.topRecordOnly;
+		this.colorFilterMode = uiFlags.colorFilterMode;
 
 		this.collapsedFiles = uiState.collapsedFiles;
 		this.expandedHeaders = uiState.expandedHeaders;
@@ -106,6 +111,7 @@ export class RecordsRenderer {
 		this.onFilterTypeChange = callbacks.onFilterTypeChange;
 		this.onTrimToggle = callbacks.onTrimToggle;
 		this.onTopToggle = callbacks.onTopToggle;
+		this.onColorFilterToggle = callbacks.onColorFilterToggle;
 		this.onToggleAllFiles = callbacks.onToggleAllFiles;
 		this.onLegendToggle = callbacks.onLegendToggle;
 		this.onChipClick = callbacks.onChipClick;
@@ -132,7 +138,8 @@ export class RecordsRenderer {
 			},
 			{
 				trimSubItems: this.trimSubItems,
-				topRecordOnly: this.topRecordOnly
+				topRecordOnly: this.topRecordOnly,
+				colorFilterMode: this.colorFilterMode
 			},
 			{
 				onExpressionSearch: this.onExpressionSearch,
@@ -141,6 +148,7 @@ export class RecordsRenderer {
 				onFilterTypeChange: this.onFilterTypeChange,
 				onTrimToggle: this.onTrimToggle,
 				onTopToggle: this.onTopToggle,
+				onColorFilterToggle: this.onColorFilterToggle,
 				onToggleAllFiles: this.onToggleAllFiles,
 				onSRSReview: this.onSRSReview,
 				onFileSearchChange: (searchText: string) => this.applyFileSearchFilter(searchText)

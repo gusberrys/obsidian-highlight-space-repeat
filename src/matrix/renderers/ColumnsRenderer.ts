@@ -1,3 +1,4 @@
+import type { App } from 'obsidian';
 import type { Subject } from '../../interfaces/Subject';
 import type { Topic } from '../../interfaces/Topic';
 import type { ParsedFile } from '../../interfaces/ParsedFile';
@@ -10,6 +11,7 @@ import { getFileNameFromPath } from '../../utils/file-helpers';
  * Takes cell instances (data) and renders them into column DOM
  */
 export class ColumnsRenderer {
+	private app: App;
 	private subject: Subject;
 	private cellInstances: Map<string, MatrixCell>;
 	private parsedRecords: ParsedFile[];
@@ -20,6 +22,7 @@ export class ColumnsRenderer {
 	private onCountClick: (type: 'F' | 'H' | 'R' | 'D', cellKey: string) => void;
 
 	constructor(
+		app: App,
 		subject: Subject,
 		cellInstances: Map<string, MatrixCell>,
 		parsedRecords: ParsedFile[],
@@ -29,6 +32,7 @@ export class ColumnsRenderer {
 			onCountClick: (type: 'F' | 'H' | 'R' | 'D', cellKey: string) => void;
 		}
 	) {
+		this.app = app;
 		this.subject = subject;
 		this.cellInstances = cellInstances;
 		this.parsedRecords = parsedRecords;
@@ -158,8 +162,17 @@ export class ColumnsRenderer {
 			// Check if this file was already shown in a previous column
 			const isDuplicate = shownFiles.has(record.filePath);
 
+			// Check if this is the currently active/focused file
+			const activeFile = this.app.workspace.getActiveFile();
+			const isActiveFile = activeFile && activeFile.path === record.filePath;
+
+			// Style active file with white background and black text (highest priority)
+			if (isActiveFile) {
+				fileItem.style.setProperty('background-color', '#ffffff', 'important');
+				fileItem.style.setProperty('color', '#000000', 'important');
+			}
 			// Style duplicates differently (green background, gray text)
-			if (isDuplicate) {
+			else if (isDuplicate) {
 				fileItem.style.backgroundColor = 'rgba(0, 255, 0, 0.1)';
 			}
 
@@ -168,8 +181,12 @@ export class ColumnsRenderer {
 				cls: 'kh-dashboard-file-name'
 			});
 
+			// Apply text color to file name span
+			if (isActiveFile) {
+				fileNameSpan.style.setProperty('color', '#000000', 'important');
+			}
 			// Gray out duplicate file names
-			if (isDuplicate) {
+			else if (isDuplicate) {
 				fileNameSpan.style.color = 'var(--text-muted)';
 			}
 

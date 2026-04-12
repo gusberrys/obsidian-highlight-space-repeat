@@ -32,10 +32,14 @@ export class RecordsViewWidget extends ItemView {
 	private activeChips: Map<string, ActiveChip> = new Map();
 	private trimSubItems: boolean = false;
 	private topRecordOnly: boolean = false;
+	private colorFilterMode: boolean = false; // \c flag active
 	private showLegend: boolean = false;
 
 	// Debounce timer for file search
 	private fileSearchDebounceTimer: NodeJS.Timeout | null = null;
+
+	// Color filter CSS element
+	private colorFilterStyleElement: HTMLStyleElement | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: HighlightSpaceRepeatPlugin) {
 		super(leaf);
@@ -59,7 +63,11 @@ export class RecordsViewWidget extends ItemView {
 	}
 
 	async onClose() {
-		// Cleanup if needed
+		// Cleanup color filter CSS
+		if (this.colorFilterStyleElement) {
+			this.colorFilterStyleElement.remove();
+		}
+		document.body.removeClass('cc-filtered');
 	}
 
 	/**
@@ -120,7 +128,8 @@ export class RecordsViewWidget extends ItemView {
 			{
 				activeChips: this.activeChips,
 				trimSubItems: this.trimSubItems,
-				topRecordOnly: this.topRecordOnly
+				topRecordOnly: this.topRecordOnly,
+				colorFilterMode: this.colorFilterMode
 			},
 			{
 				collapsedFiles: this.collapsedFiles,
@@ -207,6 +216,12 @@ export class RecordsViewWidget extends ItemView {
 				onTopToggle: () => {
 					this.topRecordOnly = !this.topRecordOnly;
 					this.toggleFilterModifier('\\t', this.topRecordOnly);
+					this.render();
+				},
+				onColorFilterToggle: () => {
+					this.colorFilterMode = !this.colorFilterMode;
+					this.toggleFilterModifier('\\c', this.colorFilterMode);
+					this.updateColorFilterCSS();
 					this.render();
 				},
 				onToggleAllFiles: () => {
@@ -389,6 +404,9 @@ export class RecordsViewWidget extends ItemView {
 
 		this.syncButtonsFromExpression();
 
+		// Update color filter CSS if flag is active
+		this.updateColorFilterCSS();
+
 		// Re-render records section
 		this.renderRecordsOnly();
 	}
@@ -406,6 +424,107 @@ export class RecordsViewWidget extends ItemView {
 			this.widgetFilterExpression = this.widgetFilterExpression.replace(new RegExp('\\s*' + modifier.replace(/\\/g, '\\\\') + '\\s*', 'g'), ' ');
 			this.widgetFilterExpression = this.widgetFilterExpression.trim();
 		}
+
+		// Update CSS if color filter flag changed
+		if (modifier === '\\c') {
+			this.updateColorFilterCSS();
+		}
+	}
+
+	/**
+	 * Update CSS to only colorize active chip keywords when \c flag enabled
+	 */
+	private updateColorFilterCSS(): void {
+		// Remove existing style element
+		if (this.colorFilterStyleElement) {
+			this.colorFilterStyleElement.remove();
+			this.colorFilterStyleElement = null;
+		}
+
+		// If flag disabled, restore default colors (remove body class)
+		if (!this.colorFilterMode) {
+			document.body.removeClass('cc-filtered');
+			return;
+		}
+
+		// Add body class to enable filter mode
+		document.body.addClass('cc-filtered');
+
+		// Get active keywords from chips (include mode only)
+		const activeKeywords = new Set<string>();
+
+		for (const [key, chip] of this.activeChips) {
+			if (chip.mode === 'include') {
+				if (chip.type === 'keyword') {
+					activeKeywords.add(chip.value);
+				} else if (chip.type === 'category') {
+					// Get all keywords in this category
+					const category = HighlightSpaceRepeatPlugin.settings.categories.find(
+						cat => cat.id === chip.value
+					);
+					if (category) {
+						category.keywords.forEach(kw => {
+							if (kw.keyword) activeKeywords.add(kw.keyword);
+						});
+					}
+				}
+			}
+		}
+
+		// Generate CSS rules
+		const cssRules: string[] = [];
+
+		// Base rule: hide all colors when filter mode active
+		cssRules.push(`
+body.cc-enabled.cc-filtered .kh-highlighted {
+  color: inherit !important;
+  background-color: transparent !important;
+}
+
+body.cc-enabled.cc-filtered mark {
+  color: inherit !important;
+  background-color: transparent !important;
+}
+		`);
+
+		// Restore colors for active keywords only
+		for (const keyword of activeKeywords) {
+			// Get keyword metadata for colors
+			const kwData = this.getKeywordData(keyword);
+			if (kwData) {
+				cssRules.push(`
+body.cc-enabled.cc-filtered .kh-highlighted.${keyword} {
+  color: ${kwData.color} !important;
+  background-color: ${kwData.backgroundColor} !important;
+}
+
+body.cc-enabled.cc-filtered mark.${keyword} {
+  color: ${kwData.color} !important;
+  background-color: ${kwData.backgroundColor} !important;
+}
+				`);
+			}
+		}
+
+		// Inject CSS
+		this.colorFilterStyleElement = document.head.createEl('style');
+		this.colorFilterStyleElement.textContent = cssRules.join('\n');
+	}
+
+	/**
+	 * Get keyword color/background from settings
+	 */
+	private getKeywordData(keyword: string): { color: string; backgroundColor: string } | null {
+		for (const category of HighlightSpaceRepeatPlugin.settings.categories) {
+			const kw = category.keywords.find(k => k.keyword === keyword);
+			if (kw) {
+				return {
+					color: kw.color,
+					backgroundColor: kw.backgroundColor
+				};
+			}
+		}
+		return null;
 	}
 
 	/**
@@ -414,6 +533,7 @@ export class RecordsViewWidget extends ItemView {
 	private syncButtonsFromExpression(): void {
 		this.trimSubItems = this.widgetFilterExpression.includes('\\s');
 		this.topRecordOnly = this.widgetFilterExpression.includes('\\t');
+		this.colorFilterMode = this.widgetFilterExpression.includes('\\c');
 	}
 
 	/**
@@ -438,7 +558,7 @@ export class RecordsViewWidget extends ItemView {
 		}
 
 		// Remove modifiers
-		selectClause = selectClause.replace(/\\[sat]/g, '').trim();
+		selectClause = selectClause.replace(/\\[satc]/g, '').trim();
 
 		if (!selectClause) {
 			return { keywords: [], categoryIds: [], languages: [] };
@@ -611,5 +731,13 @@ export class RecordsViewWidget extends ItemView {
 		});
 
 		this.render();
+	}
+
+	/**
+	 * Trigger re-search with current filter expression (for updating color filters, etc.)
+	 */
+	public triggerSearch() {
+		// Re-process current expression to update chips and color filters
+		this.setFilterExpression(this.widgetFilterExpression, this.widgetFilterType || undefined);
 	}
 }
