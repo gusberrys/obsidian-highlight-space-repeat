@@ -744,6 +744,77 @@ export class RecordsRenderer {
 		// Get matching records
 		let matchingRecords = FilterExpressionService.getMatchingRecords(this.parsedRecords, this.filterExpression);
 
+		// Compile SELECT expression for UI-level filtering (topRecordOnly, trimSubItems)
+		let selectCompiled: import('../../interfaces/FilterInterfaces').CompiledFilter | undefined;
+		if ((this.topRecordOnly || this.trimSubItems) && this.filterExpression) {
+			try {
+				// Transform and extract SELECT clause
+				const hasExplicitOperators = /\b(AND|OR)\b/.test(this.filterExpression);
+				const expr = hasExplicitOperators
+					? this.filterExpression
+					: FilterExpressionService.transformFilterExpression(this.filterExpression);
+
+				// Skip compilation if expression is empty after transformation
+				if (!expr || !expr.trim()) {
+					selectCompiled = undefined;
+				} else {
+					const hasWhere = /\s+[Ww]:\s+/.test(expr);
+					const selectExpr = hasWhere ? expr.split(/\s+[Ww]:\s+/)[0].trim() : expr;
+					selectCompiled = FilterParser.compile(selectExpr);
+				}
+			} catch (error) {
+				console.error('[renderRecordFilterResults] Failed to compile SELECT for UI filtering:', error);
+			}
+		}
+
+		// Apply topRecordOnly filter if enabled - remove records where match is only in sub-items
+		if (this.topRecordOnly && this.filterExpression && selectCompiled) {
+			matchingRecords = matchingRecords.filter(({ entry, file }) => {
+				// Keep codeblocks - they are always top-level entries
+				if (entry.type === 'codeblock') {
+					return true;
+				}
+				// For keyword entries, check if SELECT matches using ONLY top-level keywords
+				// Top-level = entry.keywords + entry.inlineKeywords (from main text)
+				// Exclude = sub-items (which have their own keywords and inlineKeywords)
+				const topLevelEntry: FlatEntry = {
+					...entry,
+					subItems: [] // Clear sub-items so their keywords/inlineKeywords are not checked
+				};
+				// Re-evaluate SELECT clause with top-level data only (no sub-items)
+				return FilterParser.evaluateFlatEntry(selectCompiled.ast, topLevelEntry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers);
+			});
+		}
+
+		// Apply trim filter if enabled - filter sub-items to only those matching SELECT clause
+		if (this.trimSubItems && selectCompiled) {
+			matchingRecords = matchingRecords.map(({ entry, file }) => {
+				if (entry.subItems && entry.subItems.length > 0) {
+					// Filter sub-items to only those matching the SELECT clause
+					const filteredSubItems = entry.subItems.filter(subItem => {
+						// Create a FlatEntry for this subitem with its own keywords and inline keywords
+						const subItemEntry: FlatEntry = {
+							...entry,
+							keywords: subItem.keywords || [],
+							inlineKeywords: subItem.inlineKeywords || [],
+							inlineCodeLanguages: subItem.inlineCodeLanguages || [],
+							text: subItem.content || '',
+							subItems: [] // Sub-items don't have their own sub-items
+						};
+						// Check if this subitem matches the SELECT clause
+						const matches = FilterParser.evaluateFlatEntry(selectCompiled.ast, subItemEntry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers);
+						return matches;
+					});
+
+					return {
+						entry: { ...entry, subItems: filteredSubItems },
+						file
+					};
+				}
+				return { entry, file };
+			});
+		}
+
 		// Apply text filter
 		if (this.filterText) {
 			matchingRecords = matchingRecords.filter(({ entry, file }) =>
@@ -773,6 +844,75 @@ export class RecordsRenderer {
 	private async renderDashFilterResults(container: HTMLElement): Promise<void> {
 		// Get dashboard records
 		let matchingRecords = FilterExpressionService.getMatchingRecords(this.parsedRecords, this.filterExpression);
+
+		// Compile SELECT expression for UI-level filtering (topRecordOnly, trimSubItems)
+		let selectCompiled: import('../../interfaces/FilterInterfaces').CompiledFilter | undefined;
+		if ((this.topRecordOnly || this.trimSubItems) && this.filterExpression) {
+			try {
+				// Transform and extract SELECT clause
+				const hasExplicitOperators = /\b(AND|OR)\b/.test(this.filterExpression);
+				const expr = hasExplicitOperators
+					? this.filterExpression
+					: FilterExpressionService.transformFilterExpression(this.filterExpression);
+
+				// Skip compilation if expression is empty after transformation
+				if (!expr || !expr.trim()) {
+					selectCompiled = undefined;
+				} else {
+					const hasWhere = /\s+[Ww]:\s+/.test(expr);
+					const selectExpr = hasWhere ? expr.split(/\s+[Ww]:\s+/)[0].trim() : expr;
+					selectCompiled = FilterParser.compile(selectExpr);
+				}
+			} catch (error) {
+				console.error('[renderDashFilterResults] Failed to compile SELECT for UI filtering:', error);
+			}
+		}
+
+		// Apply topRecordOnly filter if enabled - remove records where match is only in sub-items
+		if (this.topRecordOnly && this.filterExpression && selectCompiled) {
+			matchingRecords = matchingRecords.filter(({ entry, file }) => {
+				// Keep codeblocks - they are always top-level entries
+				if (entry.type === 'codeblock') {
+					return true;
+				}
+				// For keyword entries, check if SELECT matches using ONLY top-level keywords
+				const topLevelEntry: FlatEntry = {
+					...entry,
+					subItems: [] // Clear sub-items so their keywords/inlineKeywords are not checked
+				};
+				// Re-evaluate SELECT clause with top-level data only (no sub-items)
+				return FilterParser.evaluateFlatEntry(selectCompiled.ast, topLevelEntry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers);
+			});
+		}
+
+		// Apply trim filter if enabled - filter sub-items to only those matching SELECT clause
+		if (this.trimSubItems && selectCompiled) {
+			matchingRecords = matchingRecords.map(({ entry, file }) => {
+				if (entry.subItems && entry.subItems.length > 0) {
+					// Filter sub-items to only those matching the SELECT clause
+					const filteredSubItems = entry.subItems.filter(subItem => {
+						// Create a FlatEntry for this subitem with its own keywords and inline keywords
+						const subItemEntry: FlatEntry = {
+							...entry,
+							keywords: subItem.keywords || [],
+							inlineKeywords: subItem.inlineKeywords || [],
+							inlineCodeLanguages: subItem.inlineCodeLanguages || [],
+							text: subItem.content || '',
+							subItems: [] // Sub-items don't have their own sub-items
+						};
+						// Check if this subitem matches the SELECT clause
+						const matches = FilterParser.evaluateFlatEntry(selectCompiled.ast, subItemEntry, HighlightSpaceRepeatPlugin.settings.categories, selectCompiled.modifiers);
+						return matches;
+					});
+
+					return {
+						entry: { ...entry, subItems: filteredSubItems },
+						file
+					};
+				}
+				return { entry, file };
+			});
+		}
 
 		// Apply text filter
 		if (this.filterText) {
