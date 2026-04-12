@@ -72,8 +72,6 @@ export class ColumnsRenderer {
 
 		// Render secondary columns
 		secondaryTopics.forEach((topic, index) => {
-			if (topic.fhDisabled) return;
-
       // common secondary topics belongs to everyone and can proceed
 			const isCommon = !topic.primaryTopicIds || topic.primaryTopicIds.length === 0;
       // specific topic for my primary topic

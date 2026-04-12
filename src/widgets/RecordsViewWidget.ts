@@ -150,6 +150,9 @@ export class RecordsViewWidget extends ItemView {
 						return;
 					}
 
+					// Sync button states from expression (including \c flag)
+					this.syncButtonsFromExpression();
+
 					// Extract and create chips from expression
 					const extracted = this.extractChipsFromFilterExpression(expression);
 					this.activeChips.clear();
@@ -197,6 +200,9 @@ export class RecordsViewWidget extends ItemView {
 							active: true
 						});
 					});
+
+					// Update color filter CSS (now that colorFilterMode is synced)
+					this.updateColorFilterCSS();
 
 					this.render();
 				},
@@ -682,6 +688,9 @@ body.cc-enabled.cc-filtered mark.${keyword} {
 			return;
 		}
 
+		// Sync button states from expression (including \c flag)
+		this.syncButtonsFromExpression();
+
 		// Extract and create chips from expression
 		const extracted = this.extractChipsFromFilterExpression(expression);
 		this.activeChips.clear();
@@ -730,14 +739,9 @@ body.cc-enabled.cc-filtered mark.${keyword} {
 			});
 		});
 
-		this.render();
-	}
+		// Update color filter CSS (now that colorFilterMode is synced)
+		this.updateColorFilterCSS();
 
-	/**
-	 * Trigger re-search with current filter expression (for updating color filters, etc.)
-	 */
-	public triggerSearch() {
-		// Re-process current expression to update chips and color filters
-		this.setFilterExpression(this.widgetFilterExpression, this.widgetFilterType || undefined);
+		this.render();
 	}
 }

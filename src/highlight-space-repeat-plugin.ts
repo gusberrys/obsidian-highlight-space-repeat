@@ -26,6 +26,9 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
   // Track registered subject commands for cleanup
   private subjectCommandIds: string[] = [];
 
+  // Store last active leaf before focusing filter input
+  private lastActiveLeafBeforeFilter: WorkspaceLeaf | null = null;
+
   // Simple data adapter wrapper
   private adapter = {
     read: async (path: string): Promise<string> => {
@@ -211,22 +214,53 @@ export class HighlightSpaceRepeatPlugin extends Plugin {
       }
     });
 
-    // Add command to trigger re-search in Records View
+    // Add command to toggle focus between filter input and editor
     this.addCommand({
-      id: 'records-view-trigger-search',
-      name: 'Records View: Trigger Search',
+      id: 'records-view-toggle-filter-focus',
+      name: 'Records View: Toggle Filter Focus',
       callback: () => {
         const { workspace } = this.app;
-        const leaves = workspace.getLeavesOfType(RECORDS_VIEW_TYPE);
+        const activeElement = document.activeElement as HTMLElement;
 
-        if (leaves.length > 0) {
-          const recordsView = leaves[0].view as RecordsViewWidget;
-          if (recordsView && recordsView.triggerSearch) {
-            recordsView.triggerSearch();
-            new Notice('Records view search triggered');
+        // Check if currently focused on filter input
+        const isFocusedOnFilter = activeElement?.classList?.contains('kh-widget-filter-expression');
+
+        if (isFocusedOnFilter) {
+          // Focus back to stored leaf (or last active editor)
+          if (this.lastActiveLeafBeforeFilter) {
+            workspace.setActiveLeaf(this.lastActiveLeafBeforeFilter, { focus: true });
+            this.lastActiveLeafBeforeFilter = null;
+          } else {
+            // Fallback: focus any markdown view
+            const markdownLeaf = workspace.getLeavesOfType('markdown').find(leaf => leaf.view instanceof MarkdownView);
+            if (markdownLeaf) {
+              workspace.setActiveLeaf(markdownLeaf, { focus: true });
+            }
           }
         } else {
-          new Notice('Records view is not open');
+          // Store current active leaf and focus filter input
+          const currentLeaf = workspace.activeLeaf;
+          if (currentLeaf) {
+            this.lastActiveLeafBeforeFilter = currentLeaf;
+          }
+
+          // Find Records View and focus its filter input
+          const leaves = workspace.getLeavesOfType(RECORDS_VIEW_TYPE);
+          if (leaves.length > 0) {
+            const recordsLeaf = leaves[0];
+            workspace.setActiveLeaf(recordsLeaf, { focus: true });
+
+            // Focus the filter input element
+            setTimeout(() => {
+              const filterInput = document.querySelector('.kh-widget-filter-expression') as HTMLInputElement;
+              if (filterInput) {
+                filterInput.focus();
+                filterInput.select(); // Select all text for easy editing
+              }
+            }, 100);
+          } else {
+            new Notice('Records view is not open');
+          }
         }
       }
     });
