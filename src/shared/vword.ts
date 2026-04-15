@@ -37,9 +37,12 @@ export function isVWordKeyword(keyword: string): boolean {
 }
 
 /**
- * Check if keyword is i-keyword (i10 to i90, step 5)
+ * Check if keyword is i-keyword (i10 to i90, step 5, or plain 'i' for auto-sizing)
  */
 export function isIKeyword(keyword: string): boolean {
+  // Plain 'i' for auto-sizing
+  if (keyword === 'i') return true;
+
   const match = keyword.match(/^i(\d+)$/);
   if (!match) return false;
 
@@ -128,7 +131,7 @@ export function parseVWordKeyword(keyword: string): VWordKeyword | null {
  * Generate all valid i-keywords
  */
 export function generateIKeywords(): string[] {
-  const keywords: string[] = [];
+  const keywords: string[] = ['i']; // Plain 'i' for auto-sizing
   for (let i = 10; i <= 90; i += 5) {
     keywords.push(`i${i}`);
   }

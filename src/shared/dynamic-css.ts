@@ -116,6 +116,7 @@ mark.${className}::before {
 
 /**
  * Generate CSS for VWord i-keywords (image column control)
+ * i: auto-size images (minimal width), text takes remaining space
  * i10 to i90, step 5 - controls image column width percentage
  */
 export function generateIKeywordCSS(vwordSettings: VWordSettings): string {
@@ -126,21 +127,38 @@ export function generateIKeywordCSS(vwordSettings: VWordSettings): string {
   const backgroundColor = vwordSettings.backgroundColor;
 
   iKeywords.forEach(keyword => {
-    const percentage = parseInt(keyword.substring(1), 10); // Remove 'i' prefix
-    const textPercentage = 100 - percentage;
-
     // NO color styling for VWords - they're layout-only!
     // Colors come from the regular keywords (like 'def')
 
-    // Image layout styling - controls the two-column split
-    // Must override max-width from default styles
+    // Special handling for plain 'i' - auto-size to content
+    if (keyword === 'i') {
+      cssRules.push(`
+.kh-record-with-images.i .kh-record-text-column {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.kh-record-with-images.i .kh-record-image-column {
+  flex: 0 0 auto;
+  max-width: 40%;
+  width: auto;
+}`);
+      return;
+    }
+
+    const percentage = parseInt(keyword.substring(1), 10); // Remove 'i' prefix
+
+    // Image layout styling - max percentage, auto-sizes to content if smaller
+    // Text column grows to fill remaining space
     cssRules.push(`
 .kh-record-with-images.${keyword} .kh-record-text-column {
-  width: ${textPercentage}%;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .kh-record-with-images.${keyword} .kh-record-image-column {
-  width: ${percentage}%;
+  flex: 0 0 auto;
+  width: auto;
   max-width: ${percentage}%;
 }`);
   });

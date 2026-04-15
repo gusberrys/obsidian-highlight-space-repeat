@@ -128,7 +128,7 @@
 /* Two-column layout for images and quotes */
 .kh-record-with-images {
   display: flex;
-  gap: 16px;
+  gap: 2px;
   align-items: flex-start;
 }
 
@@ -1518,7 +1518,6 @@
   background: var(--background-secondary);
   border-radius: 6px;
   border: 1px solid var(--background-modifier-border);
-  max-height: 60vh;
   overflow: hidden;
 }
 

@@ -262,10 +262,10 @@ function restructureImagesLayout(el: HTMLElement) {
   highlightedElements.forEach((highlightedEl) => {
     const paragraph = highlightedEl as HTMLElement;
 
-    // Check if this paragraph has an i-keyword (i10-i90)
+    // Check if this paragraph has an i-keyword (plain i or i10-i90)
     // i-keywords control image column width
     const iKeywordClass = Array.from(paragraph.classList).find(className => {
-      return className.match(/^i\d{2}$/); // Matches i10, i15, i20, ..., i90
+      return className.match(/^i(\d{2})?$/); // Matches i, i10, i15, i20, ..., i90
     });
 
     // ONLY restructure if i-keyword is present
