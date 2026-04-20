@@ -439,6 +439,7 @@ export class RecordsViewWidget extends ItemView {
 
 	/**
 	 * Update CSS to only colorize active chip keywords when \c flag enabled
+	 * Color keywords (isColorKeyword: true) ALWAYS keep their colors
 	 */
 	private updateColorFilterCSS(): void {
 		// Remove existing style element
@@ -477,6 +478,16 @@ export class RecordsViewWidget extends ItemView {
 			}
 		}
 
+		// Get ALL color keywords (they always keep their colors)
+		const colorKeywords = new Set<string>();
+		for (const category of HighlightSpaceRepeatPlugin.settings.categories) {
+			category.keywords.forEach(kw => {
+				if (kw.keyword && kw.isColorKeyword) {
+					colorKeywords.add(kw.keyword);
+				}
+			});
+		}
+
 		// Generate CSS rules
 		const cssRules: string[] = [];
 
@@ -493,9 +504,30 @@ body.cc-enabled.cc-filtered mark {
 }
 		`);
 
-		// Restore colors for active keywords only
+		// Restore colors for active keywords (normal keywords matching chips)
 		for (const keyword of activeKeywords) {
+			// Skip color keywords (handled separately below)
+			if (colorKeywords.has(keyword)) continue;
+
 			// Get keyword metadata for colors
+			const kwData = this.getKeywordData(keyword);
+			if (kwData) {
+				cssRules.push(`
+body.cc-enabled.cc-filtered .kh-highlighted.${keyword} {
+  color: ${kwData.color} !important;
+  background-color: ${kwData.backgroundColor} !important;
+}
+
+body.cc-enabled.cc-filtered mark.${keyword} {
+  color: ${kwData.color} !important;
+  background-color: ${kwData.backgroundColor} !important;
+}
+				`);
+			}
+		}
+
+		// ALWAYS restore colors for color keywords (regardless of chips)
+		for (const keyword of colorKeywords) {
 			const kwData = this.getKeywordData(keyword);
 			if (kwData) {
 				cssRules.push(`
