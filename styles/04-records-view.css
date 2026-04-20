@@ -229,7 +229,7 @@
 /* Two-column layout for images and quotes */
 .kh-record-with-images {
   display: flex;
-  gap: 16px;
+  gap: 2px;
   align-items: flex-start;
 }
 
