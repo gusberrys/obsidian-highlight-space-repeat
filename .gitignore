@@ -42,11 +42,6 @@ styles.css.map
 *.md
 !README.md
 
-# Tests
-test/
-src/__tests__/
-src/reader-extension/__tests__/
-src/widgets/__tests__/
 node_modules.broken/
 
 # style
